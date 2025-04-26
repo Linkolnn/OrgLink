@@ -2,5 +2,11 @@
   "version": 2,
   "buildCommand": "npm run vercel-build",
   "outputDirectory": ".output",
-  "framework": "nuxtjs"
+  "framework": "nuxtjs",
+  "rewrites": [
+    { 
+      "source": "/api/(.*)", 
+      "destination": "https://org-link-backend.vercel.app/api/$1" 
+    }
+  ]
 } 
