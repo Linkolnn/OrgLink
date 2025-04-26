@@ -12,7 +12,7 @@ const error = ref('');
 
 const handleFormSubmit = async ({ email, password }) => {
   try {
-    const response = await $fetch(`${config.public.backendUrl}/api/auth/login`, {
+    const response = await $fetch(`${config.public.backendUrl}/auth/login`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

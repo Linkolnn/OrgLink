@@ -4,6 +4,6 @@
   "outputDirectory": ".output",
   "framework": "nuxtjs",
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "/backend/src/server.js" }
+    { "source": "/api/(.*)", "destination": "https://org-link.vercel.app/api/$1" }
   ]
 } 
