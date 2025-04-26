@@ -47,15 +47,7 @@ const navigateTo = (path) => {
 
 const logout = async () => {
   isMenuOpen.value = false;
-  
-  // Установим флаг выхода для всех компонентов через localStorage
-  if (process.client) {
-    localStorage.setItem('logout_in_progress', 'true');
-  }
-  
   await authStore.logout();
-  
-  // После завершения logout переходим на главную страницу
   router.push('/');
 };
 

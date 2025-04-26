@@ -1,11 +1,11 @@
 <template>
-    <div class="messenger-page" v-if="isAuthenticated && !isLogoutInProgress">
+    <div class="messenger-page" v-if="isAuthenticated && !isLogoutProcess">
         <SideBar />
         <div class="chat-area">
             <h2>Выберите чат для начала общения</h2>
         </div>
     </div>
-    <div v-else-if="isLogoutInProgress" class="logout-progress">
+    <div v-else-if="isLogoutProcess" class="logout-progress">
         <h2>Выполняется выход из системы...</h2>
         <p>Пожалуйста, подождите...</p>
     </div>
@@ -17,43 +17,21 @@ import { useAuthStore } from '~/stores/auth';
 
 const authStore = useAuthStore();
 const router = useRouter();
-const { isAuthenticated, user, logoutInProgress } = storeToRefs(authStore);
-const isLogoutInProgress = ref(false);
+const { isAuthenticated, isLoggingOut } = storeToRefs(authStore);
 
-// Проверяем, не происходит ли выход из системы
-const checkLogoutStatus = () => {
-  if (process.client) {
-    const logoutInProgress = localStorage.getItem('logout_in_progress');
-    return logoutInProgress === 'true';
-  }
-  return false;
-};
+const isLogoutProcess = computed(() => {
+  return isLoggingOut.value || (process.client && localStorage.getItem('logout_in_progress') === 'true');
+});
 
 // Перенаправление на главную страницу, если пользователь не авторизован
 onMounted(async () => {
-    // Сначала проверяем, не происходит ли выход
-    isLogoutInProgress.value = checkLogoutStatus() || logoutInProgress.value;
-    
-    if (isLogoutInProgress.value) {
-        // Если выход происходит, не проверяем авторизацию сразу
-        setTimeout(() => {
-            // Повторно проверяем через небольшую задержку
-            if (!isAuthenticated.value && !checkLogoutStatus()) {
-                router.push('/');
-            }
-            isLogoutInProgress.value = false;
-        }, 500);
-        return;
-    }
-    
-    await authStore.checkAuth();
-    
-    if (!isAuthenticated.value && !checkLogoutStatus()) {
-        console.log('Пользователь не авторизован, перенаправление на главную');
-        router.push('/');
+    if (!isLogoutProcess.value) {
+        await authStore.checkAuth();
+        if (!isAuthenticated.value) {
+            router.push('/');
+        }
     }
 });
-
 </script>
 
 <style lang="sass">
