@@ -62,7 +62,7 @@ app.use(async (req, res, next) => {
 });
 
 // Используем маршруты API
-app.use('/api/auth', authRoutes);
+app.use('/auth', authRoutes);
 
 // Корневой маршрут
 app.get('/', (req, res) => {
