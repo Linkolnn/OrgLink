@@ -6,20 +6,21 @@
     </section>
 </template>
 <script setup>
+const config = useRuntimeConfig();
 const emit = defineEmits(['login-success']);
 const error = ref('');
 
 const handleFormSubmit = async ({ email, password }) => {
   try {
-    const response = await $fetch('http://localhost:5000/api/auth/login', {
+    const response = await $fetch(`${config.public.backendUrl}/api/auth/login`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: { email, password },
+      credentials: 'include',
     });
     
-    localStorage.setItem('token', response.token);
     emit('login-success', response);
   } catch (err) {
     console.error('Ошибка входа:', err);

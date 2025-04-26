@@ -3,8 +3,7 @@ import { defineStore } from 'pinia';
 export const useAuthStore = defineStore('auth', {
   state: () => ({
     isAuthenticated: false,
-    user: null,
-    token: null
+    user: null
   }),
   
   getters: {
@@ -17,17 +16,10 @@ export const useAuthStore = defineStore('auth', {
   actions: {
     async checkAuth() {
       try {
-        const token = localStorage.getItem('token');
-        if (!token) {
-          this.isAuthenticated = false;
-          this.user = null;
-          return false;
-        }
-        
-        this.token = token;
-        
-        const response = await $fetch('http://localhost:5000/api/auth/me', {
-          headers: { Authorization: `Bearer ${token}` },
+        const config = useRuntimeConfig();
+        // Получаем данные пользователя с сервера (cookie будет отправлен автоматически)
+        const response = await $fetch(`${config.public.backendUrl}/api/auth/me`, {
+          credentials: 'include',
         });
         
         if (response) {
@@ -48,20 +40,25 @@ export const useAuthStore = defineStore('auth', {
       this.isAuthenticated = true;
     },
     
-    setToken(token) {
-      this.token = token;
-      localStorage.setItem('token', token);
-    },
-    
     setAuthenticated(status) {
       this.isAuthenticated = status;
     },
     
-    logout() {
+    async logout() {
+      try {
+        const config = useRuntimeConfig();
+        // Вызываем сервер для удаления cookie
+        await $fetch(`${config.public.backendUrl}/api/auth/logout`, {
+          method: 'POST',
+          credentials: 'include'
+        });
+      } catch (error) {
+        console.error('Ошибка при выходе:', error);
+      }
+      
+      // Локальное состояние
       this.isAuthenticated = false;
       this.user = null;
-      this.token = null;
-      localStorage.removeItem('token');
     },
   },
 });

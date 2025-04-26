@@ -28,7 +28,6 @@ onMounted(async () => {
 // Обработка успешного входа
 const handleLogin = (userData) => {
   authStore.setUser(userData);
-  authStore.setToken(userData.token);
   navigateToMessenger();
 };
 

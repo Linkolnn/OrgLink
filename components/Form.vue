@@ -50,7 +50,6 @@
     </form>
 </template>
 <script setup>
-import { ref } from 'vue';
 
 defineProps(['login', 'adminRegister']);
 const emit = defineEmits(['submit']);

@@ -1,75 +1,149 @@
-# Nuxt Minimal Starter
+# OrgLink - Система организационных связей
 
-Look at the [Nuxt documentation](https://nuxt.com/docs/getting-started/introduction) to learn more.
+Полнофункциональное веб-приложение для управления организационными связями, построенное на стеке Vue.js (Nuxt) + Express + MongoDB.
 
-## Setup
+## Структура проекта
 
-Make sure to install dependencies:
+- Корневая директория - Фронтенд (Nuxt.js)
+- `backend/` - Бэкенд API (Express.js + MongoDB)
+
+## Локальная разработка
+
+### Предварительные требования
+
+- Node.js 18 или новее
+- MongoDB (локально или удалённо)
+
+### Настройка переменных окружения
+
+Создайте файл `.env` в корневой директории проекта:
+
+```
+# Общие настройки
+NODE_ENV=development
+
+# Настройки базы данных MongoDB
+MONGO_URI=mongodb://localhost:27017/orglink_db
+
+# Настройки JWT
+JWT_SECRET=секретный_ключ_для_подписи_jwt
+JWT_EXPIRES_IN=30d
+
+# Настройки бэкенда
+BACKEND_PORT=5000
+BACKEND_URL=http://localhost:5000
+
+# Настройки фронтенда
+FRONTEND_URL=http://localhost:3000
+
+# Администратор по умолчанию
+ADMIN_EMAIL=admin@orglink.com
+ADMIN_PASSWORD=admin123456
+
+# Настройки cookie
+COOKIE_MAX_AGE=2592000000
+COOKIE_SAME_SITE=lax
+```
+
+### Установка зависимостей
+
+Для установки всех зависимостей, включая фронтенд и бэкенд:
 
 ```bash
-# npm
 npm install
-
-# pnpm
-pnpm install
-
-# yarn
-yarn install
-
-# bun
-bun install
 ```
 
-## Development Server
+Это установит:
+- Зависимости для фронтенда (Nuxt.js)
+- Зависимости для бэкенда (`cd backend && npm install`)
 
-Start the development server on `http://localhost:3000`:
+### Запуск в режиме разработки
+
+#### Запуск всего приложения (фронтенд + бэкенд)
 
 ```bash
-# npm
 npm run dev
-
-# pnpm
-pnpm dev
-
-# yarn
-yarn dev
-
-# bun
-bun run dev
 ```
 
-## Production
+Это запустит:
+- Фронтенд на http://localhost:3000
+- Бэкенд API на http://localhost:5000
 
-Build the application for production:
+#### Запуск только фронтенда
 
 ```bash
-# npm
-npm run build
-
-# pnpm
-pnpm build
-
-# yarn
-yarn build
-
-# bun
-bun run build
+npm run dev:frontend
 ```
 
-Locally preview production build:
+#### Запуск только бэкенда
 
 ```bash
-# npm
-npm run preview
-
-# pnpm
-pnpm preview
-
-# yarn
-yarn preview
-
-# bun
-bun run preview
+npm run dev:backend
+# или 
+npm run api:dev
 ```
 
-Check out the [deployment documentation](https://nuxt.com/docs/getting-started/deployment) for more information.
+## Деплой на Vercel
+
+### Настройка проекта для Vercel
+
+1. Создайте файл `vercel.json` в корне проекта:
+
+```json
+{
+  "buildCommand": "npm run vercel-build",
+  "outputDirectory": ".output",
+  "framework": "nuxt",
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api/$1" }
+  ]
+}
+```
+
+2. Настройте переменные окружения в Vercel:
+   - Перейдите в раздел Settings → Environment Variables
+   - Добавьте все переменные из .env файла
+
+### Деплой фронтенда
+
+Подключите репозиторий к Vercel и деплой произойдет автоматически.
+
+### Деплой бэкенда
+
+#### Вариант 1: Отдельный деплой бэкенда на Vercel
+
+```bash
+npm run api:deploy
+```
+
+#### Вариант 2: Использование Vercel Serverless Functions
+
+Для этого варианта бэкенд уже подготовлен и при деплое основного проекта API будет доступно по пути `/api/...`.
+
+### Важные настройки для деплоя
+
+- Убедитесь, что используете MongoDB Atlas вместо локальной базы данных
+- Правильно настройте CORS для взаимодействия между фронтендом и бэкендом
+- Для продакшена настройте `NODE_ENV=production`
+
+## Тестирование
+
+### Тестирование аутентификации через cookie
+
+```bash
+cd backend
+npm run test:cookie
+```
+
+## Разработчикам
+
+- При изменении зависимостей бэкенда запустите `cd backend && npm install`
+- Проверяйте ошибки CORS при кросс-доменных запросах
+- Для локальной разработки с MongoDB можно использовать Docker:
+  ```bash
+  docker run -d -p 27017:27017 --name mongodb mongo:latest
+  ```
+
+## Лицензия
+
+MIT

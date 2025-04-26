@@ -10,7 +10,6 @@
 <script setup>
 import { storeToRefs } from 'pinia';
 import { useAuthStore } from '~/stores/auth';
-import SideBar from '~/components/SideBar.vue';
 
 const authStore = useAuthStore();
 const router = useRouter();

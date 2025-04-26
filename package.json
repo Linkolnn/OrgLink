@@ -1,16 +1,23 @@
 {
-  "name": "nuxt-app",
+  "name": "orglink",
   "private": true,
   "type": "module",
   "scripts": {
     "build": "nuxt build",
-    "dev": "nuxt dev",
+    "dev:frontend": "nuxt dev",
+    "dev:backend": "node backend/src/server.js",
+    "dev": "concurrently \"npm run dev:frontend\" \"npm run dev:backend\"",
+    "vercel-build": "nuxt build",
+    "api:dev": "cd backend && npm run dev",
+    "api:deploy": "cd backend && npm run deploy",
     "mock": "node server.js",
     "generate": "nuxt generate",
     "preview": "nuxt preview",
-    "postinstall": "nuxt prepare"
+    "postinstall": "nuxt prepare && cd backend && npm install"
   },
-  "devDependencies": {},
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
   "dependencies": {
     "@pinia/nuxt": "^0.11.0",
     "json-server": "0.17.4",
