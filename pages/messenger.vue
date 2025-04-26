@@ -1,11 +1,11 @@
 <template>
-    <div class="messenger-page" v-if="isAuthenticated && !isLogoutProcess">
+    <div class="messenger-page" v-if="isAuthenticated && !isLoggingOut">
         <SideBar />
         <div class="chat-area">
             <h2>Выберите чат для начала общения</h2>
         </div>
     </div>
-    <div v-else-if="isLogoutProcess" class="logout-progress">
+    <div v-else-if="isLoggingOut" class="logout-progress">
         <h2>Выполняется выход из системы...</h2>
         <p>Пожалуйста, подождите...</p>
     </div>
@@ -19,13 +19,9 @@ const authStore = useAuthStore();
 const router = useRouter();
 const { isAuthenticated, isLoggingOut } = storeToRefs(authStore);
 
-const isLogoutProcess = computed(() => {
-  return isLoggingOut.value || (process.client && localStorage.getItem('logout_in_progress') === 'true');
-});
-
 // Перенаправление на главную страницу, если пользователь не авторизован
 onMounted(async () => {
-    if (!isLogoutProcess.value) {
+    if (!isLoggingOut.value) {
         await authStore.checkAuth();
         if (!isAuthenticated.value) {
             router.push('/');

@@ -1,7 +1,7 @@
 <template>
   <main class="main container">
     <LoginForm v-if="!isAuthenticated" @login-success="handleLogin"/>
-    <div v-else-if="isLogoutProcess" class="loading">
+    <div v-else-if="isLoggingOut" class="loading">
       <h1>Выполняется выход из системы...</h1>
       <p>Пожалуйста, подождите...</p>
     </div>
@@ -19,13 +19,10 @@ import { useAuthStore } from '~/stores/auth';
 const authStore = useAuthStore();
 const router = useRouter();
 const { isAuthenticated, isLoggingOut } = storeToRefs(authStore);
-const isLogoutProcess = computed(() => {
-  return isLoggingOut.value || (process.client && localStorage.getItem('logout_in_progress') === 'true');
-});
 
 // Проверяем токен при загрузке
 onMounted(async () => {
-  if (!isLogoutProcess.value) {
+  if (!isLoggingOut.value) {
     await authStore.checkAuth();
     if (isAuthenticated.value) {
       router.push('/messenger');

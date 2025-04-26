@@ -14,7 +14,7 @@ export const useAuthStore = defineStore('auth', {
   actions: {
     async checkAuth() {
       // Если выход в процессе, не проверяем аутентификацию
-      if (this.isLoggingOut || (process.client && localStorage.getItem('logout_in_progress'))) {
+      if (this.isLoggingOut) {
         return false;
       }
       
@@ -44,7 +44,6 @@ export const useAuthStore = defineStore('auth', {
     
     async logout() {
       this.isLoggingOut = true;
-      if (process.client) localStorage.setItem('logout_in_progress', 'true');
       
       // Сначала сбрасываем локальное состояние
       this.isAuthenticated = false;
@@ -62,7 +61,6 @@ export const useAuthStore = defineStore('auth', {
         // Небольшая задержка для корректной работы перенаправления
         await new Promise(resolve => setTimeout(resolve, 200));
         this.isLoggingOut = false;
-        if (process.client) localStorage.removeItem('logout_in_progress');
       }
     }
   }
