@@ -7,7 +7,7 @@
     "dev:frontend": "nuxt dev",
     "dev:backend": "cd backend && yarn dev",
     "dev": "npx concurrently \"yarn dev:frontend\" \"yarn dev:backend\"",
-    "vercel-build": "nuxt build",
+    "vercel-build": "nuxt build && nuxt generate",
     "api:dev": "cd backend && yarn dev",
     "api:deploy": "cd backend && yarn deploy",
     "mock": "node server.js",
