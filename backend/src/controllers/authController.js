@@ -31,8 +31,8 @@ const setTokenCookie = (res, token) => {
   const cookieOptions = {
     httpOnly: true, // Недоступен для JavaScript
     secure: process.env.NODE_ENV === 'production', // HTTPS только в продакшене
-    maxAge: parseInt(process.env.COOKIE_MAX_AGE), // Время жизни в миллисекундах
-    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax', // 'none' для кросс-доменного использования в продакшене
+    maxAge: parseInt(process.env.COOKIE_MAX_AGE) || 2592000000, // Время жизни в миллисекундах (30 дней по умолчанию)
+    sameSite: process.env.NODE_ENV === 'production' ? 'lax' : 'lax', // 'lax' подходит для работы на одном домене
     path: '/' // Доступность cookie на всем сайте
   };
   
@@ -239,7 +239,7 @@ const logoutUser = (req, res) => {
     httpOnly: true,
     expires: new Date(0),
     path: '/',
-    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+    sameSite: process.env.NODE_ENV === 'production' ? 'lax' : 'lax',
     secure: process.env.NODE_ENV === 'production'
   });
   
