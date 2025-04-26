@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "start": "node src/server.js",
-    "dev": "nodemon src/server.js",
+    "dev": "nodemon --watch src src/server.js",
     "vercel-dev": "vercel dev",
     "deploy": "vercel deploy --prod",
     "test": "echo \"Error: no test specified\" && exit 1",

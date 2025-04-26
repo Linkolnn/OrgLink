@@ -47,40 +47,40 @@ COOKIE_SAME_SITE=lax
 
 ### Установка зависимостей
 
-Для установки всех зависимостей, включая фронтенд и бэкенд:
+Установите все зависимости проекта через Yarn:
 
 ```bash
-npm install
+yarn install
 ```
 
 Это установит:
 - Зависимости для фронтенда (Nuxt.js)
-- Зависимости для бэкенда (`cd backend && npm install`)
+- Зависимости для бэкенда (через postinstall хук)
 
 ### Запуск в режиме разработки
 
-#### Запуск всего приложения (фронтенд + бэкенд)
+#### Запуск всего приложения одной командой
 
 ```bash
-npm run dev
+yarn dev
 ```
 
-Это запустит:
+Эта команда запустит одновременно:
 - Фронтенд на http://localhost:3000
 - Бэкенд API на http://localhost:5000
 
 #### Запуск только фронтенда
 
 ```bash
-npm run dev:frontend
+yarn dev:frontend
 ```
 
 #### Запуск только бэкенда
 
 ```bash
-npm run dev:backend
+yarn dev:backend
 # или 
-npm run api:dev
+yarn api:dev
 ```
 
 ## Деплой на Vercel
