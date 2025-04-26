@@ -1,6 +1,10 @@
 <template>
   <main class="main container">
       <LoginForm v-if="!isAuthenticated" @login-success="handleLogin"/>
+      <div v-else-if="isLoading">
+          <h1>Выполняется выход из системы...</h1>
+          <p>Пожалуйста, подождите...</p>
+      </div>
       <div v-else>
           <h1>Authenticated!</h1>
           <p>Redirecting to messenger...</p>
@@ -15,14 +19,38 @@ import { useAuthStore } from '~/stores/auth';
 // Получаем статус авторизации из Pinia
 const authStore = useAuthStore();
 const router = useRouter();
-const { isAuthenticated } = storeToRefs(authStore);
+const { isAuthenticated, logoutInProgress } = storeToRefs(authStore);
+const isLoading = ref(false);
+
+// Проверяем, не происходит ли выход из системы
+const checkLogoutStatus = () => {
+  if (process.client) {
+    const logoutInProgress = localStorage.getItem('logout_in_progress');
+    return logoutInProgress === 'true';
+  }
+  return false;
+};
 
 // Проверяем токен при загрузке
 onMounted(async () => {
+  isLoading.value = true;
+  
+  // Проверяем флаг выхода из системы
+  if (checkLogoutStatus()) {
+    // Если выход в процессе, ждем и не перенаправляем
+    setTimeout(() => {
+      isLoading.value = false;
+    }, 500);
+    return;
+  }
+  
   await authStore.checkAuth();
-  if (isAuthenticated.value) {
+  
+  if (isAuthenticated.value && !logoutInProgress.value) {
     navigateToMessenger();
   }
+  
+  isLoading.value = false;
 });
 
 // Обработка успешного входа
@@ -33,7 +61,10 @@ const handleLogin = (userData) => {
 
 // Функция для перенаправления на страницу мессенджера
 const navigateToMessenger = () => {
-  router.push('/messenger');
+  // Проверяем, не происходит ли выход из системы
+  if (!checkLogoutStatus() && !logoutInProgress.value) {
+    router.push('/messenger');
+  }
 };
 </script>
 <style lang="sass">

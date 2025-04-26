@@ -45,10 +45,18 @@ const navigateTo = (path) => {
   isMenuOpen.value = false;
 };
 
-const logout = () => {
-  authStore.logout();
-  router.push('/');
+const logout = async () => {
   isMenuOpen.value = false;
+  
+  // Установим флаг выхода для всех компонентов через localStorage
+  if (process.client) {
+    localStorage.setItem('logout_in_progress', 'true');
+  }
+  
+  await authStore.logout();
+  
+  // После завершения logout переходим на главную страницу
+  router.push('/');
 };
 
 // Закрытие меню при клике вне
