@@ -3,23 +3,7 @@
   "buildCommand": "npm run vercel-build",
   "outputDirectory": ".output",
   "framework": "nuxtjs",
-  "builds": [
-    {
-      "src": "backend/src/server.js",
-      "use": "@vercel/node"
-    }
-  ],
-  "routes": [
-    {
-      "src": "/api/(.*)",
-      "dest": "/backend/src/server.js"
-    },
-    {
-      "handle": "filesystem"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "/$1"
-    }
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/backend/src/server.js" }
   ]
 } 
