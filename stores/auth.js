@@ -18,7 +18,7 @@ export const useAuthStore = defineStore('auth', {
       try {
         const config = useRuntimeConfig();
         // Получаем данные пользователя с сервера (cookie будет отправлен автоматически)
-        const response = await $fetch(`${config.public.backendUrl}/auth/me`, {
+        const response = await $fetch(`${config.public.backendUrl}/api/auth/me`, {
           credentials: 'include',
         });
         
@@ -48,7 +48,7 @@ export const useAuthStore = defineStore('auth', {
       try {
         const config = useRuntimeConfig();
         // Вызываем сервер для удаления cookie
-        await $fetch(`${config.public.backendUrl}/auth/logout`, {
+        await $fetch(`${config.public.backendUrl}/api/auth/logout`, {
           method: 'POST',
           credentials: 'include'
         });
