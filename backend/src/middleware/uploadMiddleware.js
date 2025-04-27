@@ -2,22 +2,40 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
+import os from 'os';
 
 // Получаем путь к текущему файлу и корневой директории проекта
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Создаем директорию для загрузок, если она не существует
-const uploadsDir = path.join(__dirname, '../../uploads');
-const chatAvatarsDir = path.join(uploadsDir, 'chat-avatars');
-const messageFilesDir = path.join(uploadsDir, 'message-files');
+// Определяем директории для загрузок в зависимости от окружения
+// В продакшене используем временную директорию системы
+let uploadsDir, chatAvatarsDir, messageFilesDir;
 
-// Создаем директории, если они не существуют
-[uploadsDir, chatAvatarsDir, messageFilesDir].forEach(dir => {
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-});
+try {
+  // Пробуем использовать стандартные пути
+  uploadsDir = process.env.NODE_ENV === 'production' 
+    ? path.join(os.tmpdir(), 'orglink-uploads') 
+    : path.join(__dirname, '../../uploads');
+  
+  chatAvatarsDir = path.join(uploadsDir, 'chat-avatars');
+  messageFilesDir = path.join(uploadsDir, 'message-files');
+
+  // Создаем директории, если они не существуют
+  [uploadsDir, chatAvatarsDir, messageFilesDir].forEach(dir => {
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+  });
+} catch (error) {
+  console.warn('Не удалось создать директории для загрузок:', error.message);
+  console.warn('Используем временную директорию системы без создания поддиректорий');
+  
+  // Если не удалось создать директории, используем корневую временную директорию
+  uploadsDir = os.tmpdir();
+  chatAvatarsDir = uploadsDir;
+  messageFilesDir = uploadsDir;
+}
 
 // Настройка хранилища для аватаров чатов
 const chatAvatarStorage = multer.diskStorage({
@@ -104,10 +122,19 @@ export const handleUploadError = (err, req, res, next) => {
 export const getFileUrl = (filename, type) => {
   if (!filename) return null;
   
+  // Базовый URL API
   const baseUrl = process.env.NODE_ENV === 'production' 
     ? process.env.BACKEND_URL || ''
     : `http://localhost:${process.env.BACKEND_PORT || 5000}`;
   
+  // Проверяем, содержит ли имя файла полный путь (для временных файлов)
+  if (filename.includes('/tmp/') || filename.includes('\\Temp\\')) {
+    // Для временных файлов возвращаем только имя файла без пути
+    const baseName = path.basename(filename);
+    return `${baseUrl}/uploads/${baseName}`;
+  }
+  
+  // Для обычных файлов используем стандартные пути
   if (type === 'chat-avatar') {
     return `${baseUrl}/uploads/chat-avatars/${filename}`;
   } else if (type === 'message-file') {

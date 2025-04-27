@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 import cookieParser from 'cookie-parser';
@@ -56,7 +57,31 @@ app.use((req, res, next) => {
 });
 
 // Статические файлы
-app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+// Обработка статических файлов в зависимости от окружения
+if (process.env.NODE_ENV === 'production') {
+  // В продакшене используем временную директорию
+  const os = await import('os');
+  const tmpDir = os.tmpdir();
+  const uploadsDir = path.join(tmpDir, 'orglink-uploads');
+  
+  // Пробуем создать директорию, если она не существует
+  try {
+    if (!fs.existsSync(uploadsDir)) {
+      fs.mkdirSync(uploadsDir, { recursive: true });
+    }
+    app.use('/uploads', express.static(uploadsDir));
+    
+    // Также обслуживаем файлы непосредственно из временной директории
+    app.use('/uploads', express.static(tmpDir));
+  } catch (error) {
+    console.warn('Ошибка при настройке статических файлов:', error.message);
+    // В случае ошибки просто используем временную директорию
+    app.use('/uploads', express.static(tmpDir));
+  }
+} else {
+  // В разработке используем стандартную директорию
+  app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+}
 
 // Флаг, что соединение с MongoDB установлено
 let isConnected = false;
