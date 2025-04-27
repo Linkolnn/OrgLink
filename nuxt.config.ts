@@ -3,7 +3,7 @@ import { resolve } from 'path'
 export default defineNuxtConfig({
   compatibilityDate: '2024-11-01',
   devtools: { enabled: true },
-  ssr: true,
+  ssr: false, // Отключаем SSR для решения проблем с гидратацией
   modules: ['@pinia/nuxt', 'nuxt-svgo'],
   
   // Переменные окружения, доступные на клиенте

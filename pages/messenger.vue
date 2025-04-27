@@ -42,7 +42,7 @@ watch(() => authStore.isAuthenticated, async (isAuth) => {
 </script>
 <template>  
     <div class="messenger-container" v-if="isAuthenticated">
-        <Chat />
+      <Chat />
     </div>
 </template>
 <style lang="sass">

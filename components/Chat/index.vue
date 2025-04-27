@@ -424,10 +424,13 @@ const onChatLeft = () => {
 
 // Жизненный цикл компонента
 onMounted(() => {
-  nextTick(() => {
-    setupInfiniteScroll();
-    scrollToBottom();
-  });
+  // Добавляем небольшую задержку перед инициализацией компонента
+  setTimeout(() => {
+    nextTick(() => {
+      setupInfiniteScroll();
+      scrollToBottom();
+    });
+  }, 100);
   
   // Инициализация видимых сообщений
   visibleMessages.value = messages.value;
