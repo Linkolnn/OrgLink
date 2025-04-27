@@ -232,18 +232,15 @@ const getUserProfile = async (req, res) => {
 // @route   POST /api/auth/logout
 // @access  Private
 const logoutUser = (req, res) => {
-  // Настройки cookie для удаления должны совпадать с настройками при установке
-  const cookieOptions = {
+  res.cookie('token', '', {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
     expires: new Date(0),
+    path: '/',
     sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-    path: '/'
-  };
+    secure: process.env.NODE_ENV === 'production'
+  });
   
-  res.cookie('token', '', cookieOptions);
-  
-  res.status(200).json({ message: 'Выход выполнен успешно' });
+  res.json({ message: 'Вы успешно вышли из системы' });
 };
 
 // @desc    Создание администратора вручную

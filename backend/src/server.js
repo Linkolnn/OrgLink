@@ -27,8 +27,23 @@ app.use(cors({
   origin: process.env.NODE_ENV === 'production' ? ['https://org-link.vercel.app', 'https://www.org-link.vercel.app'] : process.env.FRONTEND_URL,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization', 'Access-Control-Allow-Credentials']
 }));
+
+// Middleware для предварительной проверки CORS
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (process.env.NODE_ENV === 'production' && 
+      (origin === 'https://org-link.vercel.app' || origin === 'https://www.org-link.vercel.app')) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  } else if (process.env.FRONTEND_URL) {
+    res.setHeader('Access-Control-Allow-Origin', process.env.FRONTEND_URL);
+  }
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  next();
+});
 app.use(express.json());
 app.use(cookieParser());
 
