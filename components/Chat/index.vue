@@ -1,7 +1,7 @@
 <template>
   <div class="chat-page">
-    <!-- Если чат не выбран -->
-    <div v-if="!chatData._id" class="no-chat-selected">
+    <!-- Если чат не выбран или данные еще не загружены -->
+    <div v-if="!chatData || !chatData._id" class="no-chat-selected">
       Выберите чат, чтобы начать общение
     </div>
     
@@ -170,8 +170,15 @@ const chatStore = useChatStore();
 const authStore = useAuthStore();
 
 // Данные чата и сообщений
-const chatData = computed(() => chatStore.activeChat || {});
-const messages = computed(() => chatStore.messages || []);
+const chatData = computed(() => {
+  // Добавляем дополнительную проверку на случай, если activeChat еще не инициализирован
+  return chatStore.activeChat || {};
+});
+
+const messages = computed(() => {
+  // Добавляем дополнительную проверку на случай, если messages еще не инициализированы
+  return Array.isArray(chatStore.messages) ? chatStore.messages : [];
+});
 
 // Состояние загрузки
 const loading = computed(() => chatStore.loading);
@@ -197,9 +204,20 @@ const playbackControlData = ref({
 
 // Группировка сообщений по датам
 const groupedMessages = computed(() => {
+  // Проверяем, что сообщения существуют
+  if (!messages.value || !Array.isArray(messages.value)) {
+    return [];
+  }
+  
   const groups = {};
   messages.value.forEach(message => {
-    const date = new Date(message.createdAt || message.timestamp);
+    if (!message) return; // Пропускаем недействительные сообщения
+    
+    // Безопасно получаем дату
+    const timestamp = message.createdAt || message.timestamp;
+    if (!timestamp) return; // Пропускаем сообщения без времени
+    
+    const date = new Date(timestamp);
     const key = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
     if (!groups[key]) {
       groups[key] = {

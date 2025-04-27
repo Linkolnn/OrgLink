@@ -10,21 +10,34 @@ const { isAuthenticated } = storeToRefs(authStore);
 const chatStore = useChatStore();
 
 onMounted(async () => {
-  if (!authStore.isAuthenticated) {
-    try {
+  try {
+    // Проверяем аутентификацию
+    if (!authStore.isAuthenticated) {
       await authStore.checkAuth();
       
       if (!authStore.isAuthenticated) {
         // Если пользователь не авторизован, перенаправляем на главную
         router.push('/');
+        return; // Прерываем выполнение, если пользователь не авторизован
       }
-    } catch (error) {
-      console.error('Ошибка аутентификации:', error);
-      router.push('/');
     }
+    
+    // Загружаем список чатов только если пользователь авторизован
+    if (authStore.isAuthenticated) {
+      await chatStore.fetchChats();
+    }
+  } catch (error) {
+    console.error('Ошибка при инициализации страницы мессенджера:', error);
+    router.push('/');
   }
+});
 
-  await chatStore.fetchChats();
+// Добавляем слежение за изменением статуса аутентификации
+watch(() => authStore.isAuthenticated, async (isAuth) => {
+  if (isAuth) {
+    // Если пользователь только что авторизовался, загружаем чаты
+    await chatStore.fetchChats();
+  }
 });
 </script>
 <template>  
