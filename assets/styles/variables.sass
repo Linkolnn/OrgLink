@@ -1,0 +1,40 @@
+// assets/sass/_variables.scss
+$header-bg: rgb(33, 33, 33);
+$white: #ffffff
+$primary-bg: linear-gradient(to top, #575255, #c784e8);
+$text-color: #000000;
+$service-color: #70777b;
+$from-name-color: #3892db;
+$media-hover: #f5f7f8;
+$purple: #9884e8;
+$message-bg: rgba(33, 33, 33, 0.651)
+$date-message-bg: rgb(33, 33, 33)
+$radius: 15px
+
+// Новые переменные для скролла
+$scrollbar-width: 8px
+$scrollbar-track-color: rgba(255, 255, 255, 0.05)
+$scrollbar-thumb-color: rgba(255, 255, 255, 0.3)
+$scrollbar-thumb-hover-color: rgba(255, 255, 255, 0.5)
+$scrollbar-radius: 4px
+
+@mixin mobile 
+    @media (max-width: 480px) 
+        @content
+        
+// Миксин для стилизации скролла
+@mixin custom-scrollbar
+    &::-webkit-scrollbar
+        width: $scrollbar-width
+        height: $scrollbar-width
+    
+    &::-webkit-scrollbar-track
+        background: $scrollbar-track-color
+        border-radius: $scrollbar-radius
+    
+    &::-webkit-scrollbar-thumb
+        background: $scrollbar-thumb-color
+        border-radius: $scrollbar-radius
+        
+        &:hover
+            background: $scrollbar-thumb-hover-color

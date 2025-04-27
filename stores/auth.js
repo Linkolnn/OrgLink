@@ -43,6 +43,12 @@ export const useAuthStore = defineStore('auth', {
     },
     
     async logout() {
+      // Получаем доступ к лоадеру
+      const nuxtApp = useNuxtApp();
+      if (nuxtApp.$loader) {
+        nuxtApp.$loader.start();
+      }
+      
       this.isLoggingOut = true;
       
       // Сначала сбрасываем локальное состояние
@@ -59,7 +65,7 @@ export const useAuthStore = defineStore('auth', {
         console.error('Ошибка при выходе:', error);
       } finally {
         // Небольшая задержка для корректной работы перенаправления
-        await new Promise(resolve => setTimeout(resolve, 200));
+        await new Promise(resolve => setTimeout(resolve, 300));
         this.isLoggingOut = false;
       }
     }

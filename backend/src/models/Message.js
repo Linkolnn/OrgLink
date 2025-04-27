@@ -1,0 +1,62 @@
+import mongoose from 'mongoose';
+
+const messageSchema = new mongoose.Schema(
+  {
+    chat: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Chat',
+      required: true
+    },
+    sender: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true
+    },
+    text: {
+      type: String,
+      trim: true
+    },
+    type: {
+      type: String,
+      enum: ['default', 'service'],
+      default: 'default'
+    },
+    media_type: {
+      type: String,
+      enum: ['none', 'image', 'video', 'video_message', 'sticker', 'file'],
+      default: 'none'
+    },
+    file: {
+      type: String,
+      default: null
+    },
+    thumbnail: {
+      type: String,
+      default: null
+    },
+    mime_type: {
+      type: String,
+      default: null
+    },
+    read_by: [{
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    }]
+  },
+  {
+    timestamps: true
+  }
+);
+
+// Виртуальное поле для даты (для совместимости с фронтендом)
+messageSchema.virtual('date').get(function() {
+  return this.createdAt;
+});
+
+// Обеспечиваем, чтобы виртуальные поля были включены при преобразовании в JSON
+messageSchema.set('toJSON', { virtuals: true });
+messageSchema.set('toObject', { virtuals: true });
+
+const Message = mongoose.model('Message', messageSchema);
+
+export default Message;

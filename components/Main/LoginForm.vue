@@ -1,9 +1,11 @@
 <template>
+  <ClientOnly>
     <section class="login-section">
         <h1>Вход в систему</h1>
         <Form :login="true" @submit="handleFormSubmit"/>
         <p v-if="error" class="error-message">{{ error }}</p>
     </section>
+  </ClientOnly>
 </template>
 <script setup>
 const config = useRuntimeConfig();
@@ -29,4 +31,12 @@ const handleFormSubmit = async ({ email, password }) => {
 };
 </script>
 <style lang="sass">
+
+.login-section
+  height: 100vh
+  display: flex
+  flex-direction: column
+  justify-content: center
+  align-items: center
+
 </style>

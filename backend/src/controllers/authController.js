@@ -139,9 +139,6 @@ const registerUser = async (req, res) => {
     });
 
     if (user) {
-      const token = generateToken(user._id);
-      setTokenCookie(res, token);
-      
       res.status(201).json({
         _id: user._id,
         name: user.name,
@@ -297,4 +294,55 @@ const createAdmin = async (req, res) => {
   }
 };
 
-export { registerUser, loginUser, getUserProfile, logoutUser, createAdmin, createAdminIfNotExists }; 
+const getAllUsers = async (req, res) => {
+  try {
+    const users = await User.find();
+    res.json(users)
+  }
+  catch (error) {
+    console.error(error);
+    res.status(500).json({error: 'Ошибка сервера'});
+  }
+}
+
+// @desc    Обновление пользователя
+// @route   PUT /api/auth/users/:id
+// @access  Private (только администраторы)
+const updateUser = async (req, res) => {
+  try {
+    const userId = req.params.id;
+    
+    // Проверяем, существует ли пользователь
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ error: 'Пользователь не найден' });
+    }
+    
+    // Получаем данные для обновления
+    const { name, email, number, password, role } = req.body;
+    
+    // Обновляем только предоставленные поля
+    if (name) user.name = name;
+    if (email) user.email = email;
+    if (number) user.number = number;
+    if (role) user.role = role;
+    if (password) user.password = password; // Пароль будет хешироваться через pre-save хук в модели
+    
+    // Сохраняем обновленного пользователя
+    const updatedUser = await user.save();
+    
+    // Отправляем обновленные данные пользователя (без пароля)
+    res.json({
+      _id: updatedUser._id,
+      name: updatedUser.name,
+      email: updatedUser.email,
+      number: updatedUser.number,
+      role: updatedUser.role
+    });
+  } catch (error) {
+    console.error('Ошибка при обновлении пользователя:', error);
+    res.status(500).json({ error: 'Ошибка сервера при обновлении пользователя' });
+  }
+};
+
+export { registerUser, loginUser, getUserProfile, logoutUser, createAdmin, createAdminIfNotExists, getAllUsers, updateUser }; 

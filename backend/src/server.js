@@ -7,6 +7,7 @@ import { dirname } from 'path';
 import cookieParser from 'cookie-parser';
 import connectDB from './config/db.js';
 import authRoutes from './routes/authRoutes.js';
+import chatRoutes from './routes/chatRoutes.js';
 import { createAdminIfNotExists } from './controllers/authController.js';
 
 // Получаем путь к текущему файлу и корневой директории проекта
@@ -39,6 +40,9 @@ app.use((req, res, next) => {
   next();
 });
 
+// Статические файлы
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+
 // Флаг, что соединение с MongoDB установлено
 let isConnected = false;
 
@@ -63,6 +67,7 @@ app.use(async (req, res, next) => {
 
 // Используем маршруты API
 app.use('/api/auth', authRoutes);
+app.use('/api/chats', chatRoutes);
 
 // Корневой маршрут
 app.get('/', (req, res) => {
