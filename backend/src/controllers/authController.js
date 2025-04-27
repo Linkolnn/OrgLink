@@ -32,7 +32,7 @@ const setTokenCookie = (res, token) => {
     httpOnly: true, // Недоступен для JavaScript
     secure: process.env.NODE_ENV === 'production', // HTTPS только в продакшене
     maxAge: parseInt(process.env.COOKIE_MAX_AGE) || 2592000000, // Время жизни в миллисекундах (30 дней по умолчанию)
-    sameSite: process.env.NODE_ENV === 'production' ? 'lax' : 'lax', // 'lax' подходит для работы на одном домене
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax', // 'none' для кросс-доменных запросов в продакшене
     path: '/' // Доступность cookie на всем сайте
   };
   
@@ -232,15 +232,18 @@ const getUserProfile = async (req, res) => {
 // @route   POST /api/auth/logout
 // @access  Private
 const logoutUser = (req, res) => {
-  res.cookie('token', '', {
+  // Настройки cookie для удаления должны совпадать с настройками при установке
+  const cookieOptions = {
     httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
     expires: new Date(0),
-    path: '/',
-    sameSite: process.env.NODE_ENV === 'production' ? 'lax' : 'lax',
-    secure: process.env.NODE_ENV === 'production'
-  });
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+    path: '/'
+  };
   
-  res.json({ message: 'Вы успешно вышли из системы' });
+  res.cookie('token', '', cookieOptions);
+  
+  res.status(200).json({ message: 'Выход выполнен успешно' });
 };
 
 // @desc    Создание администратора вручную
