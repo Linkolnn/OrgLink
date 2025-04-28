@@ -1,6 +1,6 @@
 <template>
   <div class="new-messages-indicator" @click="$emit('click')">
-    <IconArrow class="new-messages-arrow"/>
+    <IconBottomArrow class="new-messages-arrow"/>
   </div>
 </template>
 
@@ -30,6 +30,5 @@ defineEmits(['click']);
   
   .new-messages-arrow
       stroke: $white
-      transform: rotate(90deg)
 
 </style>

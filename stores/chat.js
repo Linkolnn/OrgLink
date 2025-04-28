@@ -648,14 +648,14 @@ export const useChatStore = defineStore('chat', {
     },
     
     // Отправка сообщения
-    async sendMessage(chatId, messageData) {
+    async sendMessage({ chatId, text }) {
       if (!chatId) return;
       
       try {
         const config = useRuntimeConfig();
         const response = await $fetch(`${config.public.backendUrl}/api/chats/${chatId}/messages`, {
           method: 'POST',
-          body: messageData,
+          body: { text, media_type: 'none' },
           credentials: 'include'
         });
         
@@ -669,6 +669,88 @@ export const useChatStore = defineStore('chat', {
         return response;
       } catch (error) {
         console.error('Ошибка при отправке сообщения:', error);
+        throw error;
+      }
+    },
+    
+    // Обновление сообщения
+    async updateMessage({ chatId, messageId, text }) {
+      if (!chatId || !messageId) return;
+      
+      try {
+        const config = useRuntimeConfig();
+        const response = await $fetch(`${config.public.backendUrl}/api/chats/${chatId}/messages/${messageId}`, {
+          method: 'PUT',
+          body: { text },
+          credentials: 'include'
+        });
+        
+        // Обновляем сообщение в локальном списке
+        const messageIndex = this.messages.findIndex(msg => msg._id === messageId);
+        if (messageIndex !== -1) {
+          const updatedMessage = { ...this.messages[messageIndex], text };
+          this.messages.splice(messageIndex, 1, updatedMessage);
+          
+          // Если это последнее сообщение в чате, обновляем его в списке чатов
+          const chatIndex = this.chats.findIndex(chat => chat._id === chatId);
+          if (chatIndex !== -1 && this.chats[chatIndex].lastMessage?._id === messageId) {
+            const updatedChat = { 
+              ...this.chats[chatIndex],
+              lastMessage: { 
+                ...this.chats[chatIndex].lastMessage,
+                text 
+              }
+            };
+            this.chats.splice(chatIndex, 1, updatedChat);
+            
+            // Принудительно обновляем список чатов для обеспечения реактивности
+            this.triggerChatListUpdate();
+          }
+        }
+        
+        return response;
+      } catch (error) {
+        console.error('Ошибка при обновлении сообщения:', error);
+        throw error;
+      }
+    },
+    
+    // Удаление сообщения
+    async deleteMessage({ chatId, messageId }) {
+      if (!chatId || !messageId) return;
+      
+      try {
+        const config = useRuntimeConfig();
+        await $fetch(`${config.public.backendUrl}/api/chats/${chatId}/messages/${messageId}`, {
+          method: 'DELETE',
+          credentials: 'include'
+        });
+        
+        // Удаляем сообщение из локального списка
+        this.messages = this.messages.filter(msg => msg._id !== messageId);
+        
+        // Если это было последнее сообщение в чате, обновляем список чатов
+        const chatIndex = this.chats.findIndex(chat => chat._id === chatId);
+        if (chatIndex !== -1 && this.chats[chatIndex].lastMessage?._id === messageId) {
+          // Находим новое последнее сообщение
+          const newLastMessage = [...this.messages]
+            .filter(msg => msg.chat === chatId)
+            .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0];
+          
+          const updatedChat = { 
+            ...this.chats[chatIndex],
+            lastMessage: newLastMessage || null
+          };
+          
+          this.chats.splice(chatIndex, 1, updatedChat);
+          
+          // Принудительно обновляем список чатов для обеспечения реактивности
+          this.triggerChatListUpdate();
+        }
+        
+        return { success: true };
+      } catch (error) {
+        console.error('Ошибка при удалении сообщения:', error);
         throw error;
       }
     },

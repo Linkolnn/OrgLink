@@ -75,6 +75,8 @@
               v-else 
               class="message" 
               :class="isOwnMessage(message) ? 'own' : 'other'"
+              @contextmenu.prevent="showContextMenu($event, message)"
+              @click="handleMessageClick($event, message)"
             >
               <!-- Имя отправителя (для групповых чатов) -->
               <div 
@@ -149,6 +151,16 @@
       
       <!-- Input area -->
       <div class="input_area" ref="inputArea">
+        <!-- Индикатор редактирования сообщения -->
+        <div v-if="isEditingMessage" class="editing-indicator">
+          <div class="editing-text">
+            <i class="fas fa-edit"></i> Редактирование: {{ originalMessageText.length > 30 ? originalMessageText.substring(0, 30) + '...' : originalMessageText }}
+          </div>
+          <button class="cancel-btn" @click="cancelEditingMessage">
+            <i class="fas fa-times"></i>
+          </button>
+        </div>
+        
         <div class="input_container" ref="inputContainer">
           <textarea 
             v-model="messageText" 
@@ -182,6 +194,15 @@
     @close="showChatSettingsModal = false" 
     @saved="onChatUpdated" 
   />
+  <MessageContextMenu 
+    v-if="contextMenuVisible" 
+    :is-visible="contextMenuVisible"
+    :position="contextMenuPosition" 
+    :message="selectedMessage"
+    @close="hideContextMenu"
+    @edit="startEditingMessage"
+    @delete="deleteMessage"
+  />
 </template>
 
 <script setup>
@@ -194,6 +215,7 @@ import EditChatModal from './EditChatModal.vue';
 import NewMessagesButton from './NewMessagesButton.vue';
 import ChatSettingsModal from './ChatSettingsModal.vue';
 import IconArrow from '../Icons/IconArrow.vue';
+import MessageContextMenu from './MessageContextMenu.vue';
 
 // Хранилища
 const chatStore = useChatStore();
@@ -259,6 +281,16 @@ const visibleMessages = ref([]);
 const loadingTrigger = ref(null);
 const observer = ref(null);
 const messageText = ref('');
+
+// Состояния для контекстного меню сообщений
+const contextMenuVisible = ref(false);
+const contextMenuPosition = ref({ x: 0, y: 0 });
+const selectedMessage = ref(null);
+
+// Состояние редактирования сообщения
+const isEditingMessage = ref(false);
+const editingMessageText = ref('');
+const originalMessageText = ref('');
 
 // Данные для управления воспроизведением видео
 const playbackControlData = ref({
@@ -378,57 +410,35 @@ const scrollToBottom = () => {
 
 // Отправка сообщения
 const sendMessage = async () => {
+  // Проверяем, есть ли текст сообщения
   if (!messageText.value.trim()) return;
   
+  // Если редактируем сообщение, сохраняем изменения
+  if (isEditingMessage.value && selectedMessage.value) {
+    await saveEditedMessage();
+    return;
+  }
+  
+  // Иначе отправляем новое сообщение
   try {
-    const trimmedMessage = messageText.value.trim();
+    // Отправляем сообщение через хранилище чата
+    await chatStore.sendMessage({
+      chatId: chatData.value._id,
+      text: messageText.value.trim()
+    });
     
     // Очищаем поле ввода
     messageText.value = '';
+    
+    // Сбрасываем высоту textarea
     adjustTextareaHeight();
     
-    const config = useRuntimeConfig();
-    
-    // Получаем токен из хранилища аутентификации
-    const token = authStore.token;
-    
-    // Отправляем сообщение на сервер с правильным URL бэкенда и токеном
-    const response = await $fetch(`${config.public.backendUrl}/api/chats/${chatData.value._id}/messages`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': token ? `Bearer ${token}` : undefined
-      },
-      body: {
-        text: trimmedMessage,
-        media_type: 'none'
-      },
-      credentials: 'include' // Включаем передачу cookie
-    });
-    
-    // Добавляем отправленное сообщение в локальный список сообщений
-    if (response && response._id) {
-      // Проверяем, не добавлено ли уже это сообщение (избегаем дубликатов)
-      const isDuplicate = chatStore.messages.some(m => m._id === response._id);
-      if (!isDuplicate) {
-        // Добавляем сообщение в список
-        chatStore.messages.push({...response});
-        
-        // Обновляем последнее сообщение в чате
-        chatStore.updateLastMessage(chatData.value._id, response);
-      } else {
-        // console.log('Дублирующееся сообщение проигнорировано:', response._id);
-      }
-    }
-    
-    // Прокручиваем чат вниз после отправки сообщения
+    // Прокручиваем чат вниз
     nextTick(() => {
       scrollToBottom();
     });
-    
   } catch (error) {
-    // Показываем уведомление об ошибке
-    useNotification('Ошибка при отправке сообщения', 'error');
+    console.error('Ошибка при отправке сообщения:', error);
   }
 };
 
@@ -570,6 +580,108 @@ const onParticipantsUpdated = () => {
 
 const onChatLeft = () => {
   // Обработка выхода из чата (чат уже удален из хранилища)
+};
+
+// Функции для управления контекстным меню сообщений
+const showContextMenu = (event, message) => {
+  // Предотвращаем стандартное контекстное меню браузера
+  event.preventDefault();
+  
+  // Устанавливаем позицию меню
+  contextMenuPosition.value = {
+    x: event.clientX,
+    y: event.clientY
+  };
+  
+  // Устанавливаем выбранное сообщение
+  selectedMessage.value = message;
+  
+  // Показываем меню
+  contextMenuVisible.value = true;
+};
+
+const hideContextMenu = () => {
+  contextMenuVisible.value = false;
+};
+
+// Функции для редактирования сообщений
+const startEditingMessage = (message) => {
+  // Проверяем, что сообщение существует и принадлежит текущему пользователю
+  if (!message || !isOwnMessage(message)) return;
+  
+  // Сохраняем оригинальный текст сообщения
+  originalMessageText.value = message.text;
+  
+  // Устанавливаем текст для редактирования
+  editingMessageText.value = message.text;
+  messageText.value = message.text;
+  
+  // Устанавливаем выбранное сообщение
+  selectedMessage.value = message;
+  
+  // Включаем режим редактирования
+  isEditingMessage.value = true;
+  
+  // Фокусируемся на поле ввода
+  nextTick(() => {
+    if (messageInput.value) {
+      messageInput.value.focus();
+    }
+  });
+};
+
+const cancelEditingMessage = () => {
+  // Сбрасываем состояние редактирования
+  isEditingMessage.value = false;
+  selectedMessage.value = null;
+  messageText.value = '';
+  editingMessageText.value = '';
+  originalMessageText.value = '';
+};
+
+const saveEditedMessage = async () => {
+  // Проверяем, что сообщение выбрано и текст изменился
+  if (!selectedMessage.value || messageText.value.trim() === originalMessageText.value) {
+    cancelEditingMessage();
+    return;
+  }
+  
+  try {
+    // Обновляем сообщение через хранилище чата
+    await chatStore.updateMessage({
+      messageId: selectedMessage.value._id,
+      chatId: chatData.value._id,
+      text: messageText.value.trim()
+    });
+    
+    // Сбрасываем состояние редактирования
+    cancelEditingMessage();
+  } catch (error) {
+    console.error('Ошибка при обновлении сообщения:', error);
+  }
+};
+
+const deleteMessage = async (message) => {
+  // Проверяем, что сообщение существует и принадлежит текущему пользователю
+  if (!message || !isOwnMessage(message)) return;
+  
+  try {
+    // Удаляем сообщение через хранилище чата
+    await chatStore.deleteMessage({
+      messageId: message._id,
+      chatId: chatData.value._id
+    });
+  } catch (error) {
+    console.error('Ошибка при удалении сообщения:', error);
+  }
+};
+
+// Обработка клика на сообщении
+const handleMessageClick = (event, message) => {
+  // Если клик на сообщении на мобильном устройстве, показываем контекстное меню
+  if (isMobile.value) {
+    showContextMenu(event, message);
+  }
 };
 
 // Получаем функцию и состояние переключения боковой панели из app.vue
@@ -1245,6 +1357,7 @@ const openChatSettings = () => {
             align-items: center
             justify-content: center
             background-color: rgba(0, 0, 0, 0.1)
+            z-index: 2
             border-radius: 8px
             
             .loading-spinner
@@ -1288,6 +1401,32 @@ const openChatSettings = () => {
     width: 100%
     // background-color: $header-bg
     padding: 15px
+    
+    .editing-indicator
+      display: flex
+      align-items: center
+      justify-content: space-between
+      padding: 5px 10px
+      background-color: rgba(255, 255, 255, 0.1)
+      border-radius: 10px
+      margin-bottom: 10px
+      
+      .editing-text
+        color: $white
+        font-size: 14px
+        
+        i
+          margin-right: 5px
+      
+      .cancel-btn
+        background-color: transparent
+        border: none
+        color: $white
+        font-size: 16px
+        cursor: pointer
+        
+        &:hover
+          color: rgba(255, 255, 255, 0.8)
     
     .input_container
       display: flex

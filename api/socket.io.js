@@ -1,8 +1,5 @@
 // Этот файл обрабатывает запросы Socket.IO на Vercel через API роуты
 export default async function handler(req, res) {
-  // Если бэкенд и фронтенд находятся на одном домене, используем относительный URL
-  // Это позволяет избежать проблем с CORS и проксированием
-
   // Логируем информацию о запросе для отладки
   console.log('Socket.IO proxy request:', {
     method: req.method,
@@ -18,16 +15,23 @@ export default async function handler(req, res) {
   const method = req.method;
   const url = req.url;
 
-  // Получаем текущий хост и протокол из заголовков запроса
-  const host = req.headers.host || 'localhost';
-  const protocol = req.headers['x-forwarded-proto'] || 'https';
-  const origin = `${protocol}://${host}`;
-
-  // Формируем путь для проксирования
-  const socketPath = url.split('/api/socket.io')[1] || '';
-
-  // Для бэкенда на том же домене используем относительный URL
-  const targetUrl = `${origin}/socket.io${socketPath}`;
+  // Определяем целевой URL для проксирования
+  let targetUrl;
+  const backendUrl = process.env.BACKEND_URL;
+  
+  if (backendUrl) {
+    // Если задан BACKEND_URL, используем его (для разных доменов фронтенда и бэкенда)
+    // Формируем путь для проксирования
+    const socketPath = url.split('/socket.io')[1] || '';
+    targetUrl = `${backendUrl}/socket.io${socketPath}`;
+  } else {
+    // Для бэкенда на том же домене используем относительный URL
+    const host = req.headers.host || 'localhost';
+    const protocol = req.headers['x-forwarded-proto'] || 'https';
+    const origin = `${protocol}://${host}`;
+    const socketPath = url.split('/socket.io')[1] || '';
+    targetUrl = `${origin}/socket.io${socketPath}`;
+  }
 
   console.log(`Socket.IO proxy: ${method} ${url} -> ${targetUrl}`);
 
@@ -56,8 +60,13 @@ export default async function handler(req, res) {
       method,
       headers: {
         ...req.headers,
-        // Не устанавливаем host, т.к. обращаемся к тому же домену
+        // Удаляем заголовки, которые могут вызвать проблемы при проксировании
+        host: undefined,
+        'x-forwarded-host': undefined,
+        'x-vercel-deployment-url': undefined,
+        'x-vercel-id': undefined,
       },
+      credentials: 'include',
     };
 
     if (method !== 'GET' && body) {
@@ -74,6 +83,12 @@ export default async function handler(req, res) {
 
     // Устанавливаем заголовки ответа
     res.setHeader('Content-Type', contentType || 'text/plain');
+    
+    // Добавляем CORS заголовки для поддержки WebSocket
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
 
     // Отправляем ответ клиенту
     res.status(fetchResponse.status);
