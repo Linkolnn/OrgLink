@@ -33,16 +33,13 @@ export default defineNuxtPlugin((nuxtApp) => {
   const isProduction = process.env.NODE_ENV === 'production';
   const isVercel = typeof window !== 'undefined' && window.location.hostname.includes('vercel.app');
   
-  // Создаем экземпляр сокета с настройками в зависимости от окружения
-  // Для Vercel используем отдельный бэкенд URL, если он указан в конфигурации
-  const backendUrl = config.public.backendUrl || 'https://org-link-backend.vercel.app';
+  // Определяем URL бэкенда для Socket.IO
+  // Важно: для продакшена всегда используем прямой URL к бэкенду, а не к Vercel
+  const backendUrl = 'https://org-link-backend.vercel.app';
   
-  // Используем прямой URL к бэкенду для Socket.IO, чтобы избежать циклических перенаправлений
-  const socketUrl = backendUrl;
+  console.log('Socket.IO connecting to:', backendUrl);
   
-  console.log('Socket.IO connecting to:', socketUrl);
-  
-  const socket = io(socketUrl, {
+  const socket = io(backendUrl, {
     autoConnect: false, // Не подключаемся автоматически
     withCredentials: true,
     reconnection: true,        // Включаем автоматическое переподключение
