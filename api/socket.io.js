@@ -2,7 +2,14 @@
 export default async function handler(req, res) {
   // Получаем URL бэкенда из переменных окружения
   // Используем захардкоженный URL для продакшена, если переменная окружения не установлена
-  const backendUrl = process.env.BACKEND_URL || 'https://orglink-backend.onrender.com';
+  // Жестко прописываем URL бэкенда, так как переменная окружения не работает корректно
+  const backendUrl = 'https://org-link.vercel.app';
+  
+  // Логируем информацию о переменных окружения для отладки
+  console.log('Environment variables:', {
+    NODE_ENV: process.env.NODE_ENV,
+    BACKEND_URL: process.env.BACKEND_URL
+  });
   
   if (!backendUrl) {
     console.error('Socket.IO proxy error: Backend URL is not defined');
