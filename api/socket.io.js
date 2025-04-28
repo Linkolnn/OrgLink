@@ -15,29 +15,38 @@ export default async function handler(req, res) {
     }
   });
 
-  // Извлекаем метод и путь запроса
-  const method = req.method;
-  const url = req.url;
-
-  // Определяем целевой URL для проксирования
-  let targetUrl;
-  const backendUrl = process.env.BACKEND_URL || 'https://org-link-backend.vercel.app';
-  
   // Проверяем, не является ли текущий запрос уже проксированным
   // Это поможет избежать циклических перенаправлений
   if (req.headers['x-socket-io-proxied']) {
     console.log('Detected already proxied request, aborting to prevent loop');
     return res.status(400).json({ error: 'Socket.IO proxy loop detected' });
   }
+
+  // Если запрос пришел на /socket.io, а не на /api/socket.io, это может быть циклическое перенаправление
+  if (req.url.startsWith('/socket.io') && !req.url.startsWith('/api/socket.io')) {
+    console.log('Detected potential loop with /socket.io path, aborting');
+    return res.status(400).json({ error: 'Socket.IO proxy path conflict' });
+  }
+
+  // Извлекаем метод и путь запроса
+  const method = req.method;
+  const url = req.url;
+
+  // Определяем целевой URL для проксирования
+  // Используем внешний бэкенд URL вместо прокси на том же домене
+  const backendUrl = process.env.BACKEND_URL || 'https://org-link-backend.vercel.app';
   
   // Формируем путь для проксирования
-  // Важно: используем путь относительно /socket.io, а не /api/socket.io
   let socketPath = '';
   if (url.includes('socket.io')) {
-    socketPath = url.split('socket.io')[1] || '';
+    // Извлекаем путь после socket.io
+    const match = url.match(/socket\.io(.*)/);
+    if (match && match[1]) {
+      socketPath = match[1];
+    }
   }
   
-  targetUrl = `${backendUrl}/socket.io${socketPath}`;
+  const targetUrl = `${backendUrl}/socket.io${socketPath}`;
 
   console.log(`Socket.IO proxy: ${method} ${url} -> ${targetUrl}`);
 
