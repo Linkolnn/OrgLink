@@ -8,10 +8,10 @@
     <!-- Если чат выбран -->
     <div v-else class="chat-content">
       <!-- Шапка чата -->
-      <div class="page_header">
+      <div class="page_header"@click="openChatSettings">
         <!-- Кнопка переключения боковой панели для мобильных устройств -->
-        <button class="toggle-sidebar-btn" @click="toggleSidebar">
-          <i class="fas fa-bars"></i>
+        <button class="toggle-sidebar-btn" @click.stop="toggleSidebar">
+          <IconsIconArrow />
         </button>
         
         <div class="content">
@@ -30,15 +30,6 @@
         </div>
         
         <div class="chat-actions">
-          <button class="action-btn" @click="showManageParticipantsModal = true">
-            <i class="fas fa-users icon"></i>
-          </button>
-          <button class="action-btn" @click="showEditChatModal = true">
-            <i class="fas fa-edit icon"></i>
-          </button>
-          <button class="action-btn" @click="debugWebSocket" title="Проверить WebSocket">
-            <i class="fas fa-sync-alt icon"></i>
-          </button>
         </div>
       </div>
       
@@ -109,7 +100,16 @@
                 </div>
                 
                 <div v-else-if="message.media_type === 'image'" class="image-container">
-                  <img :src="message.file" alt="Image" class="message-image" />
+                  <div v-if="!message.imageLoaded" class="image-loading">
+                    <div class="loading-spinner"></div>
+                  </div>
+                  <img 
+                    :src="message.file" 
+                    alt="Image" 
+                    class="message-image" 
+                    @load="message.imageLoaded = true"
+                    :class="{ 'loaded': message.imageLoaded }"
+                  />
                 </div>
                 
                 <div v-else-if="message.media_type === 'video'" class="video-container">
@@ -141,9 +141,10 @@
         </div>
         
         <!-- Индикатор новых сообщений -->
-        <div v-if="!isAtBottom && !chatStore.loadingMore && messages.length > 0" class="new-messages-indicator" @click="scrollToNewMessages">
-          <i class="fas fa-arrow-down"></i>
-        </div>
+        <NewMessagesButton 
+          v-if="!isAtBottom && !chatStore.loadingMore && messages.length > 0" 
+          @click="scrollToNewMessages" 
+        />
       </div>
       
       <!-- Input area -->
@@ -173,15 +174,26 @@
       </div>
     </div>
   </div>
-  <ManageParticipantsModal v-if="showManageParticipantsModal" :is-open="showManageParticipantsModal" @close="showManageParticipantsModal = false" />
-  <EditChatModal v-if="showEditChatModal" :is-open="showEditChatModal" :chat-data="chatData" :is-new-chat="false" @close="showEditChatModal = false" />
+  <ChatSettingsModal 
+    v-if="showChatSettingsModal" 
+    :is-open="showChatSettingsModal" 
+    :chat-data="chatData" 
+    :is-new-chat="false" 
+    @close="showChatSettingsModal = false" 
+    @saved="onChatUpdated" 
+  />
 </template>
 
 <script setup>
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
+import { useNuxtApp } from '#app';
 import { useChatStore } from '~/stores/chat';
 import { useAuthStore } from '~/stores/auth';
 import ManageParticipantsModal from './ManageParticipantsModal.vue';
 import EditChatModal from './EditChatModal.vue';
+import NewMessagesButton from './NewMessagesButton.vue';
+import ChatSettingsModal from './ChatSettingsModal.vue';
+import IconArrow from '../Icons/IconArrow.vue';
 
 // Хранилища
 const chatStore = useChatStore();
@@ -232,6 +244,15 @@ const loading = computed(() => chatStore.loading);
 // Модальные окна
 const showEditChatModal = ref(false);
 const showManageParticipantsModal = ref(false);
+const showChatSettingsModal = ref(false);
+
+// Обработка обновления чата после сохранения в модальном окне
+const onChatUpdated = () => {
+  // Обновляем данные чата, если необходимо
+  if (chatData.value && chatData.value._id) {
+    chatStore.setActiveChat(chatData.value._id);
+  }
+};
 
 // Видимые сообщения (для бесконечной прокрутки)
 const visibleMessages = ref([]);
@@ -311,7 +332,8 @@ const setupInfiniteScroll = () => {
           }
         }
       } catch (error) {
-        console.error('Ошибка при загрузке старых сообщений:', error);
+        // Показываем уведомление об ошибке
+        useNotification('Ошибка при загрузке старых сообщений', 'error');
       } finally {
         chatStore.loadingMore = false;
       }
@@ -384,7 +406,20 @@ const sendMessage = async () => {
       credentials: 'include' // Включаем передачу cookie
     });
     
-    console.log('Сообщение успешно отправлено:', response);
+    // Добавляем отправленное сообщение в локальный список сообщений
+    if (response && response._id) {
+      // Проверяем, не добавлено ли уже это сообщение (избегаем дубликатов)
+      const isDuplicate = chatStore.messages.some(m => m._id === response._id);
+      if (!isDuplicate) {
+        // Добавляем сообщение в список
+        chatStore.messages.push({...response});
+        
+        // Обновляем последнее сообщение в чате
+        chatStore.updateLastMessage(chatData.value._id, response);
+      } else {
+        // console.log('Дублирующееся сообщение проигнорировано:', response._id);
+      }
+    }
     
     // Прокручиваем чат вниз после отправки сообщения
     nextTick(() => {
@@ -392,9 +427,8 @@ const sendMessage = async () => {
     });
     
   } catch (error) {
-    console.error('Ошибка при отправке сообщения:', error);
     // Показываем уведомление об ошибке
-    alert('Не удалось отправить сообщение. Попробуйте еще раз.');
+    useNotification('Ошибка при отправке сообщения', 'error');
   }
 };
 
@@ -530,10 +564,6 @@ const getInitials = (name) => {
 };
 
 // Обработчики событий модальных окон
-const onChatUpdated = () => {
-  // Обновление уже произошло в хранилище
-};
-
 const onParticipantsUpdated = () => {
   // Обновление уже произошло в хранилище
 };
@@ -617,84 +647,41 @@ onMounted(() => {
   checkMobile();
   window.addEventListener('resize', checkMobile);
   
-  // Добавляем небольшую задержку перед инициализацией компонента
-  setTimeout(() => {
-    // Инициализируем видимые сообщения с пустым массивом, если сообщения еще не загружены
-    visibleMessages.value = Array.isArray(messages.value) ? messages.value : [];
-    
-    // Инициализируем WebSocket слушатели для реального времени
-    setupWebSocketListeners();
-  }, 100);
-  
   // Инициализируем бесконечную прокрутку
   setupInfiniteScroll();
-});
-
-// Настройка WebSocket слушателей
-const setupWebSocketListeners = () => {
-  // Получаем доступ к WebSocket
+  
+  // Инициализируем видимые сообщения с пустым массивом, если сообщения еще не загружены
+  visibleMessages.value = Array.isArray(messages.value) ? messages.value : [];
+  
+  // Инициализируем WebSocket слушатели для реального времени
   const { $socket, $socketConnect } = useNuxtApp();
   
-  // Убедимся, что WebSocket подключен
+  // Если сокет не подключен, выполняем подключение
   if ($socket && !$socket.connected) {
     $socketConnect();
-  }
-  
-  if ($socket) {
-    // Удаляем существующие обработчики, чтобы избежать дублирования
-    $socket.off('connect');
-    $socket.off('new-message');
-    $socket.off('messages-read');
     
-    // Подписываемся на события WebSocket
-    $socket.on('connect', () => {
-      console.log('WebSocket подключен');
+    // Даем немного времени на установку соединения
+    setTimeout(() => {
+      // Настройка WebSocket слушателей
+      setupWebSocketListeners();
       
       // Если есть активный чат, подключаемся к его комнате
       if (chatData.value && chatData.value._id) {
         const { $socketJoinChat } = useNuxtApp();
         $socketJoinChat(chatData.value._id);
-        console.log('Подключились к комнате чата:', chatData.value._id);
       }
-    });
+    }, 500);
+  } else {
+    // Настройка WebSocket слушателей
+    setupWebSocketListeners();
     
-    // Слушаем новые сообщения
-    $socket.on('new-message', ({ message, chatId }) => {
-      console.log('Получено новое сообщение через WebSocket:', message);
-      
-      // Если сообщение для текущего чата, добавляем его в список
-      if (chatData.value && chatData.value._id === chatId) {
-        // Добавляем новое сообщение в конец списка
-        chatStore.messages.push(message);
-        
-        // Прокручиваем к новому сообщению, если пользователь находится внизу чата
-        if (isAtBottom.value) {
-          nextTick(() => {
-            scrollToBottom();
-          });
-        } else {
-          // Показываем индикатор нового сообщения
-          showNewMessageIndicator.value = true;
-        }
-        
-        // Если сообщение не от текущего пользователя, отмечаем его как прочитанное
-        if (message.sender._id !== authStore.user._id) {
-          chatStore.markMessagesAsRead(chatId);
-        }
-      }
-    });
-    
-    // Слушаем прочтение сообщений
-    $socket.on('messages-read', ({ chatId, userId }) => {
-      console.log('Сообщения отмечены как прочитанные:', { chatId, userId });
-      
-      // Обновляем статус прочтения сообщений в текущем чате
-      if (chatData.value && chatData.value._id === chatId) {
-        chatStore.updateMessagesReadStatus(chatId, userId);
-      }
-    });
+    // Если есть активный чат, подключаемся к его комнате
+    if (chatData.value && chatData.value._id) {
+      const { $socketJoinChat } = useNuxtApp();
+      $socketJoinChat(chatData.value._id);
+    }
   }
-};
+});
 
 onUnmounted(() => {
   if (observer.value) {
@@ -707,6 +694,12 @@ onUnmounted(() => {
     $socket.off('connect');
     $socket.off('new-message');
     $socket.off('messages-read');
+    
+    // Если есть активный чат, покидаем его комнату
+    if (chatData.value && chatData.value._id) {
+      const { $socketLeaveChat } = useNuxtApp();
+      $socketLeaveChat(chatData.value._id);
+    }
   }
   
   // Удаляем обработчик изменения размера окна
@@ -807,40 +800,196 @@ const debugWebSocket = () => {
   const { $socket, $socketConnect } = useNuxtApp();
   
   if (!$socket) {
-    console.error('WebSocket не инициализирован');
-    alert('WebSocket не инициализирован');
+    // alert('WebSocket не инициализирован');
     return;
   }
   
-  console.log('Статус WebSocket соединения:', $socket.connected ? 'Подключен' : 'Отключен');
-  alert(`WebSocket: ${$socket.connected ? 'Подключен' : 'Отключен'}`);
+  // alert(`WebSocket: ${$socket.connected ? 'Подключен' : 'Отключен'}`);
   
   if (!$socket.connected) {
-    console.log('Попытка переподключения WebSocket...');
+    // alert('Попытка переподключения WebSocket...');
+    
+    // Перед подключением удаляем все обработчики и перенастраиваем их
+    $socket.off('connect');
+    $socket.off('new-message');
+    $socket.off('messages-read');
+    $socket.off('joined-chat');
+    
+    // Пробуем переключиться на polling, если есть проблемы с websocket
+    $socket.io.opts.transports = ['polling', 'websocket'];
+    
+    // Переподключаемся
     $socketConnect();
     
+    // Перенастраиваем слушатели после переподключения
     setTimeout(() => {
-      console.log('Новый статус WebSocket:', $socket.connected ? 'Подключен' : 'Отключен');
-      alert(`WebSocket: ${$socket.connected ? 'Подключен' : 'Отключен'}`);
+      setupWebSocketListeners();
       
-      if ($socket.connected && chatData.value && chatData.value._id) {
+      // Если есть активный чат, подключаемся к его комнате
+      if (chatData.value && chatData.value._id) {
         const { $socketJoinChat } = useNuxtApp();
         $socketJoinChat(chatData.value._id);
-        console.log('Переподключились к комнате чата:', chatData.value._id);
-        alert(`Переподключились к чату: ${chatData.value.name}`);
       }
     }, 1000);
   } else if (chatData.value && chatData.value._id) {
+    // alert(`Переподключились к чату: ${chatData.value.name}`);
+    
     // Проверяем подключение к комнате чата
     const { $socketJoinChat } = useNuxtApp();
     $socketJoinChat(chatData.value._id);
-    console.log('Переподключились к комнате чата:', chatData.value._id);
-    alert(`Переподключились к чату: ${chatData.value.name}`);
+    
+    // Перенастраиваем слушатели
+    setupWebSocketListeners();
+    
+    // Пробуем перезагрузить сообщения чата
+    chatStore.fetchMessages(chatData.value._id);
   }
+};
+
+// Настройка WebSocket слушателей
+const setupWebSocketListeners = () => {
+  // Получаем доступ к WebSocket
+  const { $socket, $socketConnect, $socketJoinChat } = useNuxtApp();
+  
+  // Проверяем, что у нас есть доступ к сокету
+  if (!$socket) {
+    // alert('WebSocket не инициализирован');
+    return;
+  }
+  
+  // Убедимся, что WebSocket подключен
+  if (!$socket.connected) {
+    $socketConnect();
+  } else {
+    // alert('WebSocket уже подключен');
+    
+    // Если сокет уже подключен и есть активный чат, сразу подключаемся к комнате
+    if (chatData.value && chatData.value._id) {
+      $socketJoinChat(chatData.value._id);
+    }
+  }
+  
+  // Удаляем существующие обработчики, чтобы избежать дублирования
+  $socket.off('connect');
+  $socket.off('new-message');
+  $socket.off('messages-read');
+  $socket.off('joined-chat');
+  
+  // Подписываемся на события WebSocket
+  $socket.on('connect', () => {
+    // alert('WebSocket подключен успешно');
+    
+    // Если есть активный чат, подключаемся к его комнате
+    if (chatData.value && chatData.value._id) {
+      $socketJoinChat(chatData.value._id);
+    }
+  });
+  
+  // Обработчик успешного подключения к комнате чата
+  $socket.on('joined-chat', ({ chatId, success }) => {
+    // alert(`Подключение к комнате чата ${chatId}: ${success ? 'успешно' : 'не удалось'}`);
+  });
+  
+  // Слушаем новые сообщения
+  $socket.on('new-message', ({ message, chatId }) => {
+    // alert('Получено новое сообщение через WebSocket:', message, 'для чата:', chatId);
+    
+    // Если сообщение для текущего чата, добавляем его в список
+    if (chatData.value && chatData.value._id === chatId) {
+      // Проверяем, не добавлено ли уже это сообщение (избегаем дубликатов)
+      const isDuplicate = chatStore.messages.some(m => m._id === message._id);
+      if (isDuplicate) {
+        // alert('Дублирующееся сообщение проигнорировано:', message._id);
+        return;
+      }
+      
+      // alert('Добавляем новое сообщение в чат:', message);
+      
+      // Для изображений, предварительно загружаем их перед добавлением в список сообщений
+      if (message.media_type === 'image' && message.file) {
+        // Инициализируем флаг загрузки изображения
+        message.imageLoaded = false;
+        
+        // Добавляем сообщение сразу, чтобы показать загрузчик
+        chatStore.messages.push({...message});
+        
+        const img = new Image();
+        img.onload = () => {
+          // Находим сообщение в массиве и обновляем его статус
+          const msgIndex = chatStore.messages.findIndex(m => m._id === message._id);
+          if (msgIndex !== -1) {
+            // Устанавливаем флаг, что изображение загружено
+            chatStore.messages[msgIndex].imageLoaded = true;
+          }
+          
+          // Прокручиваем к новому сообщению, если пользователь находится внизу чата
+          if (isAtBottom.value) {
+            nextTick(() => {
+              scrollToBottom();
+            });
+          } else {
+            // Показываем индикатор нового сообщения
+            showNewMessageIndicator.value = true;
+          }
+        };
+        img.onerror = () => {
+          // alert('Ошибка загрузки изображения:', message.file);
+          
+          // Находим сообщение в массиве и обновляем его статус
+          const msgIndex = chatStore.messages.findIndex(m => m._id === message._id);
+          if (msgIndex !== -1) {
+            // Помечаем как загруженное, чтобы не показывать бесконечную загрузку
+            chatStore.messages[msgIndex].imageLoaded = true;
+          }
+          
+          if (isAtBottom.value) {
+            nextTick(() => {
+              scrollToBottom();
+            });
+          } else {
+            showNewMessageIndicator.value = true;
+          }
+        };
+        img.src = message.file;
+      } else {
+        // Для не-изображений добавляем сообщение сразу
+        chatStore.messages.push({...message});
+        
+        // Прокручиваем к новому сообщению, если пользователь находится внизу чата
+        if (isAtBottom.value) {
+          nextTick(() => {
+            scrollToBottom();
+          });
+        } else {
+          // Показываем индикатор нового сообщения
+          showNewMessageIndicator.value = true;
+        }
+      }
+      
+      // Если сообщение не от текущего пользователя, отмечаем его как прочитанное
+      if (message.sender && message.sender._id !== authStore.user._id) {
+        chatStore.markMessagesAsRead(chatId);
+      }
+    }
+  });
+  
+  // Слушаем прочтение сообщений
+  $socket.on('messages-read', ({ chatId, userId }) => {
+    // alert('Сообщения отмечены как прочитанные:', { chatId, userId });
+    
+    // Обновляем статус прочтения сообщений в текущем чате
+    if (chatData.value && chatData.value._id === chatId) {
+      chatStore.updateMessagesReadStatus(chatId, userId);
+    }
+  });
+};
+
+const openChatSettings = () => {
+  showChatSettingsModal.value = true;
 };
 </script>
 
-<style lang="sass" scoped>
+<style lang="sass">
 @import '~/assets/styles/variables'
 
 .chat-page
@@ -951,16 +1100,15 @@ const debugWebSocket = () => {
   .messages_container
     flex: 1
     overflow-y: auto
-    padding: 20px
+    padding: 20px 20px 0px 20px
     display: flex
+    width: 100%
     flex-direction: column
-    width: 100%;
-    align-self: center;
     @include custom-scrollbar
     >*
-      align-self: center
-      width: 100%
-      max-width: 650px;
+      max-width: 700px;
+      width: 100%;
+      align-self: center;
     
     .loading-trigger
       height: 20px
@@ -984,16 +1132,14 @@ const debugWebSocket = () => {
       
       
       .spinner 
-        width: 20px;
-        height: 20px;
-        border: 2px solid rgba(255, 255, 255, 0.3);
-        border-radius: 50%;
-        border-top-color: $white;
-        animation: spin 1s ease-in-out infinite;
+        width: 20px
+        height: 20px
+        border: 2px solid rgba(255, 255, 255, 0.3)
+        border-radius: 50%
+        border-top-color: $white
+        animation: spin 1s ease-in-out infinite
         margin-right: 10px
         will-change: transform; // Оптимизация для анимации
-      
-    
     
     .empty-chat
       text-align: center
@@ -1077,12 +1223,41 @@ const debugWebSocket = () => {
         
         .video-container, .image-container
           margin: 5px 0
+          position: relative
           
           .video-message-player, .message-image
             max-width: 100%
             border-radius: 8px
             max-height: 300px
-        
+            opacity: 0
+            transition: opacity 0.3s ease-in-out
+            
+            &.loaded
+              opacity: 1
+          
+          .image-loading
+            position: absolute
+            top: 0
+            left: 0
+            width: 100%
+            height: 100%
+            display: flex
+            align-items: center
+            justify-content: center
+            background-color: rgba(0, 0, 0, 0.1)
+            border-radius: 8px
+            
+            .loading-spinner
+              width: 30px
+              height: 30px
+              border: 3px solid rgba(255, 255, 255, 0.3)
+              border-radius: 50%
+              border-top-color: $purple
+              animation: spin 1s ease-in-out infinite
+              margin: 0 auto
+              background-color: transparent
+              will-change: transform; // Оптимизация для анимации
+    
         .sticker-container
           .message-sticker
             max-width: 120px
@@ -1149,34 +1324,7 @@ const debugWebSocket = () => {
           
           i
             font-size: 18px
-  
-  .new-messages-indicator
-    position: absolute
-    bottom: 60px
-    left: 50%
-    transform: translateX(-50%)
-    background-color: $purple
-    color: $white
-    width: 40px
-    height: 40px
-    padding: 10px 15px
-    border-radius: 50%
-    cursor: pointer
 
-    .new-messages-text
-      font-size: 24px
-      font-weight: bold
-    
-    .new-messages-arrow
-      width: 0
-      height: 0
-      border-style: solid
-      border-width: 0 10px 10px 10px
-      border-color: transparent transparent $purple transparent
-      position: absolute
-      bottom: -10px
-      left: 50%
-      transform: translateX(-50%)
   
 @keyframes spin
   0%
@@ -1190,4 +1338,42 @@ const debugWebSocket = () => {
       .message_wrap
         .message
           max-width: 90%
+
+.image-container
+  position: relative
+  margin: 5px 0
+  max-width: 300px
+  
+  .image-loading
+    position: absolute
+    top: 0
+    left: 0
+    width: 100%
+    height: 100%
+    display: flex
+    align-items: center
+    justify-content: center
+    background-color: rgba(0, 0, 0, 0.2)
+    z-index: 2
+    border-radius: 8px
+    
+    .loading-spinner
+      width: 30px
+      height: 30px
+      border: 3px solid rgba(255, 255, 255, 0.3)
+      border-radius: 50%
+      border-top-color: $purple
+      animation: spin 1s ease-in-out infinite
+      margin: 0 auto
+      background-color: transparent
+      will-change: transform; // Оптимизация для анимации
+    
+  .message-image
+    max-width: 100%
+    border-radius: 8px
+    opacity: 0.7
+    transition: opacity 0.3s ease
+    
+    &.loaded
+      opacity: 1
 </style>

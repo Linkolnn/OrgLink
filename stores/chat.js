@@ -35,9 +35,22 @@ export const useChatStore = defineStore('chat', {
       
       const { $socket } = useNuxtApp();
       
+      if (!$socket) {
+        console.error('WebSocket не инициализирован');
+        return;
+      }
+      
+      // Удаляем существующие обработчики, чтобы избежать дублирования
+      $socket.off('new-message');
+      $socket.off('messages-read');
+      $socket.off('new-chat');
+      $socket.off('chat-updated');
+      $socket.off('chat-deleted');
+      
       // Слушаем новые сообщения
       $socket.on('new-message', ({ message, chatId }) => {
-        this.addNewMessage(message);
+        // Создаем новый объект сообщения для добавления в список
+        this.addNewMessage({...message});
       });
       
       // Слушаем прочтение сообщений
@@ -48,13 +61,13 @@ export const useChatStore = defineStore('chat', {
       // Слушаем создание новых чатов
       $socket.on('new-chat', (chat) => {
         console.log('Получено уведомление о новом чате:', chat);
-        this.addNewChat(chat);
+        this.addNewChat({...chat});
       });
       
       // Слушаем обновление чатов
       $socket.on('chat-updated', (updatedChat) => {
         console.log('Получено уведомление об обновлении чата:', updatedChat);
-        this.updateChatInList(updatedChat);
+        this.updateChatInList({...updatedChat});
       });
       
       // Слушаем удаление чатов
@@ -71,34 +84,44 @@ export const useChatStore = defineStore('chat', {
       // Проверяем, что сообщение не дублируется
       const isDuplicate = this.messages.some(msg => msg._id === message._id);
       if (isDuplicate) {
-        console.log('Дублирующееся сообщение проигнорировано:', message._id);
         return;
       }
       
       // Добавляем сообщение в массив
       this.messages.push(message);
       
-      // Обновляем lastMessage в активном чате, если это тот же чат
-      if (this.activeChat && this.activeChat._id === message.chat) {
-        this.activeChat.lastMessage = {
-          text: message.text || 'Медиа-сообщение',
-          sender: message.sender._id,
-          timestamp: message.createdAt || new Date()
-        };
-      }
-      
-      // Обновляем lastMessage в списке чатов
+      // Находим чат в списке
       const chatIndex = this.chats.findIndex(chat => chat._id === message.chat);
+      
       if (chatIndex !== -1) {
-        this.chats[chatIndex].lastMessage = {
-          text: message.text || 'Медиа-сообщение',
-          sender: message.sender._id,
-          timestamp: message.createdAt || new Date()
+        // Создаем новый объект чата для обновления
+        const updatedChat = { 
+          ...this.chats[chatIndex],
+          lastMessage: { 
+            ...message,
+            timestamp: message.createdAt || new Date().toISOString(),
+            text: message.text || 'Медиа-сообщение'
+          }
         };
         
-        // Перемещаем чат в начало списка
-        const chat = this.chats.splice(chatIndex, 1)[0];
-        this.chats.unshift(chat);
+        // Если сообщение не от текущего пользователя, увеличиваем счетчик непрочитанных сообщений
+        if (message.sender && message.sender._id !== this.$nuxt?.auth?.user?._id) {
+          updatedChat.unread = (updatedChat.unread || 0) + 1;
+        }
+        
+        // Удаляем старый чат из списка
+        this.chats.splice(chatIndex, 1);
+        
+        // Добавляем обновленный чат в начало списка
+        this.chats.unshift(updatedChat);
+        
+        // Обновляем активный чат, если это тот же чат
+        if (this.activeChat && this.activeChat._id === message.chat) {
+          this.activeChat = { ...this.activeChat, lastMessage: updatedChat.lastMessage };
+        }
+        
+        // Прибудите вызов метода triggerChatListUpdate()
+        this.triggerChatListUpdate();
       }
     },
     
@@ -168,6 +191,38 @@ export const useChatStore = defineStore('chat', {
       }
     },
     
+    // Обновление последнего сообщения в списке чатов
+    updateLastMessage(chatId, message) {
+      if (!chatId || !message) return;
+      
+      // Обновляем lastMessage в активном чате, если это тот же чат
+      if (this.activeChat && this.activeChat._id === chatId) {
+        this.activeChat.lastMessage = {
+          text: message.text || 'Медиа-сообщение',
+          sender: message.sender._id,
+          timestamp: message.createdAt || new Date()
+        };
+      }
+      
+      // Обновляем lastMessage в списке чатов
+      const chatIndex = this.chats.findIndex(chat => chat._id === chatId);
+      if (chatIndex !== -1) {
+        // Создаем новый объект чата с обновленным lastMessage
+        const updatedChat = { ...this.chats[chatIndex] };
+        updatedChat.lastMessage = {
+          text: message.text || 'Медиа-сообщение',
+          sender: message.sender._id,
+          timestamp: message.createdAt || new Date()
+        };
+        
+        // Удаляем старый чат из списка
+        this.chats.splice(chatIndex, 1);
+        
+        // Добавляем обновленный чат в начало списка
+        this.chats.unshift(updatedChat);
+      }
+    },
+    
     // Загрузка списка чатов
     async fetchChats() {
       this.loading = true;
@@ -183,9 +238,15 @@ export const useChatStore = defineStore('chat', {
         
         // Инициализируем WebSocket слушатели
         this.initSocketListeners();
+        
+        // Отмечаем, что первоначальная загрузка завершена
+        this.initialLoadComplete = true;
+        
+        return response;
       } catch (error) {
         console.error('Ошибка при загрузке чатов:', error);
         this.error = 'Не удалось загрузить список чатов';
+        throw error;
       } finally {
         this.loading = false;
       }
@@ -435,7 +496,8 @@ export const useChatStore = defineStore('chat', {
           formData.append('avatar', chatData.avatar);
         }
         
-        const response = await fetch(`/api/chats/${chatId}`, {
+        const config = useRuntimeConfig();
+        const response = await fetch(`${config.public.backendUrl}/api/chats/${chatId}`, {
           method: 'PUT',
           body: formData,
           credentials: 'include'
@@ -450,11 +512,11 @@ export const useChatStore = defineStore('chat', {
         // Обновляем чат в списке и активный чат
         const chatIndex = this.chats.findIndex(chat => chat._id === chatId);
         if (chatIndex !== -1) {
-          this.chats[chatIndex] = { ...this.chats[chatIndex], ...updatedChat };
+          this.chats.splice(chatIndex, 1, { ...this.chats[chatIndex], ...updatedChat });
         }
         
         if (this.activeChat?._id === chatId) {
-          this.activeChat = updatedChat;
+          this.activeChat = { ...this.activeChat, ...updatedChat };
         }
         
         return updatedChat;
@@ -632,5 +694,17 @@ export const useChatStore = defineStore('chat', {
         console.error('Ошибка при отметке сообщений как прочитанных:', error);
       }
     },
+    
+    // Метод для принудительной перезагрузки списка чатов
+    triggerChatListUpdate() {
+      // Создаем временный массив и очищаем текущий список чатов
+      const tempChats = [...this.chats];
+      this.chats = [];
+      
+      // В следующем такте реактивного цикла восстанавливаем список чатов
+      this.$nextTick(() => {
+        this.chats = tempChats;
+      });
+    }
   }
 });

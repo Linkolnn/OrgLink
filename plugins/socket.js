@@ -100,6 +100,41 @@ export default defineNuxtPlugin((nuxtApp) => {
     // Подключение к комнате чата
   });
   
+  // Метод для подключения к комнате чата
+  const joinChat = (chatId) => {
+    const token = getToken();
+    
+    if (!token) {
+      return false;
+    }
+    
+    // Обновляем токен аутентификации
+    socket.auth.token = token;
+    
+    if (!socket.connected) {
+      socket.connect();
+      
+      // Подключаемся к чату после установления соединения
+      socket.once('connect', () => {
+        socket.emit('join-chat', chatId);
+      });
+      
+      return true;
+    }
+    
+    // Если уже подключены, просто отправляем запрос на подключение к чату
+    socket.emit('join-chat', chatId);
+    return true;
+  };
+  
+  // Метод для отключения от комнаты чата
+  const leaveChat = (chatId) => {
+    if (socket.connected) {
+      console.log(`Покидаем комнату чата: ${chatId}`);
+      socket.emit('leave-chat', chatId);
+    }
+  };
+  
   // Функция для подключения к WebSocket
   const connect = () => {
     const token = getToken();
@@ -125,41 +160,6 @@ export default defineNuxtPlugin((nuxtApp) => {
     
     if (!socket.connected) {
       socket.connect();
-    }
-  };
-  
-  // Метод для подключения к комнате чата
-  const joinChat = (chatId) => {
-    const token = getToken();
-    
-    if (!token) {
-      return false;
-    }
-    
-    // Обновляем токен аутентификации
-    socket.auth.token = token;
-    
-    if (!socket.connected) {
-      socket.connect();
-      
-      // Подключаемся к чату после установления соединения
-      socket.once('connect', () => {
-        socket.emit('join-chat', { chatId });
-      });
-      
-      return true;
-    }
-    
-    // Если уже подключены, просто отправляем запрос на подключение к чату
-    socket.emit('join-chat', { chatId });
-    return true;
-  };
-  
-  // Метод для отключения от комнаты чата
-  const leaveChat = (chatId) => {
-    if (socket.connected) {
-      console.log(`Покидаем комнату чата: ${chatId}`);
-      socket.emit('leave-chat', chatId);
     }
   };
   

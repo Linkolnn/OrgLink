@@ -27,10 +27,11 @@
           <p class="sidebar__message">У вас пока нет чатов</p>
           <button class="sidebar__button sidebar__button--create" @click="createNewChat">Создать чат</button>
         </div>
-        <div v-else class="sidebar__chats">
+        <div v-else ref="chatListRef" class="sidebar__chats">
           <div 
-            v-for="chat in chatStore.chats" 
+            v-for="chat in chats" 
             :key="chat._id" 
+            :data-chat-id="chat._id"
             class="chat-item"
             :class="{ 'chat-item--active': chatStore.activeChat?._id === chat._id }"
             @click="selectChat(chat._id)"
@@ -43,14 +44,14 @@
             </div>
             <div class="chat-item__info">
               <div class="chat-item__name">{{ chat.name }}</div>
-              <div class="chat-item__message">
-                {{ chat.lastMessage?.text || 'Нет сообщений' }}
+              <div :id="`chat-message-${chat._id}`" class="chat-item__message">
+                {{ chat.lastMessageText }}
               </div>
             </div>
             <div class="chat-item__meta">
               <div v-if="chat.unread" class="chat-item__badge">{{ chat.unread }}</div>
-              <div v-if="chat.lastMessage?.timestamp" class="chat-item__time">
-                {{ formatTime(new Date(chat.lastMessage.timestamp)) }}
+              <div v-if="chat.lastMessage?.timestamp" :id="`chat-time-${chat._id}`" class="chat-item__time">
+                {{ chat.formattedTime }}
               </div>
             </div>
           </div>
@@ -91,13 +92,6 @@ onMounted(() => {
     isMobile.value = window.innerWidth <= 859;
   });
 });
-// Функция для показа чата на мобильных устройствах
-const showChat = () => {
-  const nuxtApp = useNuxtApp();
-  if (nuxtApp.$sidebarVisible) {
-    nuxtApp.$sidebarVisible.value = false;
-  }
-};
 
 // Состояние модального окна создания чата
 const showCreateChatModal = ref(false);
@@ -105,8 +99,36 @@ const isMenuOpen = ref(false);
 
 // Инициализация WebSocket слушателей при монтировании компонента
 onMounted(() => {
+  // Инициализируем слушатели WebSocket
   chatStore.initSocketListeners();
+  
+  // Загружаем список чатов, если он еще не загружен
+  if (!chatStore.initialLoadComplete) {
+    chatStore.fetchChats();
+  }
 });
+
+// Следим за изменениями в списке чатов
+// Используем computed с глубоким отслеживанием для обеспечения реактивности
+const forceUpdate = ref(0);
+const chats = computed(() => {
+  // Формсируем принудительное обновление (не используется, но необходим для реактивности)
+  const _ = forceUpdate.value;
+  
+  // Возвращаем обработанную копию чатов для обеспечения реактивности
+  return [...chatStore.chats].map(chat => ({
+    ...chat,
+    _id: chat._id, // Для обновления списка чатов
+    lastMessageText: chat.lastMessage?.text || 'Нет сообщений',
+    formattedTime: chat.lastMessage?.timestamp ? formatTime(new Date(chat.lastMessage.timestamp)) : ''
+  }));
+});
+
+// Следим за изменениями в списке чатов
+watch(() => chatStore.chats, () => {
+  // Принудительно обновляем компонент
+  forceUpdate.value++;
+}, { deep: true });
 
 // Выбор чата
 const selectChat = (chatId) => {
@@ -189,6 +211,62 @@ const navigateTo = (path) => {
   // Переходим на новую страницу
   router.push(path);
 };
+
+// Функция для показа чата на мобильных устройствах
+const showChat = () => {
+  const nuxtApp = useNuxtApp();
+  if (nuxtApp.$sidebarVisible) {
+    nuxtApp.$sidebarVisible.value = false;
+  }
+};
+
+// Добавляем слушатель для принудительного обновления компонента при получении новых сообщений
+const chatListRef = ref(null);
+
+onMounted(() => {
+  const { $socket } = useNuxtApp();
+  
+  // Слушаем новые сообщения в сокете
+  if ($socket) {
+    // Удаляем существующий слушатель, чтобы избежать дублирования
+    $socket.off('new-message');
+    
+    $socket.on('new-message', ({ message, chatId }) => {
+      // Принудительно обновляем компонент
+      forceUpdate.value++;
+      
+      // Обновляем DOM элементы для нового сообщения
+      setTimeout(() => {
+        // Находим чат в списке
+        const chatIndex = chatStore.chats.findIndex(chat => chat._id === chatId);
+        
+        if (chatIndex !== -1) {
+          const chat = chatStore.chats[chatIndex];
+          const messageText = message.text || 'Медиа-сообщение';
+          const timeFormatted = formatTime(new Date(message.createdAt || new Date()));
+          
+          // Обновляем текст сообщения и время
+          const messageEl = document.getElementById(`chat-message-${chatId}`);
+          const timeEl = document.getElementById(`chat-time-${chatId}`);
+          
+          if (messageEl) {
+            messageEl.textContent = messageText;
+          }
+          
+          if (timeEl) {
+            timeEl.textContent = timeFormatted;
+          }
+          
+          // Перемещаем чат в начало списка
+          const chatItem = document.querySelector(`[data-chat-id="${chatId}"]`);
+          if (chatItem && chatListRef.value) {
+            chatListRef.value.insertBefore(chatItem, chatListRef.value.firstChild);
+          }
+        }
+      }, 100);
+    });
+  }
+});
 </script>
 
 <style lang="sass" scoped>
