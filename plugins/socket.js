@@ -34,7 +34,9 @@ export default defineNuxtPlugin((nuxtApp) => {
   const isVercel = typeof window !== 'undefined' && window.location.hostname.includes('vercel.app');
   
   // Создаем экземпляр сокета с настройками в зависимости от окружения
-  const socket = io(config.public.backendUrl, {
+  const socketUrl = isVercel ? window.location.origin : config.public.backendUrl;
+  
+  const socket = io(socketUrl, {
     autoConnect: false, // Не подключаемся автоматически
     withCredentials: true,
     reconnection: true,        // Включаем автоматическое переподключение

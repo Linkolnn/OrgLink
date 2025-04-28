@@ -60,7 +60,6 @@ const handleFormSubmit = async ({ email, password }) => {
   flex-direction: column
   justify-content: center
   align-items: center
-  background: $primary-bg
   position: relative
   overflow: hidden
 

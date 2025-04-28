@@ -142,8 +142,7 @@
         
         <!-- Индикатор новых сообщений -->
         <div v-if="!isAtBottom && !chatStore.loadingMore && messages.length > 0" class="new-messages-indicator" @click="scrollToNewMessages">
-          <div class="new-messages-text">Новые сообщения</div>
-          <div class="new-messages-arrow"></div>
+          <i class="fas fa-arrow-down"></i>
         </div>
       </div>
       
@@ -179,8 +178,6 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
-import { useNuxtApp } from '#app';
 import { useChatStore } from '~/stores/chat';
 import { useAuthStore } from '~/stores/auth';
 import ManageParticipantsModal from './ManageParticipantsModal.vue';
@@ -957,10 +954,13 @@ const debugWebSocket = () => {
     padding: 20px
     display: flex
     flex-direction: column
-    max-width: 700px;
     width: 100%;
     align-self: center;
     @include custom-scrollbar
+    >*
+      align-self: center
+      width: 100%
+      max-width: 650px;
     
     .loading-trigger
       height: 20px
@@ -1157,13 +1157,14 @@ const debugWebSocket = () => {
     transform: translateX(-50%)
     background-color: $purple
     color: $white
+    width: 40px
+    height: 40px
     padding: 10px 15px
-    border-radius: 10px
+    border-radius: 50%
     cursor: pointer
-    animation: bounce 1s ease-in-out infinite
-    
+
     .new-messages-text
-      font-size: 14px
+      font-size: 24px
       font-weight: bold
     
     .new-messages-arrow
@@ -1182,14 +1183,6 @@ const debugWebSocket = () => {
     transform: rotate(0deg)
   100%
     transform: rotate(360deg)
-
-@keyframes bounce
-  0%
-    transform: translateY(0)
-  50%
-    transform: translateY(-10px)
-  100%
-    transform: translateY(0)
 
 @include mobile
   .chat-page
