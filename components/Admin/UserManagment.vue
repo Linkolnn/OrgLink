@@ -15,7 +15,6 @@
                 </thead>
                 <tbody class="user-list__table-body">
                     <tr class="user-list__table-row" v-for="user in users" :key="user._id">
-                        <td class="user-list__table-cell">{{ user._id }}</td>
                         <td class="user-list__table-cell">{{ user.name || 'Не указано' }}</td>
                         <td class="user-list__table-cell">{{ user.number || 'Не указан' }}</td>
                         <td class="user-list__table-cell">{{ user.email || 'Не указан' }}</td>

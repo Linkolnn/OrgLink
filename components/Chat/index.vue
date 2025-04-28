@@ -179,7 +179,8 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch, nextTick, inject } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
+import { useNuxtApp } from '#app';
 import { useChatStore } from '~/stores/chat';
 import { useAuthStore } from '~/stores/auth';
 import ManageParticipantsModal from './ManageParticipantsModal.vue';
@@ -545,16 +546,64 @@ const onChatLeft = () => {
 };
 
 // Получаем функцию и состояние переключения боковой панели из app.vue
-const toggleSidebar = inject('toggleSidebar');
-const sidebarVisible = inject('sidebarVisible');
-const isMobile = inject('isMobile');
-const showChat = inject('showChat');
-const showSidebar = inject('showSidebar');
+// Функция для переключения боковой панели на мобильных устройствах
+const toggleSidebar = () => {
+  // Получаем доступ к глобальному состоянию видимости боковой панели
+  const nuxtApp = useNuxtApp();
+  
+  // Если есть доступ к глобальному состоянию
+  if (nuxtApp && nuxtApp.$sidebarVisible !== undefined) {
+    nuxtApp.$sidebarVisible.value = !nuxtApp.$sidebarVisible.value;
+  } else {
+    // Фоллбэк: прямое переключение класса в DOM
+    const app = document.querySelector('.app');
+    if (app) {
+      app.classList.toggle('sidebar-visible');
+    }
+  }
+};
+// Получаем доступ к глобальному состоянию
+const nuxtApp = useNuxtApp();
+const sidebarVisible = ref(false);
+const isMobile = ref(false);
+
+// Обновляем состояние при монтировании компонента
+onMounted(() => {
+  if (nuxtApp.$sidebarVisible) {
+    sidebarVisible.value = nuxtApp.$sidebarVisible.value;
+    
+    // Следим за изменениями глобального состояния
+    watch(() => nuxtApp.$sidebarVisible.value, (newValue) => {
+      sidebarVisible.value = newValue;
+    });
+  }
+  
+  // Проверяем размер экрана
+  isMobile.value = window.innerWidth <= 859;
+  window.addEventListener('resize', () => {
+    isMobile.value = window.innerWidth <= 859;
+  });
+});
+// Функция для показа боковой панели
+const showSidebar = () => {
+  if (nuxtApp.$sidebarVisible) {
+    nuxtApp.$sidebarVisible.value = true;
+  } else {
+    const app = document.querySelector('.app');
+    if (app) {
+      app.classList.add('sidebar-visible');
+    }
+  }
+};
 
 // Функция для выбора чата на мобильных устройствах
 const selectChatMobile = () => {
   if (isMobile.value) {
-    showChat();
+    // Скрываем боковую панель на мобильных устройствах
+    const nuxtApp = useNuxtApp();
+    if (nuxtApp.$sidebarVisible) {
+      nuxtApp.$sidebarVisible.value = false;
+    }
   }
 };
 

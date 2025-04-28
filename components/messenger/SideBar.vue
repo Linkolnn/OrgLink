@@ -6,8 +6,8 @@
             Меню
           </button>
           <div v-if="isMenuOpen" class="dropdown__menu">
-            <NuxtLink to="/messenger" class="dropdown__item" @click="toggleMenu">Мессенджер</NuxtLink>
-            <NuxtLink v-if="authStore.isAdmin" to="/admin" class="dropdown__item" @click="toggleMenu">Админ панель</NuxtLink>
+            <NuxtLink to="/messenger" class="dropdown__item" @click="navigateTo('/messenger')">Мессенджер</NuxtLink>
+            <NuxtLink v-if="authStore.isAdmin" to="/admin" class="dropdown__item" @click="navigateTo('/admin')">Админ панель</NuxtLink>
             <button @click="logout" class="dropdown__item dropdown__item--logout">Выйти</button>
           </div>
         </div>
@@ -69,10 +69,11 @@
 </template>
 
 <script setup>
-import { ref, computed, inject, onMounted } from 'vue';
-import { useChatStore } from '~/stores/chat';
-import { useAuthStore } from '~/stores/auth';
+import { ref, computed, onMounted, watch } from 'vue';
 import { useRouter } from 'vue-router';
+import { useNuxtApp } from '#app';
+import { useAuthStore } from '~/stores/auth';
+import { useChatStore } from '~/stores/chat';
 import EditChatModal from '~/components/Chat/EditChatModal.vue';
 
 const chatStore = useChatStore();
@@ -80,8 +81,23 @@ const authStore = useAuthStore();
 const router = useRouter();
 
 // Получаем функции для мобильного отображения
-const isMobile = inject('isMobile', ref(false));
-const showChat = inject('showChat', () => {});
+// Определяем, является ли устройство мобильным
+const isMobile = ref(false);
+
+// Проверяем размер экрана при монтировании
+onMounted(() => {
+  isMobile.value = window.innerWidth <= 859;
+  window.addEventListener('resize', () => {
+    isMobile.value = window.innerWidth <= 859;
+  });
+});
+// Функция для показа чата на мобильных устройствах
+const showChat = () => {
+  const nuxtApp = useNuxtApp();
+  if (nuxtApp.$sidebarVisible) {
+    nuxtApp.$sidebarVisible.value = false;
+  }
+};
 
 // Состояние модального окна создания чата
 const showCreateChatModal = ref(false);
@@ -153,6 +169,25 @@ const formatTime = (date) => {
 // Переключение меню
 const toggleMenu = () => {
   isMenuOpen.value = !isMenuOpen.value;
+};
+
+// Плавная навигация между страницами
+const navigateTo = (path) => {
+  // Закрываем меню
+  toggleMenu();
+  
+  // Получаем доступ к глобальному состоянию
+  const nuxtApp = useNuxtApp();
+  
+  // Если мы на мобильном устройстве, скрываем боковую панель
+  if (window.innerWidth <= 859) {
+    if (nuxtApp.$sidebarVisible) {
+      nuxtApp.$sidebarVisible.value = false;
+    }
+  }
+  
+  // Переходим на новую страницу
+  router.push(path);
 };
 </script>
 

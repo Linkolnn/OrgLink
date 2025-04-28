@@ -29,7 +29,11 @@ export default defineNuxtPlugin((nuxtApp) => {
   
   // Инициализация WebSocket соединения
   
-  // Создаем экземпляр сокета
+  // Определяем, находимся ли мы в production окружении (Vercel)
+  const isProduction = process.env.NODE_ENV === 'production';
+  const isVercel = typeof window !== 'undefined' && window.location.hostname.includes('vercel.app');
+  
+  // Создаем экземпляр сокета с настройками в зависимости от окружения
   const socket = io(config.public.backendUrl, {
     autoConnect: false, // Не подключаемся автоматически
     withCredentials: true,
@@ -37,6 +41,8 @@ export default defineNuxtPlugin((nuxtApp) => {
     reconnectionAttempts: 10,  // Максимальное количество попыток переподключения
     reconnectionDelay: 1000,   // Задержка между попытками переподключения
     timeout: 10000,            // Таймаут соединения
+    transports: isVercel ? ['polling'] : ['websocket', 'polling'], // Только polling для Vercel
+    path: isVercel ? '/api/socket.io' : undefined, // Путь для Vercel
     auth: {
       token: getToken() // Инициализируем с токеном
     }
@@ -48,6 +54,9 @@ export default defineNuxtPlugin((nuxtApp) => {
   });
 
   socket.on('connect_error', (error) => {
+    // Логируем ошибку подключения
+    console.warn('Socket.io connection error:', error.message);
+    
     // Если ошибка связана с аутентификацией, попробуем обновить токен и переподключиться
     if (error.message.includes('Authentication')) {
       const token = getToken();
@@ -57,6 +66,14 @@ export default defineNuxtPlugin((nuxtApp) => {
           socket.connect();
         }, 1000);
       }
+    }
+    // Если ошибка связана с транспортом, попробуем другой транспорт
+    else if (error.message.includes('transport') || error.message.includes('xhr poll error')) {
+      // Переключаемся на polling, если websocket не работает
+      socket.io.opts.transports = ['polling'];
+      setTimeout(() => {
+        socket.connect();
+      }, 1000);
     }
   });
 

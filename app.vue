@@ -1,24 +1,35 @@
 <template>
   <div class="pattern-container">
-    <div class="app" :class="{ 'sidebar-visible': sidebarVisible && isMessengerPage, 'mobile': isMobile && isMessengerPage }">
+    <div class="app" :class="{ 'sidebar-visible': sidebarVisible && needsSidebar, 'mobile': isMobile && needsSidebar }">
       <MessengerSideBar v-if="isAuthenticated" :class="{ 'visible': sidebarVisible }"/>
       <main class="main container">
-        <NuxtPage />
+        <NuxtPage>
+          <template #default="{ Component }">
+            <transition name="page-transition" mode="out-in">
+              <component :is="Component" />
+            </transition>
+          </template>
+        </NuxtPage>
       </main>
     </div>
   </div>
 </template>
 
 <script setup>
+import { ref, onMounted, onUnmounted, provide, computed, watch } from 'vue';
+import { useNuxtApp } from '#app';
 import { storeToRefs } from 'pinia';
 import { useAuthStore } from '~/stores/auth';
+import { useRoute } from 'vue-router';
 
 const authStore = useAuthStore();
 const { isAuthenticated } = storeToRefs(authStore);
 const route = useRoute();
 
-// Проверяем, находимся ли мы на странице мессенджера
+// Проверяем, находимся ли мы на странице мессенджера или админа
 const isMessengerPage = computed(() => route.path === '/messenger');
+const isAdminPage = computed(() => route.path === '/admin');
+const needsSidebar = computed(() => isMessengerPage.value || isAdminPage.value);
 
 // Состояние видимости боковой панели
 // На мобильных устройствах первоначально показываем sidebar
@@ -30,16 +41,16 @@ const checkMobile = () => {
   const wasMobile = isMobile.value;
   isMobile.value = window.innerWidth <= 859;
   
-  // На мобильных устройствах первоначально показываем sidebar только на странице мессенджера
-  if (isMobile.value && !wasMobile && isMessengerPage.value) {
+  // На мобильных устройствах первоначально показываем sidebar на страницах мессенджера и админа
+  if (isMobile.value && !wasMobile && needsSidebar.value) {
     sidebarVisible.value = true;
   }
 };
 
 // Следим за изменением маршрута
 watch(() => route?.path, (newPath) => {
-  // Если перешли на страницу мессенджера и на мобильном устройстве
-  if (newPath === '/messenger' && isMobile.value) {
+  // Если перешли на страницу мессенджера или админа и на мобильном устройстве
+  if ((newPath === '/messenger' || newPath === '/admin') && isMobile.value) {
     sidebarVisible.value = true;
   }
 }, { immediate: true });
@@ -47,6 +58,15 @@ watch(() => route?.path, (newPath) => {
 onMounted(() => {
   checkMobile();
   window.addEventListener('resize', checkMobile);
+  
+  // Делаем состояние видимости боковой панели доступным глобально
+  const nuxtApp = useNuxtApp();
+  nuxtApp.$sidebarVisible = sidebarVisible;
+  
+  // Следим за изменениями глобального состояния
+  watch(() => nuxtApp.$sidebarVisible.value, (newValue) => {
+    sidebarVisible.value = newValue;
+  });
 });
 
 onUnmounted(() => {
@@ -113,7 +133,7 @@ provide('showSidebar', () => {
     left: 0
     width: 100%
     height: 100%
-    background-image: url("https://web.telegram.org/a/chat-bg-pattern-dark.ad38368a9e8140d0ac7d.png")
+    background-image: url("/assets/img/pattern.png")
     background-repeat: repeat
     background-size: 510px auto
 
@@ -140,6 +160,19 @@ provide('showSidebar', () => {
   flex: 1
   transition: transform $transition-speed $transition-function
   width: 100%
+
+// Плавный переход между страницами
+.page-transition-enter-active,
+.page-transition-leave-active
+  transition: opacity 0.3s ease, transform 0.3s ease
+
+.page-transition-enter-from
+  opacity: 0
+  transform: translateX(20px)
+
+.page-transition-leave-to
+  opacity: 0
+  transform: translateX(-20px)
   
   @include tablet
     position: absolute
