@@ -48,6 +48,13 @@ const messageSchema = new mongoose.Schema(
   }
 );
 
+// Добавляем индексы для ускорения запросов
+// Составной индекс по чату и времени создания
+messageSchema.index({ chat: 1, createdAt: -1 });
+
+// Индекс для поиска непрочитанных сообщений
+messageSchema.index({ chat: 1, sender: 1, read_by: 1 });
+
 // Виртуальное поле для даты (для совместимости с фронтендом)
 messageSchema.virtual('date').get(function() {
   return this.createdAt;

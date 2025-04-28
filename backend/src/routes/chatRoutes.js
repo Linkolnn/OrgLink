@@ -36,6 +36,6 @@ router.delete('/:id/leave', protect, leaveChat);
 // Маршруты для сообщений
 router.post('/:chatId/messages', protect, sendMessage);
 router.get('/:chatId/messages', protect, getChatMessages);
-router.put('/:chatId/messages/read', protect, markMessagesAsRead);
+router.post('/:chatId/messages/read', protect, markMessagesAsRead);
 
 export default router;

@@ -70,6 +70,21 @@ const createChat = async (req, res) => {
         }
       });
     
+    // Отправляем уведомление всем участникам чата через WebSocket
+    populatedChat.participants.forEach(participant => {
+      // Отправляем событие только если пользователь онлайн и это не создатель чата
+      if (participant._id.toString() !== req.user._id.toString() && 
+          req.app.locals.io && 
+          req.app.locals.userSockets[participant._id.toString()]) {
+        
+        console.log(`Отправка уведомления о новом чате пользователю ${participant.name}`);
+        
+        // Отправляем событие в сокет пользователя
+        const socketId = req.app.locals.userSockets[participant._id.toString()].id;
+        req.app.locals.io.to(socketId).emit('new-chat', populatedChat);
+      }
+    });
+    
     res.status(201).json(populatedChat);
   } catch (error) {
     console.error('Ошибка создания чата:', error);
@@ -199,6 +214,19 @@ const updateChat = async (req, res) => {
           select: 'name'
         }
       });
+    
+    // Отправляем уведомление всем участникам чата через WebSocket
+    updatedChat.participants.forEach(participant => {
+      // Отправляем событие только если пользователь онлайн и это не тот, кто обновил чат
+      if (participant._id.toString() !== req.user._id.toString() && 
+          req.app.locals.io && 
+          req.app.locals.userSockets[participant._id.toString()]) {
+        
+        console.log(`Отправка уведомления об обновлении чата пользователю ${participant.name}`);
+        const socketId = req.app.locals.userSockets[participant._id.toString()].id;
+        req.app.locals.io.to(socketId).emit('chat-updated', updatedChat);
+      }
+    });
     
     res.json(updatedChat);
   } catch (error) {

@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia';
 import { useRuntimeConfig } from '#imports';
+import { useNuxtApp } from '#app';
 
 export const useChatStore = defineStore('chat', {
   state: () => ({
@@ -7,13 +8,17 @@ export const useChatStore = defineStore('chat', {
     activeChat: null,
     messages: [],
     loading: false,
+    loadingMore: false,
     error: null,
     pagination: {
-      page: 1,
-      limit: 20,
+      limit: 15, // Уменьшаем начальный лимит для более быстрой загрузки
       total: 0,
-      pages: 0
-    }
+      hasMore: false,
+      nextCursor: null
+    },
+    socketConnected: false,
+    socketListenersInitialized: false,
+    initialLoadComplete: false // Флаг для отслеживания первоначальной загрузки
   }),
   
   getters: {
@@ -24,6 +29,145 @@ export const useChatStore = defineStore('chat', {
   },
   
   actions: {
+    // Инициализация WebSocket слушателей
+    initSocketListeners() {
+      if (this.socketListenersInitialized) return;
+      
+      const { $socket } = useNuxtApp();
+      
+      // Слушаем новые сообщения
+      $socket.on('new-message', ({ message, chatId }) => {
+        this.addNewMessage(message);
+      });
+      
+      // Слушаем прочтение сообщений
+      $socket.on('messages-read', ({ chatId, userId }) => {
+        this.updateMessagesReadStatus(chatId, userId);
+      });
+      
+      // Слушаем создание новых чатов
+      $socket.on('new-chat', (chat) => {
+        console.log('Получено уведомление о новом чате:', chat);
+        this.addNewChat(chat);
+      });
+      
+      // Слушаем обновление чатов
+      $socket.on('chat-updated', (updatedChat) => {
+        console.log('Получено уведомление об обновлении чата:', updatedChat);
+        this.updateChatInList(updatedChat);
+      });
+      
+      // Слушаем удаление чатов
+      $socket.on('chat-deleted', (chatId) => {
+        console.log('Получено уведомление об удалении чата:', chatId);
+        this.removeChatFromList(chatId);
+      });
+      
+      this.socketListenersInitialized = true;
+    },
+    
+    // Добавление нового сообщения (через WebSocket)
+    addNewMessage(message) {
+      // Проверяем, что сообщение не дублируется
+      const isDuplicate = this.messages.some(msg => msg._id === message._id);
+      if (isDuplicate) {
+        console.log('Дублирующееся сообщение проигнорировано:', message._id);
+        return;
+      }
+      
+      // Добавляем сообщение в массив
+      this.messages.push(message);
+      
+      // Обновляем lastMessage в активном чате, если это тот же чат
+      if (this.activeChat && this.activeChat._id === message.chat) {
+        this.activeChat.lastMessage = {
+          text: message.text || 'Медиа-сообщение',
+          sender: message.sender._id,
+          timestamp: message.createdAt || new Date()
+        };
+      }
+      
+      // Обновляем lastMessage в списке чатов
+      const chatIndex = this.chats.findIndex(chat => chat._id === message.chat);
+      if (chatIndex !== -1) {
+        this.chats[chatIndex].lastMessage = {
+          text: message.text || 'Медиа-сообщение',
+          sender: message.sender._id,
+          timestamp: message.createdAt || new Date()
+        };
+        
+        // Перемещаем чат в начало списка
+        const chat = this.chats.splice(chatIndex, 1)[0];
+        this.chats.unshift(chat);
+      }
+    },
+    
+    // Обновление статуса прочтения сообщений
+    updateMessagesReadStatus(chatId, userId) {
+      // Обновляем статус прочтения для всех сообщений в указанном чате
+      if (this.activeChat && this.activeChat._id === chatId) {
+        this.messages.forEach(message => {
+          if (!message.read_by.includes(userId)) {
+            message.read_by.push(userId);
+          }
+        });
+      }
+    },
+    
+    // Добавление нового чата в список (через WebSocket)
+    addNewChat(chat) {
+      // Проверяем, нет ли уже такого чата в списке
+      const existingChatIndex = this.chats.findIndex(c => c._id === chat._id);
+      
+      if (existingChatIndex === -1) {
+        // Добавляем новый чат в начало списка
+        this.chats.unshift(chat);
+        console.log('Новый чат добавлен в список:', chat.name);
+      } else {
+        // Обновляем существующий чат
+        this.chats[existingChatIndex] = { ...this.chats[existingChatIndex], ...chat };
+        console.log('Существующий чат обновлен:', chat.name);
+      }
+    },
+    
+    // Обновление чата в списке (через WebSocket)
+    updateChatInList(updatedChat) {
+      const chatIndex = this.chats.findIndex(c => c._id === updatedChat._id);
+      
+      if (chatIndex !== -1) {
+        // Обновляем чат, сохраняя локальные данные, которые не приходят с сервера
+        this.chats[chatIndex] = { ...this.chats[chatIndex], ...updatedChat };
+        
+        // Если это активный чат, обновляем и его
+        if (this.activeChat && this.activeChat._id === updatedChat._id) {
+          this.activeChat = { ...this.activeChat, ...updatedChat };
+        }
+        
+        console.log('Чат обновлен в списке:', updatedChat.name);
+      }
+    },
+    
+    // Удаление чата из списка (через WebSocket)
+    removeChatFromList(chatId) {
+      const chatIndex = this.chats.findIndex(c => c._id === chatId);
+      
+      if (chatIndex !== -1) {
+        // Сохраняем имя чата для лога
+        const chatName = this.chats[chatIndex].name;
+        
+        // Удаляем чат из списка
+        this.chats.splice(chatIndex, 1);
+        
+        // Если это был активный чат, сбрасываем активный чат
+        if (this.activeChat && this.activeChat._id === chatId) {
+          this.activeChat = null;
+          this.messages = [];
+        }
+        
+        console.log('Чат удален из списка:', chatName);
+      }
+    },
+    
     // Загрузка списка чатов
     async fetchChats() {
       this.loading = true;
@@ -36,6 +180,9 @@ export const useChatStore = defineStore('chat', {
         });
         
         this.chats = response;
+        
+        // Инициализируем WebSocket слушатели
+        this.initSocketListeners();
       } catch (error) {
         console.error('Ошибка при загрузке чатов:', error);
         this.error = 'Не удалось загрузить список чатов';
@@ -73,87 +220,201 @@ export const useChatStore = defineStore('chat', {
     
     // Установка активного чата
     async setActiveChat(chatId) {
-      if (this.activeChat?._id === chatId) return;
+      if (!chatId) {
+        // Если чат был активен, покидаем его комнату в WebSocket
+        if (this.activeChat) {
+          const { $socketLeaveChat } = useNuxtApp();
+          $socketLeaveChat(this.activeChat._id);
+        }
+        
+        this.activeChat = null;
+        this.messages = [];
+        return;
+      }
+      
+      // Если уже выбран этот чат, ничего не делаем
+      if (this.activeChat && this.activeChat._id === chatId) return;
+      
+      // Если был активен другой чат, покидаем его комнату
+      if (this.activeChat) {
+        const { $socketLeaveChat } = useNuxtApp();
+        $socketLeaveChat(this.activeChat._id);
+      }
       
       this.loading = true;
       this.error = null;
-      this.messages = [];
-      this.pagination = {
-        page: 1,
-        limit: 20,
-        total: 0,
-        pages: 0
-      };
+      
+      // Проверяем, есть ли чат в списке чатов
+      const existingChat = this.chats.find(chat => chat._id === chatId);
+      if (existingChat) {
+        // Если чат уже есть в списке, устанавливаем его как активный
+        // без дополнительного запроса к серверу
+        this.activeChat = existingChat;
+      }
       
       try {
+        // Запускаем параллельные запросы для получения данных чата и сообщений
         const config = useRuntimeConfig();
         
-        // Получаем информацию о чате
-        const chatResponse = await $fetch(`${config.public.backendUrl}/api/chats/${chatId}`, {
-          credentials: 'include'
-        });
+        // Запускаем запросы параллельно
+        const [chatResponse] = await Promise.all([
+          // Получаем данные чата только если его нет в списке
+          !existingChat ? $fetch(`${config.public.backendUrl}/api/chats/${chatId}`, {
+            credentials: 'include'
+          }) : Promise.resolve(existingChat),
+          
+          // Сбрасываем пагинацию и загружаем сообщения
+          // (этот запрос выполняется в любом случае)
+          (async () => {
+            this.pagination.nextCursor = null;
+            this.messages = [];
+            await this.fetchMessages(chatId);
+          })()
+        ]);
         
-        this.activeChat = chatResponse;
-        
-        // Обновляем чат в списке чатов
-        const chatIndex = this.chats.findIndex(chat => chat._id === chatId);
-        if (chatIndex !== -1) {
-          this.chats[chatIndex] = { ...this.chats[chatIndex], ...chatResponse };
+        // Обновляем данные чата, если получили новые
+        if (!existingChat) {
+          this.activeChat = chatResponse;
         }
         
-        // Загружаем сообщения чата
-        await this.fetchMessages(chatId);
+        // Сбрасываем счетчик непрочитанных сообщений
+        const chatIndex = this.chats.findIndex(chat => chat._id === chatId);
+        if (chatIndex !== -1) {
+          const updatedChat = { ...this.chats[chatIndex], unread: 0 };
+          this.chats.splice(chatIndex, 1, updatedChat);
+        }
         
-        // Отмечаем сообщения как прочитанные
-        await this.markMessagesAsRead(chatId);
+        // Отмечаем сообщения как прочитанные и подключаемся к WebSocket
+        // (выполняем эти операции параллельно)
+        Promise.all([
+          this.markMessagesAsRead(chatId),
+          (async () => {
+            // Подключаемся к комнате чата через WebSocket
+            const { $socketJoinChat } = useNuxtApp();
+            $socketJoinChat(chatId);
+          })()
+        ]).catch(error => {
+          console.error('Ошибка при выполнении дополнительных операций:', error);
+        });
       } catch (error) {
-        console.error('Ошибка при установке активного чата:', error);
-        this.error = 'Не удалось загрузить информацию о чате';
-        this.activeChat = null;
+        console.error('Ошибка при загрузке чата:', error);
+        this.error = 'Не удалось загрузить чат';
       } finally {
         this.loading = false;
       }
     },
     
     // Загрузка сообщений чата
-    async fetchMessages(chatId, page = 1) {
+    async fetchMessages(chatId) {
       if (!chatId) return;
       
       this.loading = true;
+      this.initialLoadComplete = false;
       
       try {
         const config = useRuntimeConfig();
+        const params = {
+          limit: this.pagination.limit
+        };
         
         const response = await $fetch(`${config.public.backendUrl}/api/chats/${chatId}/messages`, {
-          params: {
-            page,
-            limit: this.pagination.limit
-          },
-          credentials: 'include'
+          credentials: 'include',
+          params
         });
         
-        // Если это первая страница, заменяем сообщения
-        // Иначе добавляем в начало списка (так как сообщения приходят от новых к старым)
-        if (page === 1) {
-          this.messages = response.messages;
-        } else {
-          this.messages = [...response.messages, ...this.messages];
+        // Устанавливаем сообщения
+        this.messages = response.messages;
+        
+        // Обновляем информацию о пагинации
+        this.pagination = response.pagination;
+        
+        // Если есть еще сообщения, запускаем фоновую загрузку следующей порции
+        if (this.pagination.hasMore && !this.loadingMore) {
+          this.loadMoreMessagesInBackground();
         }
         
-        this.pagination = response.pagination;
+        this.initialLoadComplete = true;
+        return response.messages;
       } catch (error) {
         console.error('Ошибка при загрузке сообщений:', error);
         this.error = 'Не удалось загрузить сообщения';
+        throw error;
       } finally {
         this.loading = false;
       }
     },
     
-    // Загрузка предыдущих сообщений (для бесконечной прокрутки)
-    async loadMoreMessages() {
-      if (!this.activeChat || this.pagination.page >= this.pagination.pages) return;
+    // Фоновая загрузка дополнительных сообщений
+    async loadMoreMessagesInBackground() {
+      if (!this.activeChat || !this.pagination.hasMore || this.loadingMore) return;
       
-      await this.fetchMessages(this.activeChat._id, this.pagination.page + 1);
+      // Не показываем индикатор загрузки для фоновой загрузки
+      this.loadingMore = true;
+      
+      try {
+        // Получаем ID самого старого сообщения
+        const oldestMessageId = this.pagination.nextCursor;
+        
+        if (oldestMessageId) {
+          const config = useRuntimeConfig();
+          const params = {
+            limit: 30, // Загружаем больше сообщений в фоне
+            before_id: oldestMessageId
+          };
+          
+          const response = await $fetch(`${config.public.backendUrl}/api/chats/${this.activeChat._id}/messages`, {
+            credentials: 'include',
+            params
+          });
+          
+          // Добавляем старые сообщения в начало списка
+          if (response.messages.length > 0) {
+            this.messages = [...response.messages, ...this.messages];
+          }
+          
+          // Обновляем информацию о пагинации
+          this.pagination = response.pagination;
+        }
+      } catch (error) {
+        console.error('Ошибка при фоновой загрузке сообщений:', error);
+      } finally {
+        this.loadingMore = false;
+      }
+    },
+    
+    // Загрузка дополнительных сообщений (по запросу пользователя)
+    async loadMoreMessages(chatId, beforeId) {
+      if (!chatId || !beforeId || this.loadingMore) return;
+      
+      this.loadingMore = true;
+      
+      try {
+        const config = useRuntimeConfig();
+        const params = {
+          limit: 20,
+          before_id: beforeId
+        };
+        
+        const response = await $fetch(`${config.public.backendUrl}/api/chats/${chatId}/messages`, {
+          credentials: 'include',
+          params
+        });
+        
+        // Добавляем старые сообщения в начало списка
+        if (response.messages.length > 0) {
+          this.messages = [...response.messages, ...this.messages];
+        }
+        
+        // Обновляем информацию о пагинации
+        this.pagination = response.pagination;
+        
+        return response.messages;
+      } catch (error) {
+        console.error('Ошибка при загрузке дополнительных сообщений:', error);
+        throw error;
+      } finally {
+        this.loadingMore = false;
+      }
     },
     
     // Редактирование чата
@@ -213,15 +474,13 @@ export const useChatStore = defineStore('chat', {
       }
       
       try {
-        const response = await fetch(`/api/chats/search-users?query=${encodeURIComponent(query)}`, {
+        const config = useRuntimeConfig();
+        const response = await $fetch(`${config.public.backendUrl}/api/chats/search-users`, {
+          params: { query },
           credentials: 'include'
         });
         
-        if (!response.ok) {
-          throw new Error(`Ошибка HTTP: ${response.status}`);
-        }
-        
-        return await response.json();
+        return response;
       } catch (error) {
         console.error('Ошибка при поиске пользователей:', error);
         return [];
@@ -234,32 +493,25 @@ export const useChatStore = defineStore('chat', {
       this.error = null;
       
       try {
-        const response = await fetch(`/api/chats/${chatId}/participants`, {
+        const config = useRuntimeConfig();
+        const response = await $fetch(`${config.public.backendUrl}/api/chats/${chatId}/participants`, {
           method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ participants }),
+          body: { participants },
           credentials: 'include'
         });
         
-        if (!response.ok) {
-          throw new Error(`Ошибка HTTP: ${response.status}`);
+        // Обновляем данные чата
+        if (this.activeChat && this.activeChat._id === chatId) {
+          this.activeChat = response;
         }
         
-        const updatedChat = await response.json();
-        
-        // Обновляем чат в списке и активный чат
+        // Обновляем чат в списке
         const chatIndex = this.chats.findIndex(chat => chat._id === chatId);
         if (chatIndex !== -1) {
-          this.chats[chatIndex] = { ...this.chats[chatIndex], ...updatedChat };
+          this.chats.splice(chatIndex, 1, response);
         }
         
-        if (this.activeChat?._id === chatId) {
-          this.activeChat = updatedChat;
-        }
-        
-        return updatedChat;
+        return response;
       } catch (error) {
         console.error('Ошибка при добавлении участников:', error);
         this.error = 'Не удалось добавить участников';
@@ -275,42 +527,24 @@ export const useChatStore = defineStore('chat', {
       this.error = null;
       
       try {
-        const response = await fetch(`/api/chats/${chatId}/participants/${userId}`, {
+        const config = useRuntimeConfig();
+        const response = await $fetch(`${config.public.backendUrl}/api/chats/${chatId}/participants/${userId}`, {
           method: 'DELETE',
           credentials: 'include'
         });
         
-        if (!response.ok) {
-          throw new Error(`Ошибка HTTP: ${response.status}`);
+        // Обновляем данные чата
+        if (this.activeChat && this.activeChat._id === chatId) {
+          this.activeChat = response;
         }
         
-        const result = await response.json();
-        
-        // Если чат был удален
-        if (result.message && result.message.includes('удален')) {
-          // Удаляем чат из списка
-          this.chats = this.chats.filter(chat => chat._id !== chatId);
-          
-          // Если это был активный чат, сбрасываем его
-          if (this.activeChat?._id === chatId) {
-            this.activeChat = null;
-            this.messages = [];
-          }
-          
-          return { deleted: true, message: result.message };
-        }
-        
-        // Обновляем чат в списке и активный чат
+        // Обновляем чат в списке
         const chatIndex = this.chats.findIndex(chat => chat._id === chatId);
         if (chatIndex !== -1) {
-          this.chats[chatIndex] = { ...this.chats[chatIndex], ...result };
+          this.chats.splice(chatIndex, 1, response);
         }
         
-        if (this.activeChat?._id === chatId) {
-          this.activeChat = result;
-        }
-        
-        return result;
+        return response;
       } catch (error) {
         console.error('Ошибка при удалении участника:', error);
         this.error = 'Не удалось удалить участника';
@@ -326,27 +560,22 @@ export const useChatStore = defineStore('chat', {
       this.error = null;
       
       try {
-        const response = await fetch(`/api/chats/${chatId}/leave`, {
+        const config = useRuntimeConfig();
+        await $fetch(`${config.public.backendUrl}/api/chats/${chatId}/leave`, {
           method: 'DELETE',
           credentials: 'include'
         });
-        
-        if (!response.ok) {
-          throw new Error(`Ошибка HTTP: ${response.status}`);
-        }
-        
-        const result = await response.json();
         
         // Удаляем чат из списка
         this.chats = this.chats.filter(chat => chat._id !== chatId);
         
         // Если это был активный чат, сбрасываем его
-        if (this.activeChat?._id === chatId) {
+        if (this.activeChat && this.activeChat._id === chatId) {
           this.activeChat = null;
           this.messages = [];
         }
         
-        return result;
+        return { success: true };
       } catch (error) {
         console.error('Ошибка при выходе из чата:', error);
         this.error = 'Не удалось выйти из чата';
@@ -358,34 +587,21 @@ export const useChatStore = defineStore('chat', {
     
     // Отправка сообщения
     async sendMessage(chatId, messageData) {
+      if (!chatId) return;
+      
       try {
         const config = useRuntimeConfig();
-        
         const response = await $fetch(`${config.public.backendUrl}/api/chats/${chatId}/messages`, {
           method: 'POST',
           body: messageData,
           credentials: 'include'
         });
         
-        // Проверяем, не дублируется ли сообщение
-        const isDuplicate = this.messages.some(msg => msg._id === response._id);
-        if (!isDuplicate) {
-          // Добавляем сообщение в конец списка
+        // Сообщение будет добавлено через WebSocket, но на случай если что-то пойдет не так,
+        // добавляем его и здесь (WebSocket обработчик проигнорирует дубликат)
+        const messageExists = this.messages.some(msg => msg._id === response._id);
+        if (!messageExists) {
           this.messages.push(response);
-        }
-        
-        // Обновляем последнее сообщение в чате
-        const chatIndex = this.chats.findIndex(chat => chat._id === chatId);
-        if (chatIndex !== -1) {
-          this.chats[chatIndex].lastMessage = {
-            text: messageData.text || 'Медиа-сообщение',
-            sender: response.sender,
-            timestamp: new Date()
-          };
-          
-          // Перемещаем чат в начало списка
-          const chat = this.chats.splice(chatIndex, 1)[0];
-          this.chats.unshift(chat);
         }
         
         return response;
@@ -397,24 +613,24 @@ export const useChatStore = defineStore('chat', {
     
     // Отметка сообщений как прочитанных
     async markMessagesAsRead(chatId) {
+      if (!chatId) return;
+      
       try {
         const config = useRuntimeConfig();
-        
-        const response = await $fetch(`${config.public.backendUrl}/api/chats/${chatId}/messages/read`, {
-          method: 'PUT',
+        await $fetch(`${config.public.backendUrl}/api/chats/${chatId}/messages/read`, {
+          method: 'POST',
           credentials: 'include'
         });
         
-        // Обнуляем счетчик непрочитанных сообщений в чате
+        // Обновляем счетчик непрочитанных сообщений в списке чатов
         const chatIndex = this.chats.findIndex(chat => chat._id === chatId);
         if (chatIndex !== -1) {
-          this.chats[chatIndex].unread = 0;
+          const updatedChat = { ...this.chats[chatIndex], unread: 0 };
+          this.chats.splice(chatIndex, 1, updatedChat);
         }
-        
-        return response;
       } catch (error) {
         console.error('Ошибка при отметке сообщений как прочитанных:', error);
       }
-    }
+    },
   }
 });

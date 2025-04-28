@@ -18,8 +18,7 @@ const { isAuthenticated, isLoggingOut } = storeToRefs(authStore);
 // Обработка успешного входа
 const handleLogin = async (userData) => {
   authStore.setUser(userData);
-  // Запускаем лоадер вручную 
-  $loader.start();
+  // Убираем использование $loader, так как он вызывает ошибку
   // Задержка перед редиректом для плавного UX
   await new Promise(resolve => setTimeout(resolve, 300));
   router.push('/messenger');

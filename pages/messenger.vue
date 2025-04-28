@@ -42,16 +42,43 @@ watch(() => authStore.isAuthenticated, async (isAuth) => {
 </script>
 <template>  
     <div class="messenger-container" v-if="isAuthenticated">
-      <Chat />
+        <Chat />
     </div>
 </template>
 <style lang="sass">
+@import '~/assets/styles/variables'
+
 .messenger-container
   display: flex
   width: 100%
   height: 100vh
   overflow: hidden
+  position: relative
   
-  @media (max-width: 768px)
-    flex-direction: column
+  @include tablet
+    // В мобильной версии не меняем направление, чтобы сохранить анимацию сдвига
+
+.loading-container
+  display: flex
+  flex-direction: column
+  align-items: center
+  justify-content: center
+  height: 100vh
+  background: $primary-bg
+  color: $white
+  
+  .spinner
+    width: 40px
+    height: 40px
+    border: 3px solid rgba(255, 255, 255, 0.3)
+    border-radius: 50%
+    border-top-color: $white
+    animation: spin 1s ease-in-out infinite
+    margin-bottom: 15px
+
+@keyframes spin
+  0%
+    transform: rotate(0deg)
+  100%
+    transform: rotate(360deg)
 </style>

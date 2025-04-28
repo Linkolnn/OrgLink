@@ -1,54 +1,68 @@
 <template>
-    <form class="form" @submit.prevent="handleSubmit" :class="['form', login ? '--login' : '--adminRegister']">
+    <form class="form" @submit.prevent="handleSubmit" :class="{'form--login': login, 'form--admin': adminRegister}">
         <template v-if="login">
-            <input class="inp inp--login"
-                type="email"
-                v-model="form.email"
-                name="email" 
-                id="email" 
-                placeholder="E-mail"
-                required
-            >
-            <input class="inp inp--login"
-                type="password"
-                v-model="form.password" 
-                name="password" 
-                id="password" 
-                placeholder="Пароль"
-                required
-            >
+            <div class="form__field">
+                <input class="inp form__input"
+                    type="email"
+                    v-model="form.email"
+                    name="email" 
+                    id="email" 
+                    placeholder="E-mail"
+                    required
+                >
+            </div>
+            <div class="form__field">
+                <input class="inp form__input"
+                    type="password"
+                    v-model="form.password" 
+                    name="password" 
+                    id="password" 
+                    placeholder="Пароль"
+                    required
+                >
+            </div>
         </template>
         <template v-if="adminRegister">
-            <input class="inp inp--adminRegister"
-                type="text"
-                v-model="form.name"
-                name="name" 
-                id="name" 
-                placeholder="Имя"
-            >
-            <input class="inp inp--adminRegister"
-                type="email"
-                v-model="form.email"
-                name="email" 
-                id="email" 
-                placeholder="E-mail"
-            >
-            <input class="inp inp--adminRegister"
-                type="tel"
-                v-model="form.number"
-                name="number" 
-                id="number" 
-                placeholder="Номер телефона"
-            >
-            <input class="inp inp--adminRegister"
-                type="password"
-                v-model="form.password"
-                name="password" 
-                id="password" 
-                :placeholder="isEdit ? 'Оставьте пустым, чтобы не менять' : 'Пароль'"
-            >
+            <div class="form__field">
+                <input class="inp form__input"
+                    type="text"
+                    v-model="form.name"
+                    name="name" 
+                    id="name" 
+                    placeholder="Имя"
+                >
+            </div>
+            <div class="form__field">
+                <input class="inp form__input"
+                    type="email"
+                    v-model="form.email"
+                    name="email" 
+                    id="email" 
+                    placeholder="E-mail"
+                >
+            </div>
+            <div class="form__field">
+                <input class="inp form__input"
+                    type="tel"
+                    v-model="form.number"
+                    name="number" 
+                    id="number" 
+                    placeholder="Номер телефона"
+                >
+            </div>
+            <div class="form__field">
+                <input class="inp form__input"
+                    type="password"
+                    v-model="form.password"
+                    name="password" 
+                    id="password" 
+                    :placeholder="isEdit ? 'Оставьте пустым, чтобы не менять' : 'Пароль'"
+                >
+            </div>
         </template>
-        <button class="btn" :class="['btn',login ? '--login' : '--adminRegister']" type="submit">{{ login ? 'Войти' : (isEdit ? 'Сохранить' : 'Зарегистрироваться') }}</button>
+        <div class="form__actions">
+            <button class="form__button" type="submit">{{ login ? 'Войти' : (isEdit ? 'Сохранить' : 'Зарегистрироваться') }}</button>
+        </div>
     </form>
 </template>
 <script setup>
@@ -85,29 +99,59 @@ const handleSubmit = () => {
 };
 </script>
 <style lang="sass">
+@import '~/assets/styles/variables'
 
 .form
     display: flex
     flex-direction: column
-    gap: 10px
+    gap: 16px
     width: 100%
     max-width: 400px
     margin: 0 auto
+    // padding: 24px
+    border-radius: $radius
+    background-color: $form-bg
 
     &--login
+        padding-top: 0px
+        padding-bottom: 0px
+        background: transparent
 
-    &--adminRegister
- 
-.inp
-    
-    &--login
+    &--admin
+        padding-top: 24px
+        padding-bottom: 24px
 
-    &--adminRegister
+    &__field
+        position: relative
+        width: 100%
 
-.btn
+    &__input
+        background-color: $white
+        color: $text-color
+        border: 1px solid rgba($service-color, 0.3)
+        
+        &::placeholder
+            color: $service-color
 
-    &--login
+    &__actions
+        margin-top: 8px
 
-    &--adminRegister
+    &__button
+        width: 100%
+        padding: 12px 24px
+        border: none
+        border-radius: $radius
+        background: transparent
+        color: $purple
+        font-size: 16px
+        font-weight: 600
+        cursor: pointer
+        transition: background-color $transition-speed $transition-function
+
+        &:hover
+            background-color: rgba($purple, 0.1)
+
+        &:active
+            background-color: rgba($purple, 0.1)
 
 </style>

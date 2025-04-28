@@ -1,7 +1,8 @@
 // assets/sass/_variables.scss
 $header-bg: rgb(33, 33, 33);
 $white: #ffffff
-$primary-bg: linear-gradient(to top, #575255, #c784e8);
+$primary-bg: rgb(39, 39, 39);
+// linear-gradient(to top, #575255, #c784e8)
 $text-color: #000000;
 $service-color: #70777b;
 $from-name-color: #3892db;
@@ -10,6 +11,7 @@ $purple: #9884e8;
 $message-bg: rgba(33, 33, 33, 0.651)
 $date-message-bg: rgb(33, 33, 33)
 $radius: 15px
+$form-bg: rgb(33, 33, 33);
 
 // Новые переменные для скролла
 $scrollbar-width: 8px
@@ -18,8 +20,19 @@ $scrollbar-thumb-color: rgba(255, 255, 255, 0.3)
 $scrollbar-thumb-hover-color: rgba(255, 255, 255, 0.5)
 $scrollbar-radius: 4px
 
+// Переменные для анимации и переходов
+$transition-speed: 0.3s
+$transition-function: ease-in-out
+$sidebar-width: 320px
+
+// Миксин для мобильных устройств (до 480px)
 @mixin mobile 
     @media (max-width: 480px) 
+        @content
+        
+// Миксин для планшетов и мобильных (до 859px)
+@mixin tablet
+    @media (max-width: 859px) 
         @content
         
 // Миксин для стилизации скролла
@@ -38,3 +51,28 @@ $scrollbar-radius: 4px
         
         &:hover
             background: $scrollbar-thumb-hover-color
+
+// Общий класс для всех инпутов
+.inp
+    padding: 10px 15px
+    border-radius: $radius
+    background-color: $header-bg
+    color: $white
+    border: 1px solid rgba($white, 0.1)
+    width: 100%
+    font-size: 14px
+    transition: border-color $transition-speed $transition-function
+    
+    &:focus
+        outline: none
+        border-color: $purple
+    
+    &::placeholder
+        color: rgba($white, 0.5)
+    
+    &--textarea
+        resize: none
+        max-height: 150px
+        min-height: 44px
+        overflow-y: auto
+        @include custom-scrollbar

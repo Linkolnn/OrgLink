@@ -19,10 +19,18 @@ const DEFAULT_ADMIN_EMAIL = process.env.ADMIN_EMAIL;
 const DEFAULT_ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 
 // Генерация JWT токена
-const generateToken = (id) => {
-  return jwt.sign({ id }, process.env.JWT_SECRET, {
-    expiresIn: process.env.JWT_EXPIRES_IN,
-  });
+const generateToken = (user) => {
+  return jwt.sign(
+    { 
+      id: user._id,
+      role: user.role,
+      email: user.email
+    }, 
+    process.env.JWT_SECRET, 
+    {
+      expiresIn: process.env.JWT_EXPIRES_IN,
+    }
+  );
 };
 
 // Установка JWT токена в cookie
@@ -180,7 +188,7 @@ const loginUser = async (req, res) => {
       console.log('Пароль совпадает:', isMatch);
       
       if (isMatch) {
-        const token = generateToken(user._id);
+        const token = generateToken(user);
         console.log('Токен создан:', token ? token.substring(0, 15) + '...' : 'не создан');
         
         // Устанавливаем токен в cookie
@@ -190,9 +198,10 @@ const loginUser = async (req, res) => {
           _id: user._id,
           name: user.name,
           email: user.email,
-          role: user.role
+          role: user.role,
+          token: token // Добавляем токен в ответ API
         };
-        console.log('Отправляем ответ:', responseData ? responseData : 'нет данных');
+        console.log('Отправляем ответ:', responseData ? { ...responseData, token: responseData.token.substring(0, 15) + '...' } : 'нет данных');
         
         res.json(responseData);
       } else {
@@ -275,7 +284,7 @@ const createAdmin = async (req, res) => {
     });
     
     if (admin) {
-      const token = generateToken(admin._id);
+      const token = generateToken(admin);
       setTokenCookie(res, token);
       
       res.status(201).json({

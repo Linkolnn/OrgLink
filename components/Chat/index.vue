@@ -9,6 +9,11 @@
     <div v-else class="chat-content">
       <!-- Шапка чата -->
       <div class="page_header">
+        <!-- Кнопка переключения боковой панели для мобильных устройств -->
+        <button class="toggle-sidebar-btn" @click="toggleSidebar">
+          <i class="fas fa-bars"></i>
+        </button>
+        
         <div class="content">
           <div 
             class="content__img" 
@@ -31,22 +36,31 @@
           <button class="action-btn" @click="showEditChatModal = true">
             <i class="fas fa-edit icon"></i>
           </button>
+          <button class="action-btn" @click="debugWebSocket" title="Проверить WebSocket">
+            <i class="fas fa-sync-alt icon"></i>
+          </button>
         </div>
       </div>
       
       <!-- Контейнер сообщений -->
-      <div class="messages_container" ref="messagesContainer">
+      <div class="messages_container" ref="messagesContainer" @scroll="checkIfAtBottom">
         <!-- Триггер для загрузки дополнительных сообщений -->
         <div v-if="loading" ref="loadingTrigger" class="loading-trigger"></div>
         
-        <!-- Индикатор загрузки -->
-        <div v-if="loading" class="loading-indicator">
+        <!-- Индикатор загрузки дополнительных сообщений -->
+        <div v-if="chatStore.loadingMore" class="loading-indicator loading-more">
           <div class="spinner"></div>
-          Загрузка сообщений...
+          <span>Загрузка старых сообщений...</span>
+        </div>
+        
+        <!-- Индикатор первичной загрузки -->
+        <div v-if="chatStore.loading && !visibleMessages.length" class="loading-indicator initial-loading">
+          <div class="spinner"></div>
+          <span>Загрузка сообщений...</span>
         </div>
         
         <!-- Если сообщений нет -->
-        <div v-if="!loading && messages.length === 0" class="empty-chat">
+        <div v-if="!chatStore.loading && messages.length === 0" class="empty-chat">
           Нет сообщений. Начните общение!
         </div>
         
@@ -125,6 +139,12 @@
             </div>
           </div>
         </div>
+        
+        <!-- Индикатор новых сообщений -->
+        <div v-if="!isAtBottom && !chatStore.loadingMore && messages.length > 0" class="new-messages-indicator" @click="scrollToNewMessages">
+          <div class="new-messages-text">Новые сообщения</div>
+          <div class="new-messages-arrow"></div>
+        </div>
       </div>
       
       <!-- Input area -->
@@ -132,7 +152,7 @@
         <div class="input_container" ref="inputContainer">
           <textarea 
             v-model="messageText" 
-            class="message_input" 
+            class="inp inp--textarea message_input" 
             placeholder="Введите сообщение..." 
             @keydown.enter.exact.prevent="sendMessage"
             @keydown.shift.enter.prevent="addNewLine"
@@ -154,12 +174,12 @@
       </div>
     </div>
   </div>
-  <ManageParticipantsModal v-if="showManageParticipantsModal" @close="showManageParticipantsModal = false" />
-  <EditChatModal v-if="showEditChatModal" @close="showEditChatModal = false" />
+  <ManageParticipantsModal v-if="showManageParticipantsModal" :is-open="showManageParticipantsModal" @close="showManageParticipantsModal = false" />
+  <EditChatModal v-if="showEditChatModal" :is-open="showEditChatModal" :chat-data="chatData" :is-new-chat="false" @close="showEditChatModal = false" />
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch, nextTick, inject } from 'vue';
 import { useChatStore } from '~/stores/chat';
 import { useAuthStore } from '~/stores/auth';
 import ManageParticipantsModal from './ManageParticipantsModal.vue';
@@ -171,14 +191,42 @@ const authStore = useAuthStore();
 
 // Данные чата и сообщений
 const chatData = computed(() => {
-  // Добавляем дополнительную проверку на случай, если activeChat еще не инициализирован
-  return chatStore.activeChat || {};
+  return chatStore.activeChat;
 });
 
 const messages = computed(() => {
-  // Добавляем дополнительную проверку на случай, если messages еще не инициализированы
-  return Array.isArray(chatStore.messages) ? chatStore.messages : [];
+  return chatStore.messages;
 });
+
+// Состояние прокрутки чата
+const isAtBottom = ref(true);
+const messagesContainer = ref(null);
+const showNewMessageIndicator = ref(false);
+
+// Функция для проверки, находится ли пользователь внизу чата
+const checkIfAtBottom = () => {
+  if (!messagesContainer.value) return true;
+  
+  const container = messagesContainer.value;
+  const scrollPosition = container.scrollTop + container.clientHeight;
+  const scrollHeight = container.scrollHeight;
+  
+  // Считаем, что пользователь внизу, если он находится в пределах 100px от нижней границы
+  isAtBottom.value = scrollHeight - scrollPosition < 100;
+  
+  // Если пользователь прокрутил вниз до конца, скрываем индикатор новых сообщений
+  if (isAtBottom.value) {
+    showNewMessageIndicator.value = false;
+  }
+  
+  return isAtBottom.value;
+};
+
+// Функция для прокрутки к новым сообщениям
+const scrollToNewMessages = () => {
+  scrollToBottom();
+  showNewMessageIndicator.value = false;
+};
 
 // Состояние загрузки
 const loading = computed(() => chatStore.loading);
@@ -190,7 +238,6 @@ const showManageParticipantsModal = ref(false);
 // Видимые сообщения (для бесконечной прокрутки)
 const visibleMessages = ref([]);
 const loadingTrigger = ref(null);
-const messagesContainer = ref(null);
 const observer = ref(null);
 const messageText = ref('');
 
@@ -232,56 +279,124 @@ const groupedMessages = computed(() => {
 
 // Настройка бесконечной прокрутки
 const setupInfiniteScroll = () => {
+  // Отключаем предыдущий observer, если он существует
   if (observer.value) {
     observer.value.disconnect();
   }
   
-  if (!loadingTrigger.value) return;
-  
-  observer.value = new IntersectionObserver(entries => {
-    if (entries[0].isIntersecting && !loading.value && chatStore.hasMoreMessages) {
-      loadMoreMessages();
+  // Создаем новый Intersection Observer для бесконечной прокрутки
+  observer.value = new IntersectionObserver(async (entries) => {
+    const entry = entries[0];
+    
+    // Если триггер виден и есть еще сообщения для загрузки
+    if (entry.isIntersecting && chatStore.pagination.hasMore && !chatStore.loadingMore) {
+      chatStore.loadingMore = true;
+      
+      try {
+        // Получаем ID самого старого сообщения
+        const oldestMessageId = chatStore.pagination.nextCursor;
+        
+        if (oldestMessageId) {
+          // Загружаем более старые сообщения
+          await chatStore.loadMoreMessages(chatData.value._id, oldestMessageId);
+          
+          // Сохраняем текущую позицию прокрутки
+          const { scrollHeight, scrollTop } = messagesContainer.value;
+          const currentPosition = scrollHeight - scrollTop;
+          
+          // Ждем обновления DOM
+          await nextTick();
+          
+          // Восстанавливаем позицию прокрутки относительно нового содержимого
+          if (messagesContainer.value) {
+            messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight - currentPosition;
+          }
+        }
+      } catch (error) {
+        console.error('Ошибка при загрузке старых сообщений:', error);
+      } finally {
+        chatStore.loadingMore = false;
+      }
     }
-  });
+  }, { threshold: 0.1 });
   
-  observer.value.observe(loadingTrigger.value);
+  // Начинаем наблюдение за триггером загрузки
+  if (loadingTrigger.value) {
+    observer.value.observe(loadingTrigger.value);
+  }
 };
 
 // Загрузка дополнительных сообщений
 const loadMoreMessages = async () => {
-  if (!chatData.value._id || loading.value || !chatStore.hasMoreMessages) return;
+  if (chatStore.loadingMore || !chatData.value || !chatStore.pagination.hasMore) return;
   
-  await chatStore.loadMoreMessages(chatData.value._id);
+  // Запоминаем позицию прокрутки перед загрузкой
+  const container = messagesContainer.value;
+  const scrollHeight = container.scrollHeight;
+  const scrollTop = container.scrollTop;
+  
+  await chatStore.loadMoreMessages();
+  
+  // Восстанавливаем позицию прокрутки после загрузки
+  nextTick(() => {
+    if (container) {
+      container.scrollTop = container.scrollHeight - scrollHeight + scrollTop;
+    }
+  });
 };
 
 // Прокрутка к последнему сообщению
 const scrollToBottom = () => {
-  if (!messagesContainer.value) return;
-  
-  // Прокручиваем к нижней части контейнера
-  messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight;
+  if (messagesContainer.value) {
+    // Используем плавную прокрутку для лучшего UX
+    messagesContainer.value.scrollTo({
+      top: messagesContainer.value.scrollHeight,
+      behavior: 'auto' // Используем 'auto' вместо 'smooth' для производительности
+    });
+  }
 };
 
 // Отправка сообщения
 const sendMessage = async () => {
-  if (!messageText.value.trim() || !chatData.value._id) return;
+  if (!messageText.value.trim()) return;
   
   try {
-    await chatStore.sendMessage(chatData.value._id, {
-      text: messageText.value,
-      media_type: 'none'
+    const trimmedMessage = messageText.value.trim();
+    
+    // Очищаем поле ввода
+    messageText.value = '';
+    adjustTextareaHeight();
+    
+    const config = useRuntimeConfig();
+    
+    // Получаем токен из хранилища аутентификации
+    const token = authStore.token;
+    
+    // Отправляем сообщение на сервер с правильным URL бэкенда и токеном
+    const response = await $fetch(`${config.public.backendUrl}/api/chats/${chatData.value._id}/messages`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': token ? `Bearer ${token}` : undefined
+      },
+      body: {
+        text: trimmedMessage,
+        media_type: 'none'
+      },
+      credentials: 'include' // Включаем передачу cookie
     });
     
-    messageText.value = '';
-    // Сбрасываем высоту textarea
-    if (messageInput.value) {
-      messageInput.value.style.height = 'auto';
-    }
+    console.log('Сообщение успешно отправлено:', response);
+    
+    // Прокручиваем чат вниз после отправки сообщения
     nextTick(() => {
       scrollToBottom();
     });
+    
   } catch (error) {
     console.error('Ошибка при отправке сообщения:', error);
+    // Показываем уведомление об ошибке
+    alert('Не удалось отправить сообщение. Попробуйте еще раз.');
   }
 };
 
@@ -396,7 +511,14 @@ const stopVideo = () => {
 
 // Проверка, является ли сообщение собственным
 const isOwnMessage = (message) => {
-  return message.sender?._id === authStore.user?._id;
+  // Проверяем ID отправителя
+  const senderIdMatch = message.sender?._id === authStore.user?._id;
+  
+  // Проверяем email отправителя как дополнительный идентификатор
+  const emailMatch = message.sender?.email === authStore.user?.email;
+  
+  // Если совпадает ID или email, считаем сообщение своим
+  return senderIdMatch || emailMatch;
 };
 
 // Получение инициалов из имени
@@ -422,41 +544,169 @@ const onChatLeft = () => {
   // Обработка выхода из чата (чат уже удален из хранилища)
 };
 
+// Получаем функцию и состояние переключения боковой панели из app.vue
+const toggleSidebar = inject('toggleSidebar');
+const sidebarVisible = inject('sidebarVisible');
+const isMobile = inject('isMobile');
+const showChat = inject('showChat');
+const showSidebar = inject('showSidebar');
+
+// Функция для выбора чата на мобильных устройствах
+const selectChatMobile = () => {
+  if (isMobile.value) {
+    showChat();
+  }
+};
+
+// Определяем checkMobile в глобальной области видимости компонента
+const checkMobile = () => {
+  if (isMobile && typeof isMobile.value !== 'undefined') {
+    isMobile.value = window.innerWidth <= 859;
+  }
+};
+
 // Жизненный цикл компонента
 onMounted(() => {
+  // Проверяем размер экрана при загрузке
+  checkMobile();
+  window.addEventListener('resize', checkMobile);
+  
   // Добавляем небольшую задержку перед инициализацией компонента
   setTimeout(() => {
-    nextTick(() => {
-      setupInfiniteScroll();
-      scrollToBottom();
-    });
+    // Инициализируем видимые сообщения с пустым массивом, если сообщения еще не загружены
+    visibleMessages.value = Array.isArray(messages.value) ? messages.value : [];
+    
+    // Инициализируем WebSocket слушатели для реального времени
+    setupWebSocketListeners();
   }, 100);
   
-  // Инициализация видимых сообщений
-  visibleMessages.value = messages.value;
+  // Инициализируем бесконечную прокрутку
+  setupInfiniteScroll();
 });
+
+// Настройка WebSocket слушателей
+const setupWebSocketListeners = () => {
+  // Получаем доступ к WebSocket
+  const { $socket, $socketConnect } = useNuxtApp();
+  
+  // Убедимся, что WebSocket подключен
+  if ($socket && !$socket.connected) {
+    $socketConnect();
+  }
+  
+  if ($socket) {
+    // Удаляем существующие обработчики, чтобы избежать дублирования
+    $socket.off('connect');
+    $socket.off('new-message');
+    $socket.off('messages-read');
+    
+    // Подписываемся на события WebSocket
+    $socket.on('connect', () => {
+      console.log('WebSocket подключен');
+      
+      // Если есть активный чат, подключаемся к его комнате
+      if (chatData.value && chatData.value._id) {
+        const { $socketJoinChat } = useNuxtApp();
+        $socketJoinChat(chatData.value._id);
+        console.log('Подключились к комнате чата:', chatData.value._id);
+      }
+    });
+    
+    // Слушаем новые сообщения
+    $socket.on('new-message', ({ message, chatId }) => {
+      console.log('Получено новое сообщение через WebSocket:', message);
+      
+      // Если сообщение для текущего чата, добавляем его в список
+      if (chatData.value && chatData.value._id === chatId) {
+        // Добавляем новое сообщение в конец списка
+        chatStore.messages.push(message);
+        
+        // Прокручиваем к новому сообщению, если пользователь находится внизу чата
+        if (isAtBottom.value) {
+          nextTick(() => {
+            scrollToBottom();
+          });
+        } else {
+          // Показываем индикатор нового сообщения
+          showNewMessageIndicator.value = true;
+        }
+        
+        // Если сообщение не от текущего пользователя, отмечаем его как прочитанное
+        if (message.sender._id !== authStore.user._id) {
+          chatStore.markMessagesAsRead(chatId);
+        }
+      }
+    });
+    
+    // Слушаем прочтение сообщений
+    $socket.on('messages-read', ({ chatId, userId }) => {
+      console.log('Сообщения отмечены как прочитанные:', { chatId, userId });
+      
+      // Обновляем статус прочтения сообщений в текущем чате
+      if (chatData.value && chatData.value._id === chatId) {
+        chatStore.updateMessagesReadStatus(chatId, userId);
+      }
+    });
+  }
+};
 
 onUnmounted(() => {
   if (observer.value) {
     observer.value.disconnect();
   }
+  
+  // Отписываемся от WebSocket событий при уничтожении компонента
+  const { $socket } = useNuxtApp();
+  if ($socket) {
+    $socket.off('connect');
+    $socket.off('new-message');
+    $socket.off('messages-read');
+  }
+  
+  // Удаляем обработчик изменения размера окна
+  window.removeEventListener('resize', checkMobile);
+});
+
+// Следим за изменением активного чата
+watch(() => chatStore.activeChat, (newChat, oldChat) => {
+  // Если был активен другой чат, покидаем его комнату
+  if (oldChat && oldChat._id) {
+    const { $socketLeaveChat } = useNuxtApp();
+    $socketLeaveChat(oldChat._id);
+  }
+  
+  // Если выбран новый чат, подключаемся к его комнате
+  if (newChat && newChat._id) {
+    const { $socketJoinChat } = useNuxtApp();
+    $socketJoinChat(newChat._id);
+    
+    // Обновляем WebSocket слушатели
+    setupWebSocketListeners();
+  }
+  
+  nextTick(() => {
+    setupInfiniteScroll();
+    scrollToBottom();
+    
+    // На мобильных устройствах скрываем sidebar при выборе чата
+    if (isMobile.value) {
+      selectChatMobile();
+    }
+  });
 });
 
 // Следим за изменениями в сообщениях
 watch(messages, (newMessages) => {
-  visibleMessages.value = newMessages;
-  nextTick(() => {
-    scrollToBottom();
-  });
+  if (Array.isArray(newMessages)) {
+    visibleMessages.value = newMessages;
+    // Используем requestAnimationFrame для оптимизации производительности
+    requestAnimationFrame(() => {
+      nextTick(() => {
+        scrollToBottom();
+      });
+    });
+  }
 }, { deep: true });
-
-// Следим за изменением активного чата
-watch(() => chatStore.activeChat, () => {
-  nextTick(() => {
-    setupInfiniteScroll();
-    scrollToBottom();
-  });
-});
 
 // Добавление новой строки при нажатии Shift+Enter
 const messageInput = ref(null);
@@ -505,6 +755,43 @@ const adjustTextareaHeight = () => {
     messagesContainer.value.style.height = 'calc(100% - 160px)'; // 80px header + 80px input
   }
 };
+
+// Функция отладки WebSocket
+const debugWebSocket = () => {
+  const { $socket, $socketConnect } = useNuxtApp();
+  
+  if (!$socket) {
+    console.error('WebSocket не инициализирован');
+    alert('WebSocket не инициализирован');
+    return;
+  }
+  
+  console.log('Статус WebSocket соединения:', $socket.connected ? 'Подключен' : 'Отключен');
+  alert(`WebSocket: ${$socket.connected ? 'Подключен' : 'Отключен'}`);
+  
+  if (!$socket.connected) {
+    console.log('Попытка переподключения WebSocket...');
+    $socketConnect();
+    
+    setTimeout(() => {
+      console.log('Новый статус WebSocket:', $socket.connected ? 'Подключен' : 'Отключен');
+      alert(`WebSocket: ${$socket.connected ? 'Подключен' : 'Отключен'}`);
+      
+      if ($socket.connected && chatData.value && chatData.value._id) {
+        const { $socketJoinChat } = useNuxtApp();
+        $socketJoinChat(chatData.value._id);
+        console.log('Переподключились к комнате чата:', chatData.value._id);
+        alert(`Переподключились к чату: ${chatData.value.name}`);
+      }
+    }, 1000);
+  } else if (chatData.value && chatData.value._id) {
+    // Проверяем подключение к комнате чата
+    const { $socketJoinChat } = useNuxtApp();
+    $socketJoinChat(chatData.value._id);
+    console.log('Переподключились к комнате чата:', chatData.value._id);
+    alert(`Переподключились к чату: ${chatData.value.name}`);
+  }
+};
 </script>
 
 <style lang="sass" scoped>
@@ -515,17 +802,33 @@ const adjustTextareaHeight = () => {
   width: 100%
   display: flex
   flex-direction: column
-  background: $primary-bg
   position: relative
   
   .page_header
-    padding: 15px
+    padding: 10px 20px
     background-color: $header-bg
     display: flex
     align-items: center
     justify-content: space-between
     border-bottom: 1px solid rgba(255, 255, 255, 0.1)
-    height: 80px
+    
+    // Кнопка переключения боковой панели
+    .toggle-sidebar-btn
+      display: none
+      background: transparent
+      border: none
+      color: $white
+      font-size: 20px
+      cursor: pointer
+      padding: 5px 10px
+      margin-right: 10px
+      transition: all 0.2s ease
+      
+      &:hover
+        color: rgba(255, 255, 255, 0.8)
+      
+      @include tablet
+        display: block
     
     .content
       display: flex
@@ -593,7 +896,6 @@ const adjustTextareaHeight = () => {
     justify-content: center
     color: rgba(255, 255, 255, 0.5)
     font-size: 18px
-    background-color: $primary-bg
   
   .chat-content
     display: flex
@@ -606,26 +908,43 @@ const adjustTextareaHeight = () => {
     padding: 20px
     display: flex
     flex-direction: column
-    background-color: $primary-bg
+    max-width: 700px;
+    width: 100%;
+    align-self: center;
     @include custom-scrollbar
     
     .loading-trigger
       height: 20px
       margin-bottom: 10px
     
-    .loading-indicator
-      text-align: center
-      padding: 10px
-      color: rgba(255, 255, 255, 0.5)
+    .loading-indicator 
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 10px;
+      color: $white;
       
-      .spinner
-        display: inline-block
-        width: 20px
-        height: 20px
-        border: 2px solid rgba(255, 255, 255, 0.3)
-        border-radius: 50%
-        border-top-color: $white
-        animation: spin 1s linear infinite
+      &.loading-more 
+        margin-bottom: 10px;
+        opacity: 0.7;
+      
+      
+      &.initial-loading 
+        height: 100px;
+        margin: auto;
+      
+      
+      .spinner 
+        width: 20px;
+        height: 20px;
+        border: 2px solid rgba(255, 255, 255, 0.3);
+        border-radius: 50%;
+        border-top-color: $white;
+        animation: spin 1s ease-in-out infinite;
+        margin-right: 10px
+        will-change: transform; // Оптимизация для анимации
+      
+    
     
     .empty-chat
       text-align: center
@@ -754,19 +1073,7 @@ const adjustTextareaHeight = () => {
       
       .message_input
         flex: 1
-        padding: 10px 15px
-        border-radius: $radius 
-        background-color: $header-bg
-        color: $white
-        resize: none
-        max-height: 150px
-        min-height: 44px
-        overflow-y: auto
-        @include custom-scrollbar
-        
-        &:focus
-          outline: none
-          border-color: $purple
+        // Дополнительные стили, основные уже в классе inp--textarea
       
       .button_container
         width: 44px
@@ -793,12 +1100,47 @@ const adjustTextareaHeight = () => {
           
           i
             font-size: 18px
-
+  
+  .new-messages-indicator
+    position: absolute
+    bottom: 60px
+    left: 50%
+    transform: translateX(-50%)
+    background-color: $purple
+    color: $white
+    padding: 10px 15px
+    border-radius: 10px
+    cursor: pointer
+    animation: bounce 1s ease-in-out infinite
+    
+    .new-messages-text
+      font-size: 14px
+      font-weight: bold
+    
+    .new-messages-arrow
+      width: 0
+      height: 0
+      border-style: solid
+      border-width: 0 10px 10px 10px
+      border-color: transparent transparent $purple transparent
+      position: absolute
+      bottom: -10px
+      left: 50%
+      transform: translateX(-50%)
+  
 @keyframes spin
   0%
     transform: rotate(0deg)
   100%
     transform: rotate(360deg)
+
+@keyframes bounce
+  0%
+    transform: translateY(0)
+  50%
+    transform: translateY(-10px)
+  100%
+    transform: translateY(0)
 
 @include mobile
   .chat-page

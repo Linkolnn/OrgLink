@@ -6,10 +6,14 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 import cookieParser from 'cookie-parser';
+import { createServer } from 'http';
+import { Server } from 'socket.io';
 import connectDB from './config/db.js';
 import authRoutes from './routes/authRoutes.js';
 import chatRoutes from './routes/chatRoutes.js';
 import { createAdminIfNotExists } from './controllers/authController.js';
+import jwt from 'jsonwebtoken'; // Добавляем импорт jwt
+import { verifyToken } from './middleware/authMiddleware.js';
 
 // Получаем путь к текущему файлу и корневой директории проекта
 const __filename = fileURLToPath(import.meta.url);
@@ -19,9 +23,23 @@ const rootDir = path.resolve(__dirname, '../../');
 // Загружаем переменные окружения из корневого .env
 dotenv.config({ path: path.resolve(rootDir, '.env') });
 
-// Инициализируем Express
+// Инициализируем Express и Socket.IO
 const app = express();
+const httpServer = createServer(app);
+const io = new Server(httpServer, {
+  cors: {
+    origin: process.env.NODE_ENV === 'production' 
+      ? ['https://org-link.vercel.app', 'https://www.org-link.vercel.app'] 
+      : process.env.FRONTEND_URL,
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
+  }
+});
+
 const PORT = process.env.BACKEND_PORT || process.env.PORT;
+
+// Глобально экспортируем io для использования в других модулях
+export { io };
 
 // Middlewares
 app.use(cors({
@@ -124,10 +142,78 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Что-то пошло не так на сервере!' });
 });
 
+// Создаем хранилище для сокетов пользователей
+app.locals.userSockets = {};
+app.locals.io = io;
+
+// Настройка WebSocket соединений
+// Middleware для аутентификации WebSocket
+io.use((socket, next) => {
+  try {
+    const token = socket.handshake.auth.token;
+    
+    console.log('WebSocket аутентификация, токен получен:', !!token);
+    
+    if (!token) {
+      return next(new Error('Authentication error: Token required'));
+    }
+    
+    // Верифицируем токен
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    socket.userId = decoded.id;
+    
+    console.log('WebSocket аутентификация успешна для пользователя:', socket.userId);
+    
+    // Сохраняем сокет пользователя для отправки уведомлений
+    app.locals.userSockets[socket.userId] = socket;
+    
+    next();
+  } catch (error) {
+    console.error('Ошибка аутентификации WebSocket:', error.message);
+    next(new Error('Authentication error: ' + error.message));
+  }
+});
+
+// Обработка соединений
+io.on('connection', (socket) => {
+  console.log(`Пользователь подключен: ${socket.userId}`);
+  
+  // Подписка на чаты
+  socket.on('join-chat', (chatId) => {
+    const roomName = `chat:${chatId}`;
+    socket.join(roomName);
+    console.log(`Пользователь ${socket.userId} подключился к чату ${chatId}`);
+    
+    // Отправляем подтверждение подключения к комнате
+    socket.emit('joined-chat', { chatId, success: true });
+  });
+  
+  // Отписка от чата
+  socket.on('leave-chat', (chatId) => {
+    const roomName = `chat:${chatId}`;
+    socket.leave(roomName);
+    console.log(`Пользователь ${socket.userId} покинул чат ${chatId}`);
+  });
+  
+  // Обработка отключения
+  socket.on('disconnect', () => {
+    console.log(`Пользователь отключен: ${socket.userId}`);
+    
+    // Удаляем сокет пользователя из хранилища
+    delete app.locals.userSockets[socket.userId];
+  });
+  
+  // Отправка тестового сообщения для проверки соединения
+  socket.emit('connection-established', { 
+    message: 'WebSocket соединение установлено',
+    userId: socket.userId
+  });
+});
+
 // Запускаем сервер только в режиме разработки
 // В Vercel это не нужно, там приложение запускается как serverless
 if (process.env.NODE_ENV !== 'production') {
-  app.listen(PORT, () => {
+  httpServer.listen(PORT, () => {
     console.log(`Сервер запущен на порту ${PORT}`);
   });
 }

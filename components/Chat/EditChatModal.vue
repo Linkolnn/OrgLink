@@ -12,7 +12,7 @@
             @click="$refs.fileInput.click()"
           >
             <div v-if="!previewImage" class="avatar-placeholder">
-              <span v-if="chatData.name">{{ getInitials(chatData.name) }}</span>
+              <span v-if="chatFormData.name">{{ getInitials(chatFormData.name) }}</span>
               <span v-else>+</span>
             </div>
           </div>
@@ -31,7 +31,7 @@
           <label for="chatName">Название чата</label>
           <input 
             id="chatName" 
-            v-model="chatData.name" 
+            v-model="chatFormData.name" 
             type="text" 
             placeholder="Введите название чата"
             required
@@ -43,7 +43,7 @@
           <label for="chatDescription">Описание (необязательно)</label>
           <textarea 
             id="chatDescription" 
-            v-model="chatData.description" 
+            v-model="chatFormData.description" 
             placeholder="Добавьте описание чата"
             rows="3"
           ></textarea>
@@ -116,9 +116,13 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
-  chat: {
+  chatData: {
     type: Object,
     default: () => ({})
+  },
+  isNewChat: {
+    type: Boolean,
+    default: true
   }
 });
 
@@ -133,7 +137,7 @@ const searchResults = ref([]);
 const selectedParticipants = ref([]);
 
 // Данные чата
-const chatData = ref({
+const chatFormData = ref({
   name: '',
   description: '',
   avatar: null
@@ -142,29 +146,39 @@ const chatData = ref({
 // Предварительный просмотр аватара
 const previewImage = ref('');
 
-// Определяем, создаем ли мы новый чат или редактируем существующий
-const isNewChat = computed(() => !props.chat?._id);
-
 // Инициализация данных при открытии модального окна
 watch(() => props.isOpen, (isOpen) => {
   if (isOpen) {
     // Если редактируем существующий чат
-    if (props.chat?._id) {
-      chatData.value = {
-        name: props.chat.name || '',
-        description: props.chat.description || '',
+    if (!props.isNewChat && props.chatData?._id) {
+      chatFormData.value = {
+        name: props.chatData.name || '',
+        description: props.chatData.description || '',
         avatar: null
       };
       
       // Если у чата есть аватар, устанавливаем его для предпросмотра
-      if (props.chat.avatar) {
-        previewImage.value = props.chat.avatar;
+      if (props.chatData.avatar) {
+        previewImage.value = props.chatData.avatar;
       } else {
         previewImage.value = '';
       }
+      
+      // Если есть участники, инициализируем их
+      if (props.chatData.participants && Array.isArray(props.chatData.participants)) {
+        // Исключаем текущего пользователя из списка участников
+        selectedParticipants.value = props.chatData.participants
+          .filter(p => p._id !== chatStore.currentUserId)
+          .map(p => ({
+            _id: p._id,
+            name: p.name || p.email,
+            email: p.email,
+            avatar: p.avatar
+          }));
+      }
     } else {
       // Если создаем новый чат
-      chatData.value = {
+      chatFormData.value = {
         name: '',
         description: '',
         avatar: null
@@ -208,7 +222,7 @@ const handleFileChange = (event) => {
   }
   
   // Устанавливаем файл для загрузки
-  chatData.value.avatar = file;
+  chatFormData.value.avatar = file;
   
   // Создаем URL для предпросмотра
   previewImage.value = URL.createObjectURL(file);
@@ -243,22 +257,22 @@ const getInitials = (name) => {
 
 // Сохранение чата
 const saveChat = async () => {
-  if (!chatData.value.name) return;
+  if (!chatFormData.value.name) return;
   
   loading.value = true;
   
   try {
     let result;
     
-    if (isNewChat.value) {
+    if (props.isNewChat) {
       // Создаем новый чат
       const newChatData = {
-        ...chatData.value,
+        ...chatFormData.value,
         participants: selectedParticipants.value.map(p => p._id)
       };
       
       // Если есть аватар, создаем FormData
-      if (chatData.value.avatar) {
+      if (chatFormData.value.avatar) {
         const formData = new FormData();
         formData.append('name', newChatData.name);
         formData.append('description', newChatData.description || '');
@@ -291,7 +305,7 @@ const saveChat = async () => {
       }
     } else {
       // Редактируем существующий чат
-      result = await chatStore.updateChat(props.chat._id, chatData.value);
+      result = await chatStore.updateChat(props.chatData._id, chatFormData.value);
     }
     
     // Закрываем модальное окно и уведомляем родителя

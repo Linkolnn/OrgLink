@@ -19,7 +19,7 @@
                 v-for="user in searchResults" 
                 :key="user._id" 
                 class="search-result-item"
-                @click="addParticipant(user)"
+                @click="addUserToChat(user)"
               >
                 <div class="user-avatar">{{ getInitials(user.name) }}</div>
                 <div class="user-info">
@@ -63,7 +63,7 @@
               <button 
                 v-if="canRemoveParticipant(participant._id)" 
                 class="remove-btn" 
-                @click="removeParticipant(participant._id)"
+                @click="removeUserFromChat(participant._id)"
                 :disabled="removingParticipant === participant._id"
               >
                 <span v-if="removingParticipant === participant._id">...</span>
@@ -111,65 +111,34 @@ const props = defineProps({
   isOpen: {
     type: Boolean,
     default: false
-  },
-  chat: {
-    type: Object,
-    default: () => ({})
   }
 });
 
-const emit = defineEmits(['close', 'participantsUpdated', 'chatLeft']);
+const emit = defineEmits(['close']);
 
 const chatStore = useChatStore();
 const loading = ref(false);
 const searchQuery = ref('');
 const debouncedSearchQuery = useDebounce(searchQuery, 300);
 const searchResults = ref([]);
-const participants = ref([]);
 const removingParticipant = ref(null);
 const leavingChat = ref(false);
 const showConfirmDialog = ref(false);
 const confirmMessage = ref('');
 const pendingAction = ref(null);
 
-// Инициализация данных при открытии модального окна
-watch(() => props.isOpen, (isOpen) => {
-  if (isOpen && props.chat?._id) {
-    // Копируем участников из чата
-    participants.value = props.chat.participants || [];
-    
-    searchQuery.value = '';
-    searchResults.value = [];
-    removingParticipant.value = null;
-    leavingChat.value = false;
-    showConfirmDialog.value = false;
-  }
-}, { immediate: true });
+// Получаем данные активного чата
+const chatData = computed(() => chatStore.activeChat || {});
 
-// Поиск пользователей при изменении запроса
-watch(debouncedSearchQuery, async (query) => {
-  if (query.length >= 2) {
-    loading.value = true;
-    try {
-      const results = await chatStore.searchUsers(query);
-      // Фильтруем результаты, исключая уже существующих участников
-      searchResults.value = results.filter(user => 
-        !participants.value.some(p => p._id === user._id)
-      );
-    } catch (error) {
-      console.error('Ошибка при поиске пользователей:', error);
-      searchResults.value = [];
-    } finally {
-      loading.value = false;
-    }
-  } else {
-    searchResults.value = [];
-  }
+// Получаем список участников чата
+const participants = computed(() => {
+  if (!chatData.value || !chatData.value.participants) return [];
+  return chatData.value.participants;
 });
 
 // Проверка, является ли пользователь создателем чата
 const isCreator = (userId) => {
-  return props.chat?.creator?._id === userId;
+  return chatData.value?.creator?._id === userId;
 };
 
 // Проверка, может ли текущий пользователь удалить участника
@@ -189,65 +158,51 @@ const getInitials = (name) => {
     .join('');
 };
 
-// Добавление участника
-const addParticipant = async (user) => {
-  if (!props.chat?._id) return;
-  
-  loading.value = true;
+// Поиск пользователей
+const searchUsers = async () => {
+  if (!debouncedSearchQuery.value.trim()) {
+    searchResults.value = [];
+    return;
+  }
   
   try {
-    await chatStore.addChatParticipants(props.chat._id, [user._id]);
+    loading.value = true;
+    const results = await chatStore.searchUsers(debouncedSearchQuery.value);
     
-    // Обновляем список участников
-    participants.value = props.chat.participants || [];
-    
-    // Очищаем поиск
-    searchQuery.value = '';
-    searchResults.value = [];
-    
-    // Уведомляем родителя об обновлении
-    emit('participantsUpdated');
+    // Фильтруем результаты, исключая уже добавленных участников
+    searchResults.value = results.filter(user => 
+      !participants.value.some(p => p._id === user._id)
+    );
   } catch (error) {
-    console.error('Ошибка при добавлении участника:', error);
-    alert('Не удалось добавить участника. Пожалуйста, попробуйте еще раз.');
+    console.error('Ошибка при поиске пользователей:', error);
   } finally {
     loading.value = false;
   }
 };
 
-// Удаление участника
-const removeParticipant = (userId) => {
-  confirmMessage.value = 'Вы уверены, что хотите удалить этого участника из чата?';
-  pendingAction.value = () => performRemoveParticipant(userId);
-  showConfirmDialog.value = true;
+// Добавление пользователя в чат
+const addUserToChat = async (user) => {
+  try {
+    loading.value = true;
+    await chatStore.addChatParticipants(chatData.value._id, [user._id]);
+    searchResults.value = searchResults.value.filter(u => u._id !== user._id);
+    searchQuery.value = '';
+  } catch (error) {
+    console.error('Ошибка при добавлении пользователя:', error);
+  } finally {
+    loading.value = false;
+  }
 };
 
-// Выполнение удаления участника
-const performRemoveParticipant = async (userId) => {
-  if (!props.chat?._id) return;
-  
-  removingParticipant.value = userId;
-  
+// Удаление пользователя из чата
+const removeUserFromChat = async (userId) => {
   try {
-    const result = await chatStore.removeChatParticipant(props.chat._id, userId);
-    
-    // Если чат был удален
-    if (result.deleted) {
-      emit('chatLeft');
-      closeModal();
-      return;
-    }
-    
-    // Обновляем список участников
-    participants.value = props.chat.participants || [];
-    
-    // Уведомляем родителя об обновлении
-    emit('participantsUpdated');
+    loading.value = true;
+    await chatStore.removeChatParticipant(chatData.value._id, userId);
   } catch (error) {
-    console.error('Ошибка при удалении участника:', error);
-    alert('Не удалось удалить участника. Пожалуйста, попробуйте еще раз.');
+    console.error('Ошибка при удалении пользователя:', error);
   } finally {
-    removingParticipant.value = null;
+    loading.value = false;
   }
 };
 
@@ -260,19 +215,17 @@ const confirmLeaveChat = () => {
 
 // Выход из чата
 const leaveChat = async () => {
-  if (!props.chat?._id) return;
+  if (!chatData.value?._id) return;
   
   leavingChat.value = true;
   
   try {
-    await chatStore.leaveChat(props.chat._id);
+    await chatStore.leaveChat(chatData.value._id);
     
     // Уведомляем родителя о выходе из чата
-    emit('chatLeft');
-    closeModal();
+    emit('close');
   } catch (error) {
     console.error('Ошибка при выходе из чата:', error);
-    alert('Не удалось выйти из чата. Пожалуйста, попробуйте еще раз.');
   } finally {
     leavingChat.value = false;
   }
@@ -291,6 +244,9 @@ const confirmAction = () => {
 const closeModal = () => {
   emit('close');
 };
+
+// Наблюдаем за изменением поискового запроса
+watch(debouncedSearchQuery, searchUsers);
 </script>
 
 <style lang="sass" scoped>

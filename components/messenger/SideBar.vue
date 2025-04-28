@@ -1,56 +1,55 @@
 <template>
-  <ClientOnly>
     <aside class="sidebar">
-      <header class="sidebar-header">
-        <div class="dropdown">
-          <button class="dropdown-toggle" @click="toggleMenu">
+      <header class="sidebar__header">
+        <div class="sidebar__dropdown dropdown">
+          <button class="dropdown__toggle" @click="toggleMenu">
             Меню
           </button>
-          <div v-if="isMenuOpen" class="dropdown-menu">
-            <NuxtLink to="/messenger" class="menu-item" @click="toggleMenu">Мессенджер</NuxtLink>
-            <NuxtLink v-if="authStore.isAdmin" to="/admin" class="menu-item" @click="toggleMenu">Админ панель</NuxtLink>
-            <button @click="logout" class="menu-item logout-button">Выйти</button>
+          <div v-if="isMenuOpen" class="dropdown__menu">
+            <NuxtLink to="/messenger" class="dropdown__item" @click="toggleMenu">Мессенджер</NuxtLink>
+            <NuxtLink v-if="authStore.isAdmin" to="/admin" class="dropdown__item" @click="toggleMenu">Админ панель</NuxtLink>
+            <button @click="logout" class="dropdown__item dropdown__item--logout">Выйти</button>
           </div>
         </div>
-        <div class="header-actions">
-          <h3>Чаты</h3>
-          <button class="new-chat-btn" @click="createNewChat">
+        <div class="sidebar__actions">
+          <h3 class="sidebar__title">Чаты</h3>
+          <button class="sidebar__button sidebar__button--new" @click="createNewChat">
             <span>+</span>
           </button>
         </div>
       </header>
-      <div class="chats-list">
-        <div v-if="chatStore.loading && !chatStore.chats.length" class="chats-loading">
-          <div class="spinner"></div>
-          <p>Загрузка чатов...</p>
+      <div class="sidebar__content">
+        <div v-if="chatStore.loading && !chatStore.chats.length" class="sidebar__loading">
+          <div class="sidebar__spinner"></div>
+          <p class="sidebar__message">Загрузка чатов...</p>
         </div>
-        <div v-else-if="chatStore.chats.length === 0" class="no-chats">
-          <p>У вас пока нет чатов</p>
-          <button class="create-chat-btn" @click="createNewChat">Создать чат</button>
+        <div v-else-if="chatStore.chats.length === 0" class="sidebar__empty">
+          <p class="sidebar__message">У вас пока нет чатов</p>
+          <button class="sidebar__button sidebar__button--create" @click="createNewChat">Создать чат</button>
         </div>
-        <div v-else class="chat-items">
+        <div v-else class="sidebar__chats">
           <div 
             v-for="chat in chatStore.chats" 
             :key="chat._id" 
             class="chat-item"
-            :class="{ 'active': chatStore.activeChat?._id === chat._id }"
+            :class="{ 'chat-item--active': chatStore.activeChat?._id === chat._id }"
             @click="selectChat(chat._id)"
           >
             <div 
-              class="chat-avatar"
+              class="chat-item__avatar"
               :style="chat.avatar ? { backgroundImage: `url(${chat.avatar})` } : {}"
             >
-              <div v-if="!chat.avatar" class="initials">{{ getInitials(chat.name) }}</div>
+              <div v-if="!chat.avatar" class="chat-item__initials">{{ getInitials(chat.name) }}</div>
             </div>
-            <div class="chat-info">
-              <div class="chat-name">{{ chat.name }}</div>
-              <div class="chat-last-message">
+            <div class="chat-item__info">
+              <div class="chat-item__name">{{ chat.name }}</div>
+              <div class="chat-item__message">
                 {{ chat.lastMessage?.text || 'Нет сообщений' }}
               </div>
             </div>
-            <div class="chat-meta">
-              <div v-if="chat.unread" class="unread-badge">{{ chat.unread }}</div>
-              <div v-if="chat.lastMessage?.timestamp" class="last-time">
+            <div class="chat-item__meta">
+              <div v-if="chat.unread" class="chat-item__badge">{{ chat.unread }}</div>
+              <div v-if="chat.lastMessage?.timestamp" class="chat-item__time">
                 {{ formatTime(new Date(chat.lastMessage.timestamp)) }}
               </div>
             </div>
@@ -60,41 +59,47 @@
       
       <!-- Модальное окно создания чата -->
       <EditChatModal
-        :is-open="showNewChatModal"
-        :chat="{}"
-        @close="showNewChatModal = false"
+        v-if="showCreateChatModal"
+        :is-open="showCreateChatModal"
+        :is-new-chat="true"
+        @close="showCreateChatModal = false"
         @saved="onChatCreated"
       />
     </aside>
-  </ClientOnly>
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue';
-import { useAuthStore } from '~/stores/auth';
+import { ref, computed, inject, onMounted } from 'vue';
 import { useChatStore } from '~/stores/chat';
+import { useAuthStore } from '~/stores/auth';
 import { useRouter } from 'vue-router';
 import EditChatModal from '~/components/Chat/EditChatModal.vue';
 
-const authStore = useAuthStore();
 const chatStore = useChatStore();
+const authStore = useAuthStore();
 const router = useRouter();
 
+// Получаем функции для мобильного отображения
+const isMobile = inject('isMobile', ref(false));
+const showChat = inject('showChat', () => {});
+
+// Состояние модального окна создания чата
+const showCreateChatModal = ref(false);
 const isMenuOpen = ref(false);
-const showNewChatModal = ref(false);
-const newChat = ref({
-  name: '',
-  participants: []
+
+// Инициализация WebSocket слушателей при монтировании компонента
+onMounted(() => {
+  chatStore.initSocketListeners();
 });
 
-// Загрузка чатов при монтировании компонента
-onMounted(async () => {
-  await chatStore.fetchChats();
-});
-
-// Переключение меню
-const toggleMenu = () => {
-  isMenuOpen.value = !isMenuOpen.value;
+// Выбор чата
+const selectChat = (chatId) => {
+  chatStore.setActiveChat(chatId);
+  
+  // На мобильных устройствах переключаем на чат
+  if (isMobile.value) {
+    showChat();
+  }
 };
 
 // Выход из аккаунта
@@ -103,19 +108,14 @@ const logout = async () => {
   router.push('/');
 };
 
-// Выбор чата
-const selectChat = async (chatId) => {
-  await chatStore.setActiveChat(chatId);
-};
-
 // Создание нового чата
 const createNewChat = () => {
-  showNewChatModal.value = true;
+  showCreateChatModal.value = true;
 };
 
 // Обработка создания чата
 const onChatCreated = (chat) => {
-  showNewChatModal.value = false;
+  showCreateChatModal.value = false;
   // Чат уже добавлен в хранилище и установлен как активный
 };
 
@@ -149,202 +149,248 @@ const formatTime = (date) => {
     return date.toLocaleDateString([], { day: 'numeric', month: 'numeric' });
   }
 };
+
+// Переключение меню
+const toggleMenu = () => {
+  isMenuOpen.value = !isMenuOpen.value;
+};
 </script>
 
 <style lang="sass" scoped>
 @import '~/assets/styles/variables'
 
+// Стили для адаптивного дизайна
+
 .sidebar
-  max-width: 300px
+  width: $sidebar-width
   height: 100vh
-  background-color: $header-bg
+  background: $header-bg
   color: $white
   display: flex
   flex-direction: column
-  border-right: 1px solid rgba(255, 255, 255, 0.1)
+  transition: transform $transition-speed $transition-function
+  border-right: 1px solid rgba($white, 0.1)
+  @include custom-scrollbar
+  
+  @include tablet
+    position: absolute
+    left: 0
+    top: 0
+    z-index: 5
+    width: 100%
+    transform: translateX(-100%)
+    
+    &.visible
+      transform: translateX(0)
 
-  &-header
-    padding: 15px
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1)
+  &__header
+    padding: 16px
+    border-bottom: 1px solid rgba($white, 0.1)
     position: relative
+  
+  &__actions
+    display: flex
+    justify-content: space-between
+    align-items: center
+    margin-top: 12px
+  
+  &__title
+    margin: 0
+    font-size: 18px
+    font-weight: 600
+  
+  &__button
+    border: none
+    cursor: pointer
+    transition: background-color $transition-speed $transition-function
     
-    .header-actions
-      display: flex
-      justify-content: space-between
-      align-items: center
-      margin-top: 10px
-      
-      h3
-        margin: 0
-        font-size: 18px
-    
-    .new-chat-btn
+    &--new
       background-color: $purple
-      color: white
-      border: none
+      color: $white
       width: 28px
       height: 28px
       border-radius: 50%
       display: flex
       align-items: center
       justify-content: center
-      cursor: pointer
       font-size: 18px
       
       &:hover
         background-color: darken($purple, 10%)
-
-  .dropdown
-    position: relative
     
-    &-toggle
-      background-color: transparent
-      color: $white
-      border: none
-      cursor: pointer
-      padding: 5px 0
-      font-size: 14px
-      
-      &:hover
-        text-decoration: underline
-    
-    &-menu
-      position: absolute
-      top: 100%
-      left: 0
-      background-color: $header-bg
-      border: 1px solid rgba(255, 255, 255, 0.1)
-      border-radius: 4px
-      z-index: 10
-      min-width: 150px
-      
-      .menu-item
-        display: block
-        padding: 10px 15px
-        color: $white
-        text-decoration: none
-        cursor: pointer
-        border: none
-        background: none
-        width: 100%
-        text-align: left
-        font-size: 14px
-        
-        &:hover
-          background-color: rgba(255, 255, 255, 0.1)
-      
-      .logout-button
-        color: #ff6b6b
-
-.chats-list
-  flex: 1
-  min-width: 250px
-  overflow-y: auto
-  padding: 10px
-  
-  .chats-loading, .no-chats
-    display: flex
-    flex-direction: column
-    align-items: center
-    justify-content: center
-    height: 100px
-    color: rgba(255, 255, 255, 0.7)
-    
-    .spinner
-      width: 30px
-      height: 30px
-      border: 3px solid rgba(255, 255, 255, 0.3)
-      border-radius: 50%
-      border-top-color: $white
-      animation: spin 1s ease-in-out infinite
-      margin-bottom: 10px
-    
-    .create-chat-btn
-      margin-top: 10px
+    &--create
+      margin-top: 12px
       background-color: $purple
-      color: white
-      border: none
-      padding: 8px 15px
-      border-radius: 4px
-      cursor: pointer
+      color: $white
+      padding: 8px 16px
+      border-radius: $scrollbar-radius
+      font-size: 14px
       
       &:hover
         background-color: darken($purple, 10%)
   
-  .chat-items
+  &__content
+    flex: 1
+    min-width: 250px
+    overflow-y: auto
+    padding: 12px
+    @include custom-scrollbar
+  
+  &__loading, &__empty
     display: flex
     flex-direction: column
-    gap: 5px
+    align-items: center
+    justify-content: center
+    height: 120px
+    color: rgba($white, 0.7)
+  
+  &__spinner
+    width: 32px
+    height: 32px
+    border: 3px solid rgba($white, 0.3)
+    border-radius: 50%
+    border-top-color: $white
+    animation: spin 1s ease-in-out infinite
+    margin-bottom: 12px
+  
+  &__message
+    text-align: center
+    margin: 0
+    font-size: 14px
+  
+  &__chats
+    display: flex
+    flex-direction: column
+    gap: 6px
+
+// Дропдаун
+.dropdown
+  position: relative
+  
+  &__toggle
+    background-color: transparent
+    color: $white
+    border: none
+    cursor: pointer
+    padding: 6px 0
+    font-size: 14px
     
-    .chat-item
-      display: flex
-      align-items: center
-      padding: 10px
-      border-radius: 8px
-      cursor: pointer
-      transition: background-color 0.2s
-      
-      &:hover
-        background-color: rgba(255, 255, 255, 0.05)
-      
-      &.active
-        background-color: rgba(255, 255, 255, 0.1)
-      
-      .chat-avatar
-        width: 40px
-        height: 40px
-        border-radius: 50%
-        background-color: $purple
-        display: flex
-        align-items: center
-        justify-content: center
-        margin-right: 10px
-        background-size: cover
-        background-position: center
-        
-        .initials
-          font-weight: bold
-          color: $white
-      
-      .chat-info
-        flex: 1
-        min-width: 0
-        
-        .chat-name
-          font-weight: bold
-          margin-bottom: 2px
-          white-space: nowrap
-          overflow: hidden
-          text-overflow: ellipsis
-        
-        .chat-last-message
-          font-size: 12px
-          color: rgba(255, 255, 255, 0.7)
-          white-space: nowrap
-          overflow: hidden
-          text-overflow: ellipsis
-      
-      .chat-meta
-        display: flex
-        flex-direction: column
-        align-items: flex-end
-        gap: 5px
-        
-        .unread-badge
-          background-color: $purple
-          color: $white
-          border-radius: 50%
-          min-width: 20px
-          height: 20px
-          display: flex
-          align-items: center
-          justify-content: center
-          font-size: 12px
-          padding: 0 5px
-        
-        .last-time
-          font-size: 11px
-          color: rgba(255, 255, 255, 0.6)
+    &:hover
+      text-decoration: underline
+  
+  &__menu
+    position: absolute
+    top: 100%
+    left: 0
+    background-color: $header-bg
+    border: 1px solid rgba($white, 0.1)
+    border-radius: $scrollbar-radius
+    z-index: 10
+    min-width: 160px
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2)
+  
+  &__item
+    display: block
+    padding: 10px 16px
+    color: $white
+    text-decoration: none
+    cursor: pointer
+    border: none
+    background: none
+    width: 100%
+    text-align: left
+    font-size: 14px
+    transition: background-color $transition-speed $transition-function
+    
+    &:hover
+      background-color: rgba($white, 0.1)
+    
+    &--logout
+      color: #ff6b6b
+
+// Элемент чата
+.chat-item
+  display: flex
+  align-items: center
+  padding: 12px
+  border-radius: $scrollbar-radius
+  cursor: pointer
+  transition: background-color $transition-speed $transition-function
+  
+  &:hover
+    background-color: rgba($white, 0.05)
+  
+  &--active
+    background-color: rgba($white, 0.1)
+  
+  &__avatar
+    width: 42px
+    height: 42px
+    border-radius: 50%
+    background-color: $purple
+    display: flex
+    align-items: center
+    justify-content: center
+    margin-right: 12px
+    background-size: cover
+    background-position: center
+    flex-shrink: 0
+  
+  &__initials
+    font-weight: 600
+    color: $white
+    font-size: 16px
+  
+  &__info
+    flex: 1
+    min-width: 0
+    overflow: hidden
+  
+  &__name
+    font-weight: 600
+    margin-bottom: 4px
+    white-space: nowrap
+    overflow: hidden
+    text-overflow: ellipsis
+    font-size: 15px
+  
+  &__message
+    font-size: 13px
+    color: rgba($white, 0.7)
+    white-space: nowrap
+    overflow: hidden
+    text-overflow: ellipsis
+  
+  &__meta
+    display: flex
+    flex-direction: column
+    align-items: flex-end
+    gap: 6px
+    margin-left: 8px
+    flex-shrink: 0
+  
+  &__badge
+    background-color: $purple
+    color: $white
+    border-radius: 50%
+    min-width: 20px
+    height: 20px
+    display: flex
+    align-items: center
+    justify-content: center
+    font-size: 12px
+    padding: 0 5px
+  
+  &__time
+    font-size: 11px
+    color: rgba($white, 0.6)
+
+// Анимация для спиннера
+@keyframes spin
+  0%
+    transform: rotate(0deg)
+  100%
+    transform: rotate(360deg)
 
 // Модальное окно
 .modal-overlay
