@@ -4,10 +4,14 @@ export default async function handler(req, res) {
   console.log('Socket.IO proxy request:', {
     method: req.method,
     url: req.url,
-    headers: req.headers,
-    env: {
-      NODE_ENV: process.env.NODE_ENV,
-      BACKEND_URL: process.env.BACKEND_URL
+    originalUrl: req.originalUrl || req.url,
+    path: req.path,
+    headers: {
+      host: req.headers.host,
+      referer: req.headers.referer,
+      origin: req.headers.origin,
+      'x-forwarded-host': req.headers['x-forwarded-host'],
+      'x-forwarded-proto': req.headers['x-forwarded-proto']
     }
   });
 
@@ -17,21 +21,23 @@ export default async function handler(req, res) {
 
   // Определяем целевой URL для проксирования
   let targetUrl;
-  const backendUrl = process.env.BACKEND_URL;
+  const backendUrl = process.env.BACKEND_URL || 'https://org-link-backend.vercel.app';
   
-  if (backendUrl) {
-    // Если задан BACKEND_URL, используем его (для разных доменов фронтенда и бэкенда)
-    // Формируем путь для проксирования
-    const socketPath = url.split('/socket.io')[1] || '';
-    targetUrl = `${backendUrl}/socket.io${socketPath}`;
-  } else {
-    // Для бэкенда на том же домене используем относительный URL
-    const host = req.headers.host || 'localhost';
-    const protocol = req.headers['x-forwarded-proto'] || 'https';
-    const origin = `${protocol}://${host}`;
-    const socketPath = url.split('/socket.io')[1] || '';
-    targetUrl = `${origin}/socket.io${socketPath}`;
+  // Проверяем, не является ли текущий запрос уже проксированным
+  // Это поможет избежать циклических перенаправлений
+  if (req.headers['x-socket-io-proxied']) {
+    console.log('Detected already proxied request, aborting to prevent loop');
+    return res.status(400).json({ error: 'Socket.IO proxy loop detected' });
   }
+  
+  // Формируем путь для проксирования
+  // Важно: используем путь относительно /socket.io, а не /api/socket.io
+  let socketPath = '';
+  if (url.includes('socket.io')) {
+    socketPath = url.split('socket.io')[1] || '';
+  }
+  
+  targetUrl = `${backendUrl}/socket.io${socketPath}`;
 
   console.log(`Socket.IO proxy: ${method} ${url} -> ${targetUrl}`);
 
@@ -65,6 +71,8 @@ export default async function handler(req, res) {
         'x-forwarded-host': undefined,
         'x-vercel-deployment-url': undefined,
         'x-vercel-id': undefined,
+        // Добавляем маркер, что запрос уже проксирован
+        'x-socket-io-proxied': '1'
       },
       credentials: 'include',
     };

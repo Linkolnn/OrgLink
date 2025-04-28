@@ -124,22 +124,28 @@ export const getFileUrl = (filename, type) => {
   
   // Базовый URL API
   const baseUrl = process.env.NODE_ENV === 'production' 
-    ? process.env.BACKEND_URL || ''
+    ? (process.env.BACKEND_URL || 'https://org-link-backend.vercel.app')
     : `http://localhost:${process.env.BACKEND_PORT || 5000}`;
+  
+  // Убедимся, что в продакшн-окружении всегда используется HTTPS
+  let secureBaseUrl = baseUrl;
+  if (process.env.NODE_ENV === 'production' && baseUrl.startsWith('http://')) {
+    secureBaseUrl = baseUrl.replace('http://', 'https://');
+  }
   
   // Проверяем, содержит ли имя файла полный путь (для временных файлов)
   if (filename.includes('/tmp/') || filename.includes('\\Temp\\')) {
     // Для временных файлов возвращаем только имя файла без пути
     const baseName = path.basename(filename);
-    return `${baseUrl}/uploads/${baseName}`;
+    return `${secureBaseUrl}/uploads/${baseName}`;
   }
   
   // Для обычных файлов используем стандартные пути
   if (type === 'chat-avatar') {
-    return `${baseUrl}/uploads/chat-avatars/${filename}`;
+    return `${secureBaseUrl}/uploads/chat-avatars/${filename}`;
   } else if (type === 'message-file') {
-    return `${baseUrl}/uploads/message-files/${filename}`;
+    return `${secureBaseUrl}/uploads/message-files/${filename}`;
   }
   
-  return `${baseUrl}/uploads/${filename}`;
+  return `${secureBaseUrl}/uploads/${filename}`;
 };
