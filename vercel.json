@@ -11,5 +11,8 @@
       "source": "/api/(.*)", 
       "destination": "/api/server.js" 
     }
-  ]
+  ],
+  "env": {
+    "BACKEND_URL": "${BACKEND_URL}"
+  }
 }
