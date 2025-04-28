@@ -2,9 +2,10 @@ import fetch from 'node-fetch';
 import { CookieJar } from 'tough-cookie';
 import { promisify } from 'util';
 import cookieJar from 'fetch-cookie';
+import dotenv from 'dotenv';
 
 // URL API
-const API_URL = 'http://localhost:5000/api';
+const API_URL = 'https://orglink-backend.onrender.com/api';
 
 // Создаем jar для cookies и настраиваем fetch с поддержкой cookies
 const jar = new CookieJar();

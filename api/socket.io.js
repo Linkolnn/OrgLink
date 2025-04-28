@@ -1,7 +1,8 @@
 // Этот файл обрабатывает запросы Socket.IO на Vercel через API роуты
 export default async function handler(req, res) {
   // Получаем URL бэкенда из переменных окружения
-  const backendUrl = process.env.BACKEND_URL;
+  // Используем захардкоженный URL для продакшена, если переменная окружения не установлена
+  const backendUrl = process.env.BACKEND_URL || 'https://orglink-backend.onrender.com';
   
   if (!backendUrl) {
     console.error('Socket.IO proxy error: Backend URL is not defined');
@@ -65,9 +66,7 @@ export default async function handler(req, res) {
     const contentType = fetchResponse.headers.get('content-type');
     
     // Устанавливаем заголовки ответа
-    Object.entries(fetchResponse.headers.raw()).forEach(([key, value]) => {
-      res.setHeader(key, value);
-    });
+    res.setHeader('Content-Type', contentType || 'text/plain');
     
     // Отправляем ответ клиенту
     res.status(fetchResponse.status);
