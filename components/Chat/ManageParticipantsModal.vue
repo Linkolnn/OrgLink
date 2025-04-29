@@ -13,6 +13,7 @@
               v-model="searchQuery" 
               placeholder="Поиск пользователей..." 
               @input="searchUsers"
+              class="inp"
             >
             <div v-if="searchResults.length > 0" class="search-results">
               <div 

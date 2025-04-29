@@ -11,7 +11,7 @@
       <div class="page_header"@click="openChatSettings">
         <!-- Кнопка переключения боковой панели для мобильных устройств -->
         <button class="toggle-sidebar-btn" @click.stop="toggleSidebar">
-          <IconsIconArrow />
+          <IconBottomArrow class="toggle-sidebar-btn__icon" filled />
         </button>
         
         <div class="content">
@@ -143,10 +143,12 @@
         </div>
         
         <!-- Индикатор новых сообщений -->
-        <NewMessagesButton 
-          v-if="!isAtBottom && !chatStore.loadingMore && messages.length > 0" 
-          @click="scrollToNewMessages" 
-        />
+        <transition name="scroll-btn">
+          <NewMessagesButton 
+            v-if="!isAtBottom && !chatStore.loadingMore && messages.length > 0" 
+            @click="scrollToNewMessages" 
+          />
+        </transition>
       </div>
       
       <!-- Input area -->
@@ -210,11 +212,8 @@ import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { useNuxtApp } from '#app';
 import { useChatStore } from '~/stores/chat';
 import { useAuthStore } from '~/stores/auth';
-import ManageParticipantsModal from './ManageParticipantsModal.vue';
-import EditChatModal from './EditChatModal.vue';
 import NewMessagesButton from './NewMessagesButton.vue';
 import ChatSettingsModal from './ChatSettingsModal.vue';
-import IconArrow from '../Icons/IconArrow.vue';
 import MessageContextMenu from './MessageContextMenu.vue';
 
 // Хранилища
@@ -256,16 +255,13 @@ const checkIfAtBottom = () => {
 
 // Функция для прокрутки к новым сообщениям
 const scrollToNewMessages = () => {
-  scrollToBottom();
+  scrollToBottom(true);
   showNewMessageIndicator.value = false;
 };
 
 // Состояние загрузки
 const loading = computed(() => chatStore.loading);
 
-// Модальные окна
-const showEditChatModal = ref(false);
-const showManageParticipantsModal = ref(false);
 const showChatSettingsModal = ref(false);
 
 // Обработка обновления чата после сохранения в модальном окне
@@ -398,12 +394,12 @@ const loadMoreMessages = async () => {
 };
 
 // Прокрутка к последнему сообщению
-const scrollToBottom = () => {
+const scrollToBottom = (smooth = false) => {
   if (messagesContainer.value) {
     // Используем плавную прокрутку для лучшего UX
     messagesContainer.value.scrollTo({
       top: messagesContainer.value.scrollHeight,
-      behavior: 'auto' // Используем 'auto' вместо 'smooth' для производительности
+      behavior: smooth ? 'smooth' : 'auto' // Используем 'smooth' для плавной прокрутки при необходимости
     });
   }
 };
@@ -435,7 +431,7 @@ const sendMessage = async () => {
     
     // Прокручиваем чат вниз
     nextTick(() => {
-      scrollToBottom();
+      scrollToBottom(true);
     });
   } catch (error) {
     console.error('Ошибка при отправке сообщения:', error);
@@ -837,7 +833,7 @@ watch(() => chatStore.activeChat, (newChat, oldChat) => {
   
   nextTick(() => {
     setupInfiniteScroll();
-    scrollToBottom();
+    scrollToBottom(true);
     
     // На мобильных устройствах скрываем sidebar при выборе чата
     if (isMobile.value) {
@@ -853,7 +849,7 @@ watch(messages, (newMessages) => {
     // Используем requestAnimationFrame для оптимизации производительности
     requestAnimationFrame(() => {
       nextTick(() => {
-        scrollToBottom();
+        scrollToBottom(true);
       });
     });
   }
@@ -1037,7 +1033,7 @@ const setupWebSocketListeners = () => {
           // Прокручиваем к новому сообщению, если пользователь находится внизу чата
           if (isAtBottom.value) {
             nextTick(() => {
-              scrollToBottom();
+              scrollToBottom(true);
             });
           } else {
             // Показываем индикатор нового сообщения
@@ -1056,7 +1052,7 @@ const setupWebSocketListeners = () => {
           
           if (isAtBottom.value) {
             nextTick(() => {
-              scrollToBottom();
+              scrollToBottom(true);
             });
           } else {
             showNewMessageIndicator.value = true;
@@ -1070,7 +1066,7 @@ const setupWebSocketListeners = () => {
         // Прокручиваем к новому сообщению, если пользователь находится внизу чата
         if (isAtBottom.value) {
           nextTick(() => {
-            scrollToBottom();
+            scrollToBottom(true);
           });
         } else {
           // Показываем индикатор нового сообщения
@@ -1102,7 +1098,7 @@ const openChatSettings = () => {
 </script>
 
 <style lang="sass">
-@import '~/assets/styles/variables'
+@import '@variables'
 
 .chat-page
   height: 100vh
@@ -1112,7 +1108,7 @@ const openChatSettings = () => {
   position: relative
   
   .page_header
-    padding: 10px 20px
+    padding: 10px 
     background-color: $header-bg
     display: flex
     align-items: center
@@ -1130,6 +1126,9 @@ const openChatSettings = () => {
       padding: 5px 10px
       margin-right: 10px
       transition: all 0.2s ease
+
+      &__icon
+        transform: rotate(90deg)
       
       &:hover
         color: rgba(255, 255, 255, 0.8)
@@ -1471,9 +1470,19 @@ const openChatSettings = () => {
   100%
     transform: rotate(360deg)
 
+
+.scroll-btn-enter-active, .scroll-btn-leave-active
+  transition: opacity 0.5s ease, transform 0.5s ease
+
+.scroll-btn-enter-from, .scroll-btn-leave-to
+  opacity: 0
+  transform: translateY(20px)
+
+
 @include mobile
   .chat-page
     .messages_container
+      max-height: 75vh
       .message_wrap
         .message
           max-width: 90%

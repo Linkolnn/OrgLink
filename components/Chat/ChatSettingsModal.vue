@@ -38,7 +38,7 @@
               ref="fileInput" 
               type="file" 
               accept="image/*" 
-              class="file-input" 
+              class="file-input inp" 
               @change="handleFileChange"
             >
             <div class="avatar-label">Нажмите, чтобы изменить аватар</div>
@@ -53,6 +53,7 @@
               type="text" 
               placeholder="Введите название чата"
               required
+              class="inp"
             >
           </div>
           
@@ -64,6 +65,7 @@
               v-model="chatFormData.description" 
               placeholder="Добавьте описание чата"
               rows="3"
+              class="inp inp--textarea"
             ></textarea>
           </div>
           
@@ -90,6 +92,7 @@
                 v-model="searchQuery" 
                 placeholder="Поиск пользователей..." 
                 @input="searchUsers"
+                class="inp"
               >
               <div v-if="searchResults.length > 0" class="search-results">
                 <div 
@@ -156,6 +159,17 @@
           <button class="leave-btn" @click="confirmLeaveChat" :disabled="leavingChat">
             <span v-if="leavingChat">Выход...</span>
             <span v-else>Выйти из чата</span>
+          </button>
+          
+          <!-- Кнопка удаления чата (только для создателя) -->
+          <button 
+            v-if="isCreator(authStore.user?._id)" 
+            class="delete-btn" 
+            @click="confirmDeleteChat" 
+            :disabled="loading"
+          >
+            <span v-if="loading">Удаление...</span>
+            <span v-else>Удалить группу</span>
           </button>
         </div>
         
@@ -231,7 +245,16 @@ const previewImage = ref('');
 // Список участников чата
 const participants = computed(() => {
   if (!props.chatData || !props.chatData.participants) return [];
-  return props.chatData.participants;
+  
+  // Сортируем участников так, чтобы создатель был в начале списка
+  return [...props.chatData.participants].sort((a, b) => {
+    // Если a - создатель, он должен быть первым
+    if (isCreator(a._id)) return -1;
+    // Если b - создатель, он должен быть первым
+    if (isCreator(b._id)) return 1;
+    // Иначе сохраняем исходный порядок
+    return 0;
+  });
 });
 
 // Инициализация данных при открытии модального окна
@@ -319,7 +342,12 @@ const getInitials = (name) => {
 
 // Проверка, является ли пользователь создателем чата
 const isCreator = (userId) => {
-  return props.chatData?.creator === userId;
+  // Проверяем разные возможные поля для определения создателя
+  return (
+    props.chatData?.creator === userId || 
+    props.chatData?.createdBy === userId ||
+    (props.chatData?.creator && props.chatData.creator._id === userId)
+  );
 };
 
 // Проверка, может ли текущий пользователь удалить участника
@@ -397,6 +425,28 @@ const leaveChat = async () => {
     console.error('Ошибка при выходе из чата:', error);
   } finally {
     leavingChat.value = false;
+    showConfirmDialog.value = false;
+  }
+};
+
+// Подтверждение удаления чата
+const confirmDeleteChat = () => {
+  confirmMessage.value = 'Вы уверены, что хотите удалить этот чат?';
+  confirmAction.value = deleteChat;
+  showConfirmDialog.value = true;
+};
+
+// Удаление чата
+const deleteChat = async () => {
+  try {
+    loading.value = true;
+    await chatStore.deleteChat(props.chatData._id);
+    closeModal();
+    emit('saved');
+  } catch (error) {
+    console.error('Ошибка при удалении чата:', error);
+  } finally {
+    loading.value = false;
     showConfirmDialog.value = false;
   }
 };
@@ -643,14 +693,12 @@ watch(debouncedSearchQuery, searchUsers);
         .participant-item
           display: flex
           align-items: center
-          padding: 10px
-          border-bottom: 1px solid rgba(255, 255, 255, 0.1)
-          
+          padding: 10px 0px
+        
           &:last-child
             border-bottom: none
           
           &.is-creator
-            background-color: rgba(152, 132, 232, 0.1)
           
           .participant-avatar
             width: 40px
@@ -707,8 +755,10 @@ watch(debouncedSearchQuery, searchUsers);
       margin: 20px 0
       display: flex
       justify-content: center
+      gap: 10px
+      flex-wrap: wrap
       
-      .leave-btn
+      .leave-btn, .delete-btn
         background-color: rgba(255, 59, 48, 0.2)
         color: rgba(255, 59, 48, 0.8)
         border: none

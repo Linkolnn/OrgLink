@@ -20,7 +20,7 @@
             ref="fileInput" 
             type="file" 
             accept="image/*" 
-            class="file-input" 
+            class="file-input inp" 
             @change="handleFileChange"
           >
           <div class="avatar-label">Нажмите, чтобы изменить аватар</div>
@@ -35,6 +35,7 @@
             type="text" 
             placeholder="Введите название чата"
             required
+            class="inp"
           >
         </div>
         
@@ -46,6 +47,7 @@
             v-model="chatFormData.description" 
             placeholder="Добавьте описание чата"
             rows="3"
+            class="inp inp--textarea"
           ></textarea>
         </div>
         
@@ -58,6 +60,7 @@
               v-model="searchQuery" 
               placeholder="Поиск пользователей..." 
               @input="searchUsers"
+              class="inp"
             >
             <div v-if="searchResults.length > 0" class="search-results">
               <div 

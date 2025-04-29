@@ -15,6 +15,16 @@ export default async function handler(req, res) {
     }
   });
 
+  // Обрабатываем preflight запросы CORS
+  if (req.method === 'OPTIONS') {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Max-Age', '86400'); // 24 часа
+    return res.status(204).end();
+  }
+
   // Проверяем, не является ли текущий запрос уже проксированным
   // Это поможет избежать циклических перенаправлений
   if (req.headers['x-socket-io-proxied']) {
@@ -22,18 +32,12 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Socket.IO proxy loop detected' });
   }
 
-  // Если запрос пришел на /socket.io, а не на /api/socket.io, это может быть циклическое перенаправление
-  if (req.url.startsWith('/socket.io') && !req.url.startsWith('/api/socket.io')) {
-    console.log('Detected potential loop with /socket.io path, aborting');
-    return res.status(400).json({ error: 'Socket.IO proxy path conflict' });
-  }
-
   // Извлекаем метод и путь запроса
   const method = req.method;
   const url = req.url;
 
   // Определяем целевой URL для проксирования
-  // Используем внешний бэкенд URL вместо прокси на том же домене
+  // Используем внешний бэкенд URL
   const backendUrl = process.env.BACKEND_URL || 'https://org-link-backend.vercel.app';
   
   // Формируем путь для проксирования
@@ -70,6 +74,9 @@ export default async function handler(req, res) {
       }
     }
 
+    // Получаем origin запроса для CORS
+    const origin = req.headers.origin || req.headers.referer || '*';
+
     // Настраиваем параметры запроса
     const fetchOptions = {
       method,
@@ -81,7 +88,9 @@ export default async function handler(req, res) {
         'x-vercel-deployment-url': undefined,
         'x-vercel-id': undefined,
         // Добавляем маркер, что запрос уже проксирован
-        'x-socket-io-proxied': '1'
+        'x-socket-io-proxied': '1',
+        // Добавляем origin для CORS
+        'origin': origin
       },
       credentials: 'include',
     };
@@ -102,7 +111,7 @@ export default async function handler(req, res) {
     res.setHeader('Content-Type', contentType || 'text/plain');
     
     // Добавляем CORS заголовки для поддержки WebSocket
-    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Origin', origin !== '*' ? origin : '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
     res.setHeader('Access-Control-Allow-Credentials', 'true');

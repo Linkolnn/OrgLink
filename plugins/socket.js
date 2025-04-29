@@ -33,13 +33,13 @@ export default defineNuxtPlugin((nuxtApp) => {
   const isProduction = process.env.NODE_ENV === 'production';
   const isVercel = typeof window !== 'undefined' && window.location.hostname.includes('vercel.app');
   
-  // Определяем URL бэкенда для Socket.IO
-  // Важно: для продакшена всегда используем прямой URL к бэкенду, а не к Vercel
-  const backendUrl = 'https://org-link-backend.vercel.app';
+  // Определяем URL для Socket.IO
+  // В продакшене используем относительный путь, чтобы запросы шли через наш прокси
+  const socketUrl = isProduction ? '/socket.io' : (config.public.backendUrl || 'http://localhost:5000');
   
-  console.log('Socket.IO connecting to:', backendUrl);
+  console.log('Socket.IO connecting to:', socketUrl);
   
-  const socket = io(backendUrl, {
+  const socket = io(socketUrl, {
     autoConnect: false, // Не подключаемся автоматически
     withCredentials: true,
     reconnection: true,        // Включаем автоматическое переподключение
@@ -47,6 +47,7 @@ export default defineNuxtPlugin((nuxtApp) => {
     reconnectionDelay: 1000,   // Задержка между попытками переподключения
     timeout: 10000,            // Таймаут соединения
     transports: ['polling'],   // Используем только polling для надежности
+    path: isProduction ? undefined : '/socket.io', // Путь к Socket.IO серверу
     auth: {
       token: getToken() // Инициализируем с токеном
     }

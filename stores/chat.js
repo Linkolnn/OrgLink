@@ -628,7 +628,7 @@ export const useChatStore = defineStore('chat', {
           credentials: 'include'
         });
         
-        // Удаляем чат из списка
+        // Удаляем чат из списка для текущего пользователя
         this.chats = this.chats.filter(chat => chat._id !== chatId);
         
         // Если это был активный чат, сбрасываем его
@@ -641,6 +641,37 @@ export const useChatStore = defineStore('chat', {
       } catch (error) {
         console.error('Ошибка при выходе из чата:', error);
         this.error = 'Не удалось выйти из чата';
+        throw error;
+      } finally {
+        this.loading = false;
+      }
+    },
+    
+    // Удаление чата
+    async deleteChat(chatId) {
+      this.loading = true;
+      this.error = null;
+      
+      try {
+        const config = useRuntimeConfig();
+        await $fetch(`${config.public.backendUrl}/api/chats/${chatId}`, {
+          method: 'DELETE',
+          credentials: 'include'
+        });
+        
+        // Удаляем чат из списка
+        this.chats = this.chats.filter(chat => chat._id !== chatId);
+        
+        // Если это был активный чат, сбрасываем его
+        if (this.activeChat && this.activeChat._id === chatId) {
+          this.activeChat = null;
+          this.messages = [];
+        }
+        
+        return { success: true };
+      } catch (error) {
+        console.error('Ошибка при удалении чата:', error);
+        this.error = 'Не удалось удалить чат';
         throw error;
       } finally {
         this.loading = false;
