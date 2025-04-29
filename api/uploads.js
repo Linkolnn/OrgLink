@@ -31,7 +31,7 @@ export default async function handler(req, res) {
   }
 
   // Определяем целевой URL для проксирования
-  const backendUrl = process.env.BACKEND_URL || 'https://org-link.vercel.app';
+  const backendUrl = process.env.BACKEND_URL || 'https://org-link-backend.vercel.app';
   
   // Формируем URL для проксирования
   let targetUrl;

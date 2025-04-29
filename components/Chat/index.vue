@@ -1482,7 +1482,7 @@ const openChatSettings = () => {
 @include mobile
   .chat-page
     .messages_container
-      max-height: 75vh
+      max-height: 73vh
       .message_wrap
         .message
           max-width: 90%

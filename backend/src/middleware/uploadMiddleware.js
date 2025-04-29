@@ -125,11 +125,11 @@ export const getFileUrl = (filename, type) => {
   // Базовый URL API
   const baseUrl = process.env.NODE_ENV === 'production' 
     ? (process.env.BACKEND_URL || 'https://org-link-backend.vercel.app')
-    : `http://localhost:${process.env.BACKEND_PORT || 5000}`;
+    : `https://localhost:${process.env.BACKEND_PORT || 5000}`;
   
   // Убедимся, что в продакшн-окружении всегда используется HTTPS
   let secureBaseUrl = baseUrl;
-  if (process.env.NODE_ENV === 'production' && baseUrl.startsWith('http://')) {
+  if (baseUrl.startsWith('http://')) {
     secureBaseUrl = baseUrl.replace('http://', 'https://');
   }
   

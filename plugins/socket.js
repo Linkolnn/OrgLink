@@ -35,7 +35,7 @@ export default defineNuxtPlugin((nuxtApp) => {
   
   // Определяем URL для Socket.IO
   // В продакшене используем относительный путь, чтобы запросы шли через наш прокси
-  const socketUrl = isProduction ? '/socket.io' : (config.public.backendUrl || 'http://localhost:5000');
+  const socketUrl = isProduction ? '/socket.io' : (config.public.backendUrl || 'https://localhost:5000');
   
   console.log('Socket.IO connecting to:', socketUrl);
   
