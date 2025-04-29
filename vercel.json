@@ -4,16 +4,16 @@
   "outputDirectory": ".output/public",
   "rewrites": [
     { 
+      "source": "/api/socket.io/(.*)", 
+      "destination": "/api/socket.io.js" 
+    },
+    {
+      "source": "/api/uploads/(.*)",
+      "destination": "/api/uploads.js"
+    },
+    { 
       "source": "/api/(.*)", 
       "destination": "/api/server.js" 
-    },
-    {
-      "source": "/socket.io/(.*)",
-      "destination": "/api/socket.io.js"
-    },
-    {
-      "source": "/uploads/(.*)",
-      "destination": "/api/uploads.js"
     }
   ],
   "headers": [

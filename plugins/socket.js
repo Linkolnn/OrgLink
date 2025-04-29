@@ -35,16 +35,21 @@ export default defineNuxtPlugin((nuxtApp) => {
   
   // Определяем URL для Socket.IO
   let socketUrl;
+  let socketPath;
   
   if (isProduction || isVercel) {
-    // В продакшене используем относительный путь для Socket.IO
-    socketUrl = '/socket.io';
+    // В продакшене используем абсолютный URL сайта
+    socketUrl = window.location.origin;
+    socketPath = '/api/socket.io';
   } else {
     // В разработке используем полный URL бэкенда
     socketUrl = config.public.backendUrl || 'http://localhost:5000';
+    socketPath = '/socket.io';
   }
   
   console.log('Socket.IO connecting to:', socketUrl);
+  
+  console.log('Socket.IO path:', socketPath);
   
   const socket = io(socketUrl, {
     autoConnect: false, // Не подключаемся автоматически
@@ -54,7 +59,7 @@ export default defineNuxtPlugin((nuxtApp) => {
     reconnectionDelay: 1000,   // Задержка между попытками переподключения
     timeout: 10000,            // Таймаут соединения
     transports: ['polling'],   // Используем только polling для надежности
-    path: isProduction || isVercel ? undefined : '/socket.io', // Путь к Socket.IO серверу
+    path: socketPath, // Используем настроенный путь
     auth: {
       token: getToken() // Инициализируем с токеном
     }
