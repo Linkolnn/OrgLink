@@ -38,9 +38,9 @@ export default defineNuxtPlugin((nuxtApp) => {
   let socketPath;
   
   if (isProduction || isVercel) {
-    // В продакшене используем абсолютный URL сайта
-    socketUrl = window.location.origin;
-    socketPath = '/api/socket.io';
+    // В продакшене используем прямое соединение с бэкендом
+    socketUrl = config.public.backendUrl || 'https://org-link.vercel.app';
+    socketPath = '/socket.io';
   } else {
     // В разработке используем полный URL бэкенда
     socketUrl = config.public.backendUrl || 'http://localhost:5000';
