@@ -37,8 +37,8 @@ export default defineNuxtPlugin((nuxtApp) => {
   let socketUrl;
   
   if (isProduction || isVercel) {
-    // В продакшене используем относительный путь для API роута
-    socketUrl = '/api/socket.io';
+    // В продакшене используем относительный путь для Socket.IO
+    socketUrl = '/socket.io';
   } else {
     // В разработке используем полный URL бэкенда
     socketUrl = config.public.backendUrl || 'http://localhost:5000';
