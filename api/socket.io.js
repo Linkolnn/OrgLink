@@ -37,8 +37,8 @@ export default async function handler(req, res) {
   const url = req.url;
 
   // Определяем целевой URL для проксирования
-  // Используем внешний бэкенд URL
-  const backendUrl = process.env.BACKEND_URL || 'https://org-link-backend.vercel.app';
+  // Используем внешний бэкенд URL или локальный URL
+  const backendUrl = 'https://org-link-backend.vercel.app';
   
   // Формируем путь для проксирования
   let socketPath = '';

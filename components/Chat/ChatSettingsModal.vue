@@ -26,7 +26,7 @@
           <div class="avatar-upload">
             <div 
               class="avatar-preview" 
-              :style="{ backgroundImage: previewImage ? `url(${previewImage})` : 'none' }"
+              :style="{ backgroundImage: previewImage ? `url(${secureUrl(previewImage)})` : 'none' }"
               @click="$refs.fileInput.click()"
             >
               <div v-if="!previewImage" class="avatar-placeholder">
@@ -195,9 +195,11 @@
 </template>
 
 <script setup>
+import { ref, computed, watch, onMounted } from 'vue';
 import { useChatStore } from '~/stores/chat';
 import { useAuthStore } from '~/stores/auth';
 import { useDebounce } from '@vueuse/core';
+import { secureUrl } from '~/utils/secureUrl';
 
 const props = defineProps({
   isOpen: {

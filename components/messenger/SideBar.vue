@@ -38,7 +38,7 @@
           >
             <div 
               class="chat-item__avatar"
-              :style="chat.avatar ? { backgroundImage: `url(${chat.avatar})` } : {}"
+              :style="chat.avatar ? { backgroundImage: `url(${secureUrl(chat.avatar)})` } : {}"
             >
               <div v-if="!chat.avatar" class="chat-item__initials">{{ getInitials(chat.name) }}</div>
             </div>
@@ -75,6 +75,7 @@ import { useRouter } from 'vue-router';
 import { useNuxtApp } from '#app';
 import { useAuthStore } from '~/stores/auth';
 import { useChatStore } from '~/stores/chat';
+import { secureUrl } from '~/utils/secureUrl';
 import EditChatModal from '~/components/Chat/EditChatModal.vue';
 
 const chatStore = useChatStore();

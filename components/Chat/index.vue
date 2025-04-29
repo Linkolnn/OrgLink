@@ -17,7 +17,7 @@
         <div class="content">
           <div 
             class="content__img" 
-            :style="chatData.avatar ? `background-image: url(${chatData.avatar})` : ''"
+            :style="chatData.avatar ? `background-image: url(${secureUrl(chatData.avatar)})` : ''"
           >
             <div v-if="!chatData.avatar" class="initials">
               {{ getInitials(chatData.name) }}
@@ -168,7 +168,7 @@
             v-model="messageText" 
             class="inp inp--textarea message_input" 
             placeholder="Введите сообщение..." 
-            @keydown.enter.exact.prevent="sendMessage"
+            @keydown.enter.exact.prevent="isMobile ? addNewLine : sendMessage"
             @keydown.shift.enter.prevent="addNewLine"
             @input="adjustTextareaHeight"
             ref="messageInput"
@@ -215,6 +215,7 @@ import { useAuthStore } from '~/stores/auth';
 import NewMessagesButton from './NewMessagesButton.vue';
 import ChatSettingsModal from './ChatSettingsModal.vue';
 import MessageContextMenu from './MessageContextMenu.vue';
+import { secureUrl } from '~/utils/secureUrl';
 
 // Хранилища
 const chatStore = useChatStore();
@@ -1482,7 +1483,7 @@ const openChatSettings = () => {
 @include mobile
   .chat-page
     .messages_container
-      max-height: 73vh
+      max-height: 75vh
       .message_wrap
         .message
           max-width: 90%
