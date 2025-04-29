@@ -3,17 +3,17 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "nuxt build",
-    "dev:frontend": "nuxt dev",
+    "build": "npx nuxt build",
+    "dev:frontend": "npx nuxt dev",
     "dev:backend": "cd backend && yarn dev",
     "dev": "npx concurrently \"yarn dev:frontend\" \"yarn dev:backend\"",
-    "vercel-build": "nuxt build && nuxt generate",
+    "vercel-build": "npx nuxt build && npx nuxt generate",
     "api:dev": "cd backend && yarn dev",
     "api:deploy": "cd backend && yarn deploy",
     "mock": "node server.js",
-    "generate": "nuxt generate",
-    "preview": "nuxt preview",
-    "postinstall": "nuxt prepare && cd backend && yarn install"
+    "generate": "npx nuxt generate",
+    "preview": "npx nuxt preview",
+    "postinstall": "npx nuxt prepare && cd backend && yarn install"
   },
   "devDependencies": {
     "concurrently": "^8.2.2"
