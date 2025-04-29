@@ -34,14 +34,14 @@ export default defineNuxtPlugin((nuxtApp) => {
   const isVercel = typeof window !== 'undefined' && window.location.hostname.includes('vercel.app');
   
   // Определяем URL для Socket.IO
-  // Получаем API URL из конфигурации
+  // В продакшене используем текущий домен с путем к API
   const backendUrl = isProduction || isVercel 
-    ? (config.public.backendUrl || 'https://org-link.vercel.app')
+    ? window.location.origin + '/api'
     : (config.public.backendUrl || 'http://localhost:5000');
   
   console.log('Socket.IO connecting to backend:', backendUrl);
   
-  // Прямое соединение с бэкендом, минуя прокси
+  // Прямое соединение с бэкендом через API роуты
   const socket = io(backendUrl, {
     autoConnect: false, // Не подключаемся автоматически
     withCredentials: true,
@@ -50,6 +50,7 @@ export default defineNuxtPlugin((nuxtApp) => {
     reconnectionDelay: 1000,   // Задержка между попытками переподключения
     timeout: 10000,            // Таймаут соединения
     transports: ['polling'],   // Используем только polling для надежности
+    path: isProduction || isVercel ? '/api/socket.io' : undefined,
     auth: {
       token: getToken() // Инициализируем с токеном
     }
