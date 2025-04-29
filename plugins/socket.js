@@ -47,19 +47,22 @@ export default defineNuxtPlugin((nuxtApp) => {
     socketPath = '/socket.io';
   }
   
-  console.log('Socket.IO connecting to:', socketUrl);
+  // Получаем API URL из конфигурации
+  const backendUrl = isProduction || isVercel 
+    ? (config.public.backendUrl || 'https://org-link-backend.vercel.app')
+    : (config.public.backendUrl || 'http://localhost:5000');
   
-  console.log('Socket.IO path:', socketPath);
+  console.log('Socket.IO connecting to backend:', backendUrl);
   
-  const socket = io(socketUrl, {
+  // Прямое соединение с бэкендом, минуя прокси
+  const socket = io(backendUrl, {
     autoConnect: false, // Не подключаемся автоматически
     withCredentials: true,
     reconnection: true,        // Включаем автоматическое переподключение
     reconnectionAttempts: 10,  // Максимальное количество попыток переподключения
     reconnectionDelay: 1000,   // Задержка между попытками переподключения
     timeout: 10000,            // Таймаут соединения
-    transports: ['polling'],   // Используем только polling для надежности
-    path: socketPath, // Используем настроенный путь
+    transports: ['websocket', 'polling'], // Сначала пробуем websocket, потом polling
     auth: {
       token: getToken() // Инициализируем с токеном
     }
