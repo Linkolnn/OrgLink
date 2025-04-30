@@ -51,7 +51,8 @@ const io = new Server(httpServer, {
   }
 });
 
-const PORT = process.env.BACKEND_PORT || process.env.PORT;
+// Railway автоматически устанавливает переменную PORT
+const PORT = process.env.PORT || process.env.BACKEND_PORT || 5000;
 
 // Глобально экспортируем io для использования в других модулях
 export { io };
@@ -231,11 +232,14 @@ io.on('connection', (socket) => {
   });
 });
 
-// Запускаем сервер только в режиме разработки
-// В Vercel это не нужно, там приложение запускается как serverless
-if (process.env.NODE_ENV !== 'production') {
+// Запускаем сервер всегда, кроме случая когда это Vercel serverless
+// Для Railway нужно запускать сервер в любом режиме
+const isVercelServerless = process.env.VERCEL === '1';
+
+if (!isVercelServerless) {
+  // Запускаем сервер для локальной разработки и Railway
   httpServer.listen(PORT, () => {
-    console.log(`Сервер запущен на порту ${PORT}`);
+    console.log(`Сервер запущен на порту ${PORT} в режиме ${process.env.NODE_ENV}`);
   });
 }
 
