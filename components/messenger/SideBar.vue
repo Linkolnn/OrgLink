@@ -137,44 +137,177 @@ onMounted(() => {
   
   if ($socket) {
     // Прямая подписка на события WebSocket для обновления списка чатов
-    $socket.on('new-message', ({ message, chatId }) => {
-      console.log('SideBar: Получено новое сообщение:', message);
+    // Обработчик события нового сообщения
+    $socket.on('new-message', ({ message }) => {
+      console.log('SideBar: Получено новое сообщение через WebSocket:', message);
       
-      // Вызываем метод добавления нового сообщения в хранилище
-      chatStore.addNewMessage(message);
+      // Проверяем, от текущего ли пользователя сообщение
+      const { $auth } = useNuxtApp();
+      const currentUserId = $auth?.user?._id;
+      const senderIsCurrentUser = (
+        (message.sender && typeof message.sender === 'object' && message.sender._id === currentUserId) ||
+        (message.sender && typeof message.sender === 'string' && message.sender === currentUserId)
+      );
       
-      // Дополнительно обновляем DOM элементы для нового сообщения
-      setTimeout(() => {
+      // Получаем имя отправителя
+      let senderName = '';
+      if (message.sender) {
+        if (typeof message.sender === 'object') {
+          senderName = message.sender.name || message.sender.username || '';
+        }
+      }
+      
+      // Формируем текст сообщения
+      const messageText = message.text || 'Медиа-сообщение';
+      const displayText = senderName ? `${senderName}: ${messageText}` : messageText;
+      const timeFormatted = formatTime(new Date(message.createdAt || new Date()));
+      
+      try {
         // Находим чат в списке
         const chatId = message.chat;
-        const chat = chatStore.chats.find(c => c._id === chatId);
-        
-        if (chat) {
-          const messageText = message.text || 'Медиа-сообщение';
-          const timeFormatted = formatTime(new Date(message.createdAt || new Date()));
-          
-          // Обновляем элементы в DOM
-          const messageEl = document.getElementById(`chat-message-${chatId}`);
-          const timeEl = document.getElementById(`chat-time-${chatId}`);
-          
-          if (messageEl) {
-            messageEl.textContent = messageText;
-            console.log('SideBar: Обновлен текст сообщения в DOM:', messageText);
-          }
-          
-          if (timeEl) {
-            timeEl.textContent = timeFormatted;
-            console.log('SideBar: Обновлено время в DOM:', timeFormatted);
-          }
-          
-          // Перемещаем чат в начало списка
-          const chatItem = document.querySelector(`[data-chat-id="${chatId}"]`);
-          if (chatItem && chatListRef.value) {
-            chatListRef.value.insertBefore(chatItem, chatListRef.value.firstChild);
-            console.log('SideBar: Чат перемещен в начало списка');
-          }
+        if (!chatId) {
+          console.error('SideBar: Отсутствует ID чата в сообщении:', message);
+          return;
         }
-      }, 100);
+        
+        const chatIndex = chatStore.chats.findIndex(c => c._id === chatId);
+        console.log(`SideBar: Поиск чата ${chatId} в списке, индекс:`, chatIndex);
+        
+        if (chatIndex !== -1) {
+          // Получаем текущий чат
+          const chat = { ...chatStore.chats[chatIndex] };
+          
+          // Определяем, нужно ли увеличивать счетчик непрочитанных сообщений
+          let unreadCount = chat.unread || 0;
+          const isActiveChat = chatStore.activeChat && chatStore.activeChat._id === chatId;
+          
+          // Если сообщение не от текущего пользователя и чат не активен
+          if (!senderIsCurrentUser && !isActiveChat) {
+            unreadCount++;
+            console.log(`SideBar: Увеличен счетчик непрочитанных сообщений для чата ${chatId} до ${unreadCount}`);
+          }
+          
+          // Создаем объект последнего сообщения
+          const lastMessage = {
+            ...message,
+            text: messageText,
+            timestamp: message.createdAt || new Date().toISOString()
+          };
+          
+          // Создаем обновленный чат
+          const updatedChat = { 
+            ...chat,
+            lastMessage,
+            unread: unreadCount
+          };
+          
+          // Удаляем чат из текущей позиции
+          chatStore.chats.splice(chatIndex, 1);
+          
+          // Добавляем чат в начало списка
+          chatStore.chats.unshift(updatedChat);
+          
+          // Обновляем временную метку
+          chatStore.lastUpdated = Date.now();
+          forceUpdate.value++;
+          
+          console.log(`SideBar: Чат ${chatId} перемещен в начало списка, lastUpdated обновлен, forceUpdate увеличен`);
+          
+          // Обновляем активный чат, если это тот же чат
+          if (isActiveChat) {
+            chatStore.activeChat = { ...chatStore.activeChat, lastMessage };
+          }
+          
+          // Немедленно обновляем DOM для отображения изменений в реальном времени
+          // Используем микрозадачу для гарантии выполнения после обновления DOM
+          setTimeout(() => {
+            try {
+              // Находим чат в DOM
+              const chatItem = document.querySelector(`[data-chat-id="${chatId}"]`);
+              if (!chatItem) {
+                console.error(`SideBar: Не найден элемент чата с ID ${chatId} в DOM`);
+                return;
+              }
+              
+              console.log(`SideBar: Найден элемент чата в DOM:`, chatItem);
+              
+              // Обновляем текст сообщения
+              const messageEl = chatItem.querySelector('.chat-item__message');
+              if (messageEl) {
+                messageEl.textContent = displayText;
+                console.log(`SideBar: Обновлен текст сообщения в DOM:`, displayText);
+              }
+              
+              // Обновляем время
+              const timeEl = chatItem.querySelector('.chat-item__time');
+              if (timeEl) {
+                timeEl.textContent = timeFormatted;
+                console.log(`SideBar: Обновлено время в DOM:`, timeFormatted);
+              }
+              
+              // Обновляем счетчик непрочитанных сообщений
+              if (unreadCount > 0) {
+                const metaEl = chatItem.querySelector('.chat-item__meta');
+                if (!metaEl) {
+                  console.error(`SideBar: Не найден элемент .chat-item__meta в чате ${chatId}`);
+                  return;
+                }
+                
+                let badgeEl = chatItem.querySelector('.chat-item__badge');
+                
+                if (!badgeEl) {
+                  // Создаем новый элемент счетчика
+                  badgeEl = document.createElement('div');
+                  badgeEl.className = 'chat-item__badge';
+                  metaEl.insertBefore(badgeEl, metaEl.firstChild);
+                  console.log(`SideBar: Создан новый элемент счетчика для чата ${chatId}`);
+                }
+                
+                badgeEl.textContent = unreadCount;
+                badgeEl.style.display = 'flex';
+                console.log(`SideBar: Обновлен счетчик непрочитанных сообщений в DOM для чата ${chatId}: ${unreadCount}`);
+              }
+              
+              // Перемещаем чат в начало списка
+              const chatList = chatListRef.value;
+              if (chatList && chatList.firstChild && chatList.firstChild !== chatItem) {
+                chatList.insertBefore(chatItem, chatList.firstChild);
+                console.log(`SideBar: Чат ${chatId} перемещен в начало списка в DOM`);
+              }
+            } catch (error) {
+              console.error('SideBar: Ошибка при обновлении DOM:', error);
+            }
+          }, 50); // Небольшая задержка для гарантии обновления DOM
+        } else {
+          // Если чат не найден, добавляем сообщение в хранилище и обновляем список чатов
+          console.log(`SideBar: Чат ${chatId} не найден в списке, обновляем список чатов`);
+          chatStore.addNewMessage(message);
+          chatStore.fetchChats();
+        }
+      } catch (error) {
+        console.error('SideBar: Ошибка при обработке нового сообщения:', error);
+        
+        // В случае ошибки пытаемся обновить список чатов
+        try {
+          chatStore.addNewMessage(message);
+          forceUpdate.value++;
+        } catch (innerError) {
+          console.error('SideBar: Ошибка при попытке восстановления после ошибки:', innerError);
+        }
+      }
+      
+      // Дополнительный код для обработки сообщений в активном чате
+      if (chatStore.activeChat && chatStore.activeChat._id === message.chat) {
+        // Если сообщение пришло в активный чат, обновляем активный чат
+        chatStore.activeChat.lastMessage = {
+          ...message,
+          text: message.text || 'Медиа-сообщение',
+          timestamp: message.createdAt || new Date().toISOString()
+        };
+        
+        // Отмечаем сообщения как прочитанные
+        chatStore.readMessages(message.chat);
+      }
       
       // Принудительно обновляем список чатов
       forceUpdate.value++;
@@ -188,8 +321,56 @@ onMounted(() => {
     
     $socket.on('chat-updated', (chat) => {
       console.log('SideBar: Чат обновлен:', chat);
-      // Принудительно обновляем список чатов
-      forceUpdate.value++;
+      
+      // Находим чат в списке
+      const chatIndex = chatStore.chats.findIndex(c => c._id === chat._id);
+      if (chatIndex !== -1) {
+        // Сохраняем текущий счетчик непрочитанных сообщений
+        const currentUnread = chatStore.chats[chatIndex].unread || 0;
+        const updatedChat = { ...chat, unread: currentUnread };
+        
+        // Удаляем чат из текущей позиции
+        chatStore.chats.splice(chatIndex, 1);
+        
+        // Добавляем чат в начало списка
+        chatStore.chats.unshift(updatedChat);
+        
+        // Обновляем временную метку
+        chatStore.lastUpdated = Date.now();
+        
+        // Немедленно обновляем DOM
+        setTimeout(() => {
+          const chatItem = document.querySelector(`[data-chat-id="${chat._id}"]`);
+          if (chatItem) {
+            // Перемещаем чат в начало списка
+            const chatList = chatListRef.value;
+            if (chatList && chatList.firstChild !== chatItem) {
+              chatList.insertBefore(chatItem, chatList.firstChild);
+              console.log(`SideBar: Чат ${chat._id} перемещен в начало списка в DOM при обновлении`);
+            }
+            
+            // Обновляем счетчик непрочитанных сообщений
+            if (currentUnread > 0) {
+              let badgeEl = chatItem.querySelector('.chat-item__badge');
+              const metaEl = chatItem.querySelector('.chat-item__meta');
+              
+              if (!badgeEl && metaEl) {
+                badgeEl = document.createElement('div');
+                badgeEl.className = 'chat-item__badge';
+                metaEl.insertBefore(badgeEl, metaEl.firstChild);
+              }
+              
+              if (badgeEl) {
+                badgeEl.textContent = currentUnread;
+                badgeEl.style.display = 'flex';
+              }
+            }
+          }
+        }, 0);
+      } else {
+        // Если чат не найден, принудительно обновляем список чатов
+        forceUpdate.value++;
+      }
     });
     
     $socket.on('chat-deleted', (chatId) => {
@@ -286,19 +467,27 @@ onBeforeUnmount(() => {
   }
 });
 
+// Используем ref для принудительного обновления компонента
+const forceUpdate = ref(0);
+
 // Следим за изменениями в списке чатов
 // Используем computed для обеспечения реактивности
 const chats = computed(() => {
-  // Отслеживаем изменения в lastUpdated
+  // Отслеживаем изменения в lastUpdated и forceUpdate
   const lastUpdated = chatStore.lastUpdated;
+  const updateTrigger = forceUpdate.value;
+  console.log('SideBar: Вычисление списка чатов, lastUpdated:', lastUpdated, 'forceUpdate:', updateTrigger);
   
   // Проверяем, есть ли чаты в хранилище
   if (!chatStore.chats || chatStore.chats.length === 0) {
     return [];
   }
   
+  // Создаем копию списка чатов для обработки
+  const chatsCopy = JSON.parse(JSON.stringify(chatStore.chats));
+  
   // Обрабатываем каждый чат для отображения в интерфейсе
-  return chatStore.chats.map(chat => {
+  return chatsCopy.map(chat => {
     // Получаем имя отправителя последнего сообщения
     let senderName = '';
     if (chat.lastMessage?.sender) {
@@ -320,6 +509,11 @@ const chats = computed(() => {
     // Убеждаемся, что счетчик непрочитанных сообщений есть число
     const unread = typeof chat.unread === 'number' ? chat.unread : 0;
     
+    // Делаем лог для отладки
+    if (unread > 0) {
+      console.log(`Чат ${chat._id} имеет ${unread} непрочитанных сообщений`);
+    }
+    
     return {
       ...chat,
       _id: chat._id,
@@ -331,8 +525,11 @@ const chats = computed(() => {
 });
 
 // Следим за изменениями в списке чатов
-watch(() => chatStore.lastUpdated, () => {
-  console.log('SideBar: Обнаружено обновление списка чатов');
+watch(() => chatStore.lastUpdated, (newValue, oldValue) => {
+  console.log(`SideBar: Обнаружено обновление списка чатов: ${oldValue} -> ${newValue}`);
+  
+  // Принудительно обновляем компонент
+  forceUpdate.value++;
 });
 
 // Выбор чата

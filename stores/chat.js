@@ -159,6 +159,14 @@ export const useChatStore = defineStore('chat', {
         
         // Добавляем сообщение в массив сообщений
         this.messages.push(messageClone);
+        
+        // Проверяем, от текущего ли пользователя сообщение
+        const { $auth } = useNuxtApp();
+        const currentUserId = $auth?.user?._id;
+        const senderIsCurrentUser = (
+          (messageClone.sender && typeof messageClone.sender === 'object' && messageClone.sender._id === currentUserId) ||
+          (messageClone.sender && typeof messageClone.sender === 'string' && messageClone.sender === currentUserId)
+        );
         console.log('Сообщение добавлено в массив, текущий размер:', this.messages.length);
         
         // Находим чат в списке
@@ -182,10 +190,6 @@ export const useChatStore = defineStore('chat', {
           
           // Увеличиваем счетчик непрочитанных сообщений, если сообщение не от текущего пользователя
           let unreadCount = currentChat.unread || 0;
-          const senderIsCurrentUser = (
-            (messageClone.sender && typeof messageClone.sender === 'object' && messageClone.sender._id === currentUserId) ||
-            (messageClone.sender && typeof messageClone.sender === 'string' && messageClone.sender === currentUserId)
-          );
           
           // Если сообщение не от текущего пользователя и чат не активен
           if (!senderIsCurrentUser && (!this.activeChat || this.activeChat._id !== currentChat._id)) {
@@ -193,7 +197,7 @@ export const useChatStore = defineStore('chat', {
             console.log(`Увеличен счетчик непрочитанных сообщений для чата ${currentChat._id} до ${unreadCount}`);
           }
           
-          // Обновляем чат на месте без перемещения
+          // Создаем обновленный чат
           const updatedChat = { 
             ...currentChat,
             lastMessage,
@@ -205,6 +209,10 @@ export const useChatStore = defineStore('chat', {
           
           // Добавляем чат в начало списка
           this.chats.unshift(updatedChat);
+          
+          // Обновляем временную метку для отслеживания изменений
+          this.lastUpdated = Date.now();
+          console.log(`Чат ${messageClone.chat} перемещен в начало списка, lastUpdated обновлен`);
           
           // Обновляем активный чат, если это тот же чат
           if (this.activeChat && this.activeChat._id === messageClone.chat) {
@@ -443,9 +451,14 @@ export const useChatStore = defineStore('chat', {
         // Отмечаем обновление списка чатов
         this.triggerChatListUpdate();
         
-        // Обновляем временную метку для отслеживания изменений
-        this.lastUpdated = Date.now();
-        console.log('ChatStore: Обновлена временная метка lastUpdated');
+        // Проверяем, что lastUpdated существует
+        if (this.lastUpdated === undefined) {
+          this.lastUpdated = Date.now();
+        } else {
+          // Обновляем временную метку для отслеживания изменений
+          this.lastUpdated = Date.now();
+        }
+        console.log('ChatStore: Обновлена временная метка lastUpdated:', this.lastUpdated);
         
         return response;
       } catch (error) {
