@@ -13,7 +13,9 @@
     "mock": "node server.js",
     "generate": "npx nuxt generate",
     "preview": "npx nuxt preview",
-    "postinstall": "npx nuxt prepare && cd backend && yarn install"
+    "postinstall": "npx nuxt prepare && cd backend && yarn install",
+    "start": "node .output/server/index.mjs",
+    "render-build": "npx nuxt build"
   },
   "devDependencies": {
     "concurrently": "^8.2.2"
