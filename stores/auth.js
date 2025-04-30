@@ -1,5 +1,8 @@
 import { defineStore } from 'pinia';
+import { useRuntimeConfig } from '#app';
 import { useCookie } from '#app';
+import { useNuxtApp } from '#app';
+import { useRouter } from '#app';
 import { jwtDecode } from 'jwt-decode';
 
 export const useAuthStore = defineStore('auth', {
@@ -254,12 +257,11 @@ export const useAuthStore = defineStore('auth', {
       } finally {
         this.isLoggingOut = false;
         
-        // Перенаправляем на страницу входа после выхода
-        if (typeof window !== 'undefined') {
-          // Используем небольшую задержку, чтобы все запросы успели завершиться
-          setTimeout(() => {
-            window.location.href = '/login';
-          }, 300);
+        // Используем роутер для перехода на главную страницу без перезагрузки
+        const router = useRouter();
+        if (router) {
+          console.log('Бесшовный переход на главную страницу');
+          router.push('/');
         }
       }
     }
