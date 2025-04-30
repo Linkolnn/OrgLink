@@ -172,55 +172,97 @@ export const useChatStore = defineStore('chat', {
     
     // Добавление нового чата в список (через WebSocket)
     addNewChat(chat) {
-      // Проверяем, нет ли уже такого чата в списке
-      const existingChatIndex = this.chats.findIndex(c => c._id === chat._id);
+      console.log('Добавление нового чата:', chat);
       
-      if (existingChatIndex === -1) {
-        // Добавляем новый чат в начало списка
-        this.chats.unshift(chat);
-        console.log('Новый чат добавлен в список:', chat.name);
-      } else {
-        // Обновляем существующий чат
-        this.chats[existingChatIndex] = { ...this.chats[existingChatIndex], ...chat };
-        console.log('Существующий чат обновлен:', chat.name);
+      try {
+        // Создаем копию чата, чтобы избежать проблем с реактивностью
+        const chatClone = JSON.parse(JSON.stringify(chat));
+        
+        // Проверяем, нет ли уже такого чата в списке
+        const existingChatIndex = this.chats.findIndex(c => c._id === chatClone._id);
+        
+        if (existingChatIndex === -1) {
+          // Добавляем новый чат в начало списка
+          this.chats.unshift(chatClone);
+          console.log('Новый чат добавлен в список:', chatClone.name);
+        } else {
+          // Обновляем существующий чат
+          this.chats[existingChatIndex] = { ...this.chats[existingChatIndex], ...chatClone };
+          console.log('Существующий чат обновлен:', chatClone.name);
+        }
+        
+        // Применяем принудительное обновление списка чатов
+        this.triggerChatListUpdate();
+      } catch (error) {
+        console.error('Ошибка при добавлении нового чата:', error);
       }
     },
     
     // Обновление чата в списке (через WebSocket)
     updateChatInList(updatedChat) {
-      const chatIndex = this.chats.findIndex(c => c._id === updatedChat._id);
+      console.log('Обновление чата в списке:', updatedChat);
       
-      if (chatIndex !== -1) {
-        // Обновляем чат, сохраняя локальные данные, которые не приходят с сервера
-        this.chats[chatIndex] = { ...this.chats[chatIndex], ...updatedChat };
+      try {
+        // Создаем копию чата, чтобы избежать проблем с реактивностью
+        const chatClone = JSON.parse(JSON.stringify(updatedChat));
         
-        // Если это активный чат, обновляем и его
-        if (this.activeChat && this.activeChat._id === updatedChat._id) {
-          this.activeChat = { ...this.activeChat, ...updatedChat };
+        const chatIndex = this.chats.findIndex(c => c._id === chatClone._id);
+        console.log('Индекс чата для обновления:', chatIndex);
+        
+        if (chatIndex !== -1) {
+          // Удаляем чат из текущей позиции
+          this.chats.splice(chatIndex, 1);
+          
+          // Добавляем обновленный чат в начало списка
+          this.chats.unshift({ ...chatClone });
+          
+          // Если это активный чат, обновляем и его
+          if (this.activeChat && this.activeChat._id === chatClone._id) {
+            this.activeChat = { ...this.activeChat, ...chatClone };
+          }
+          
+          console.log('Чат обновлен в списке:', chatClone.name);
+        } else {
+          // Если чат не найден, добавляем его как новый
+          this.chats.unshift(chatClone);
+          console.log('Чат не найден, добавлен как новый:', chatClone.name);
         }
         
-        console.log('Чат обновлен в списке:', updatedChat.name);
+        // Применяем принудительное обновление списка чатов
+        this.triggerChatListUpdate();
+      } catch (error) {
+        console.error('Ошибка при обновлении чата:', error);
       }
     },
     
     // Удаление чата из списка (через WebSocket)
     removeChatFromList(chatId) {
-      const chatIndex = this.chats.findIndex(c => c._id === chatId);
+      console.log('Удаление чата из списка:', chatId);
       
-      if (chatIndex !== -1) {
-        // Сохраняем имя чата для лога
-        const chatName = this.chats[chatIndex].name;
+      try {
+        const chatIndex = this.chats.findIndex(c => c._id === chatId);
+        console.log('Индекс чата для удаления:', chatIndex);
         
-        // Удаляем чат из списка
-        this.chats.splice(chatIndex, 1);
-        
-        // Если это был активный чат, сбрасываем активный чат
-        if (this.activeChat && this.activeChat._id === chatId) {
-          this.activeChat = null;
-          this.messages = [];
+        if (chatIndex !== -1) {
+          // Сохраняем имя чата для лога
+          const chatName = this.chats[chatIndex].name;
+          
+          // Удаляем чат из списка
+          this.chats.splice(chatIndex, 1);
+          
+          // Если это был активный чат, сбрасываем активный чат
+          if (this.activeChat && this.activeChat._id === chatId) {
+            this.activeChat = null;
+            this.messages = [];
+          }
+          
+          console.log('Чат удален из списка:', chatName);
+          
+          // Применяем принудительное обновление списка чатов
+          this.triggerChatListUpdate();
         }
-        
-        console.log('Чат удален из списка:', chatName);
+      } catch (error) {
+        console.error('Ошибка при удалении чата:', error);
       }
     },
     
