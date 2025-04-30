@@ -49,8 +49,13 @@ export const useChatStore = defineStore('chat', {
       
       // Слушаем новые сообщения
       $socket.on('new-message', ({ message, chatId }) => {
-        // Создаем новый объект сообщения для добавления в список
-        this.addNewMessage({...message});
+        console.log('WebSocket: Получено новое сообщение:', message, 'для чата:', chatId);
+        
+        // Создаем копию сообщения для добавления в список
+        const messageCopy = JSON.parse(JSON.stringify(message));
+        
+        // Добавляем сообщение в список
+        this.addNewMessage(messageCopy);
       });
       
       // Слушаем прочтение сообщений
@@ -81,54 +86,75 @@ export const useChatStore = defineStore('chat', {
     
     // Добавление нового сообщения (через WebSocket)
     addNewMessage(message) {
+      console.log('Добавление нового сообщения:', message);
+      
       // Проверяем, что сообщение не дублируется
       const isDuplicate = this.messages.some(msg => msg._id === message._id);
       if (isDuplicate) {
+        console.log('Сообщение уже существует в списке:', message._id);
         return;
       }
       
-      // Добавляем сообщение в массив
-      this.messages.push(message);
-      
-      // Находим чат в списке
-      const chatIndex = this.chats.findIndex(chat => chat._id === message.chat);
-      
-      if (chatIndex !== -1) {
-        // Создаем новый объект чата для обновления
-        const updatedChat = { 
-          ...this.chats[chatIndex],
-          lastMessage: { 
-            ...message,
-            timestamp: message.createdAt || new Date().toISOString(),
-            text: message.text || 'Медиа-сообщение'
+      try {
+        // Создаем копию сообщения, чтобы избежать проблем с реактивностью
+        const messageClone = JSON.parse(JSON.stringify(message));
+        
+        // Добавляем сообщение в массив
+        this.messages.push(messageClone);
+        console.log('Сообщение добавлено в массив, текущий размер:', this.messages.length);
+        
+        // Находим чат в списке
+        const chatIndex = this.chats.findIndex(chat => chat._id === messageClone.chat);
+        console.log('Индекс чата в списке:', chatIndex);
+        
+        if (chatIndex !== -1) {
+          // Создаем новый объект чата для обновления
+          const updatedChat = { 
+            ...this.chats[chatIndex],
+            lastMessage: { 
+              ...messageClone,
+              timestamp: messageClone.createdAt || new Date().toISOString(),
+              text: messageClone.text || 'Медиа-сообщение'
+            }
+          };
+          
+          // Если сообщение не от текущего пользователя, увеличиваем счетчик непрочитанных сообщений
+          const { $auth } = useNuxtApp();
+          const currentUserId = $auth?.user?._id;
+          
+          if (messageClone.sender && messageClone.sender._id !== currentUserId) {
+            updatedChat.unread = (updatedChat.unread || 0) + 1;
           }
-        };
-        
-        // Если сообщение не от текущего пользователя, увеличиваем счетчик непрочитанных сообщений
-        if (message.sender && message.sender._id !== this.$nuxt?.auth?.user?._id) {
-          updatedChat.unread = (updatedChat.unread || 0) + 1;
+          
+          // Удаляем старый чат из списка
+          this.chats.splice(chatIndex, 1);
+          
+          // Добавляем обновленный чат в начало списка
+          this.chats.unshift(updatedChat);
+          
+          // Обновляем активный чат, если это тот же чат
+          if (this.activeChat && this.activeChat._id === messageClone.chat) {
+            this.activeChat = { ...this.activeChat, lastMessage: updatedChat.lastMessage };
+          }
         }
         
-        // Удаляем старый чат из списка
-        this.chats.splice(chatIndex, 1);
-        
-        // Добавляем обновленный чат в начало списка
-        this.chats.unshift(updatedChat);
-        
-        // Обновляем активный чат, если это тот же чат
-        if (this.activeChat && this.activeChat._id === message.chat) {
-          this.activeChat = { ...this.activeChat, lastMessage: updatedChat.lastMessage };
-        }
-        
-        // Обновляем список чатов для обеспечения реактивности
+        // Применяем принудительное обновление списка чатов
         this.triggerChatListUpdate();
         
-        // Обновляем список сообщений для обеспечения реактивности
+        // Принудительно обновляем список сообщений
+        // Создаем копию текущего массива сообщений
         const tempMessages = [...this.messages];
+        
+        // Очищаем массив сообщений
         this.messages = [];
-        this.$nextTick(() => {
+        
+        // В следующем такте восстанавливаем сообщения
+        setTimeout(() => {
           this.messages = tempMessages;
-        });
+          console.log('Список сообщений обновлен, текущий размер:', this.messages.length);
+        }, 0);
+      } catch (error) {
+        console.error('Ошибка при добавлении нового сообщения:', error);
       }
     },
     
