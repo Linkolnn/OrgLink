@@ -156,7 +156,7 @@ export const useChatStore = defineStore('chat', {
         // Создаем глубокую копию сообщения
         const messageClone = JSON.parse(JSON.stringify(message));
         
-        // Добавляем сообщение в массив
+        // Добавляем сообщение в массив сообщений
         this.messages.push(messageClone);
         console.log('Сообщение добавлено в массив, текущий размер:', this.messages.length);
         
@@ -165,57 +165,57 @@ export const useChatStore = defineStore('chat', {
         console.log('Индекс чата в списке:', chatIndex);
         
         if (chatIndex !== -1) {
-          // Создаем новый объект чата для обновления
-          const updatedChat = { 
-            ...this.chats[chatIndex],
-            lastMessage: { 
-              ...messageClone,
-              timestamp: messageClone.createdAt || new Date().toISOString(),
-              text: messageClone.text || 'Медиа-сообщение'
-            }
+          // Получаем текущий чат
+          const currentChat = this.chats[chatIndex];
+          
+          // Создаем объект последнего сообщения
+          const lastMessage = {
+            ...messageClone,
+            timestamp: messageClone.createdAt || new Date().toISOString(),
+            text: messageClone.text || 'Медиа-сообщение'
           };
           
-          // Если сообщение не от текущего пользователя, увеличиваем счетчик непрочитанных сообщений
+          // Проверяем, от текущего ли пользователя сообщение
           const { $auth } = useNuxtApp();
           const currentUserId = $auth?.user?._id;
           
+          // Увеличиваем счетчик непрочитанных сообщений, если сообщение не от текущего пользователя
+          let unreadCount = currentChat.unread || 0;
           if (messageClone.sender && messageClone.sender._id !== currentUserId) {
-            updatedChat.unread = (updatedChat.unread || 0) + 1;
+            unreadCount++;
           }
           
-          // Удаляем старый чат из списка
+          // Обновляем чат на месте без перемещения
+          const updatedChat = { 
+            ...currentChat,
+            lastMessage,
+            unread: unreadCount
+          };
+          
+          // Удаляем чат из текущей позиции
           this.chats.splice(chatIndex, 1);
           
-          // Добавляем обновленный чат в начало списка
+          // Добавляем чат в начало списка
           this.chats.unshift(updatedChat);
           
           // Обновляем активный чат, если это тот же чат
           if (this.activeChat && this.activeChat._id === messageClone.chat) {
-            this.activeChat = { ...this.activeChat, lastMessage: updatedChat.lastMessage };
+            this.activeChat = { ...this.activeChat, lastMessage };
           }
           
-          // Отправляем событие обновления чата напрямую в WebSocket
+          // Отмечаем обновление списка чатов
+          this.lastUpdated = new Date().getTime();
+          
+          // Отправляем событие обновления чата для других клиентов
           const { $socket } = useNuxtApp();
           if ($socket && $socket.connected) {
             $socket.emit('client-chat-updated', { chatId: messageClone.chat });
           }
-          
-          // Применяем принудительное обновление списка чатов
-          this.triggerChatListUpdate();
         } else {
           // Если чат не найден в списке, загружаем его с сервера
           console.log('Чат не найден в списке, загружаем информацию о чате');
           this.loadChatById(messageClone.chat);
         }
-        
-        // Принудительно обновляем список сообщений с использованием $nextTick
-        const tempMessages = JSON.parse(JSON.stringify(this.messages));
-        this.messages = [];
-        
-        this.$nextTick(() => {
-          this.messages = tempMessages;
-          console.log('Список сообщений обновлен, текущий размер:', this.messages.length);
-        });
       } catch (error) {
         console.error('Ошибка при добавлении нового сообщения:', error);
       }
@@ -363,22 +363,73 @@ export const useChatStore = defineStore('chat', {
     
     // Загрузка списка чатов
     async fetchChats() {
+      if (this.loading) return;
+      
       this.loading = true;
       this.error = null;
       
       try {
+        console.log('ChatStore: Загрузка списка чатов...');
         const config = useRuntimeConfig();
         const response = await $fetch(`${config.public.backendUrl}/api/chats`, {
           credentials: 'include'
         });
         
-        this.chats = response;
+        console.log('ChatStore: Список чатов получен, количество:', response.length);
+        
+        // Если это первая загрузка, просто устанавливаем список чатов
+        if (!this.initialLoadComplete) {
+          this.chats = JSON.parse(JSON.stringify(response));
+          this.initialLoadComplete = true;
+          console.log('ChatStore: Первая загрузка чатов завершена');
+        } else {
+          // Плавно обновляем список чатов
+          const newChats = JSON.parse(JSON.stringify(response));
+          
+          // Для каждого чата из нового списка
+          for (const newChat of newChats) {
+            // Проверяем, есть ли чат в текущем списке
+            const existingChatIndex = this.chats.findIndex(chat => chat._id === newChat._id);
+            
+            if (existingChatIndex !== -1) {
+              // Если чат уже есть, обновляем его данные, сохраняя счетчик непрочитанных сообщений
+              const existingChat = this.chats[existingChatIndex];
+              
+              // Сохраняем счетчик непрочитанных сообщений
+              newChat.unread = existingChat.unread;
+              
+              // Проверяем, изменилось ли последнее сообщение
+              const hasNewMessage = newChat.lastMessage && existingChat.lastMessage && 
+                                   (newChat.lastMessage._id !== existingChat.lastMessage._id);
+              
+              // Если есть новое сообщение, перемещаем чат в начало списка
+              if (hasNewMessage) {
+                // Удаляем чат из текущей позиции
+                this.chats.splice(existingChatIndex, 1);
+                // Добавляем чат в начало списка
+                this.chats.unshift(newChat);
+                console.log('ChatStore: Чат перемещен в начало списка:', newChat.name);
+              } else {
+                // Просто обновляем данные чата на месте
+                this.chats[existingChatIndex] = { ...newChat };
+              }
+            } else {
+              // Если это новый чат, добавляем его в начало списка
+              this.chats.unshift(newChat);
+              console.log('ChatStore: Добавлен новый чат:', newChat.name);
+            }
+          }
+          
+          // Проверяем, есть ли чаты, которые были удалены
+          const chatIdsToKeep = newChats.map(chat => chat._id);
+          this.chats = this.chats.filter(chat => chatIdsToKeep.includes(chat._id));
+        }
         
         // Инициализируем WebSocket слушатели
         this.initSocketListeners();
         
-        // Отмечаем, что первоначальная загрузка завершена
-        this.initialLoadComplete = true;
+        // Отмечаем обновление списка чатов
+        this.triggerChatListUpdate();
         
         return response;
       } catch (error) {
@@ -981,27 +1032,20 @@ export const useChatStore = defineStore('chat', {
       }
     },
     
-    // Метод для принудительной перезагрузки списка чатов
+    // Метод для плавного обновления списка чатов
     triggerChatListUpdate() {
-      console.log('ChatStore: Принудительное обновление списка чатов');
+      console.log('ChatStore: Плавное обновление списка чатов');
       
-      // Создаем глубокую копию списка чатов
-      const tempChats = JSON.parse(JSON.stringify(this.chats));
+      // Отправляем событие обновления списка чатов
+      const { $socket } = useNuxtApp();
+      if ($socket) {
+        $socket.emit('client-chat-list-updated');
+      }
       
-      // Очищаем текущий список чатов
-      this.chats = [];
+      // Добавляем специальное поле для отслеживания изменений
+      this.lastUpdated = new Date().getTime();
       
-      // В следующем такте реактивного цикла восстанавливаем список чатов
-      this.$nextTick(() => {
-        this.chats = tempChats;
-        console.log('ChatStore: Список чатов обновлен, количество:', this.chats.length);
-        
-        // Отправляем событие обновления списка чатов
-        const { $socket } = useNuxtApp();
-        if ($socket) {
-          $socket.emit('client-chat-list-updated');
-        }
-      });
+      console.log('ChatStore: Список чатов обновлен, количество:', this.chats.length);
     }
   }
 });

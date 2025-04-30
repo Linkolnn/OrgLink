@@ -47,7 +47,7 @@ export default defineNuxtPlugin((nuxtApp) => {
     reconnectionAttempts: Infinity,  // Бесконечное количество попыток переподключения
     reconnectionDelay: 1000,   // Задержка между попытками переподключения
     timeout: 20000,            // Увеличиваем таймаут соединения
-    transports: ['polling', 'websocket'],   // Используем оба транспорта для надежности
+    transports: ['polling'],   // Используем только polling для надежности
     path: '/socket.io',
     forceNew: true,            // Создаем новое соединение
     auth: {
@@ -56,6 +56,12 @@ export default defineNuxtPlugin((nuxtApp) => {
     extraHeaders: {
       'Authorization': `Bearer ${getToken()}` // Добавляем токен в заголовки
     }
+  });
+  
+  console.log('Socket.IO настройки:', {
+    url: backendUrl,
+    transports: ['polling'],
+    token: getToken() ? 'Токен установлен' : 'Токен отсутствует'
   });
 
   // Обработчики событий сокета

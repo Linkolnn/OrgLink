@@ -103,6 +103,17 @@ onMounted(() => {
 // Состояние модального окна создания чата
 const showCreateChatModal = ref(false);
 
+// Интервал обновления списка чатов (в миллисекундах)
+const CHAT_UPDATE_INTERVAL = 10000; // 10 секунд
+
+// Интервал обновления
+let chatUpdateInterval = null;
+
+// Инициализируем поле lastUpdated в хранилище чатов, если оно не существует
+if (chatStore.lastUpdated === undefined) {
+  chatStore.lastUpdated = new Date().getTime();
+}
+
 // Инициализация WebSocket слушателей при монтировании компонента
 onMounted(() => {
   console.log('SideBar: Компонент монтирован');
@@ -114,6 +125,12 @@ onMounted(() => {
   if (!chatStore.initialLoadComplete) {
     chatStore.fetchChats();
   }
+  
+  // Запускаем периодический опрос сервера для обновления списка чатов
+  chatUpdateInterval = setInterval(() => {
+    console.log('SideBar: Периодическое обновление списка чатов');
+    chatStore.fetchChats();
+  }, CHAT_UPDATE_INTERVAL);
   
   // Получаем ссылку на Socket.IO
   const { $socket, $socketConnect } = useNuxtApp();
@@ -258,32 +275,41 @@ onMounted(() => {
   }
 });
 
-// Следим за изменениями в списке чатов
-// Используем computed с глубоким отслеживанием для обеспечения реактивности
-const forceUpdate = ref(0);
-const chats = computed(() => {
-  // Форсируем принудительное обновление
-  const _ = forceUpdate.value;
-  console.log('SideBar: Вычисление списка чатов, количество:', chatStore.chats.length);
+// Очищаем интервал при размонтировании компонента
+onBeforeUnmount(() => {
+  console.log('SideBar: Компонент размонтируется');
   
-  // Создаем глубокую копию чатов для предотвращения проблем с реактивностью
-  const chatsCopy = JSON.parse(JSON.stringify(chatStore.chats));
+  // Очищаем интервал обновления списка чатов
+  if (chatUpdateInterval) {
+    clearInterval(chatUpdateInterval);
+    chatUpdateInterval = null;
+  }
+});
+
+// Следим за изменениями в списке чатов
+// Используем computed для обеспечения реактивности
+const chats = computed(() => {
+  // Отслеживаем изменения в lastUpdated
+  const lastUpdated = chatStore.lastUpdated;
+  
+  // Проверяем, есть ли чаты в хранилище
+  if (!chatStore.chats || chatStore.chats.length === 0) {
+    return [];
+  }
   
   // Обрабатываем каждый чат для отображения в интерфейсе
-  return chatsCopy.map(chat => ({
+  return chatStore.chats.map(chat => ({
     ...chat,
-    _id: chat._id, // Для обновления списка чатов
+    _id: chat._id,
     lastMessageText: chat.lastMessage?.text || 'Нет сообщений',
     formattedTime: chat.lastMessage?.timestamp ? formatTime(new Date(chat.lastMessage.timestamp)) : ''
   }));
 });
 
-// Следим за изменениями в списке чатов с глубоким отслеживанием
-watch(() => chatStore.chats, () => {
-  console.log('SideBar: Обнаружены изменения в списке чатов');
-  // Принудительно обновляем компонент
-  forceUpdate.value++;
-}, { deep: true });
+// Следим за изменениями в списке чатов
+watch(() => chatStore.lastUpdated, () => {
+  console.log('SideBar: Обнаружено обновление списка чатов');
+});
 
 // Выбор чата
 const selectChat = (chatId) => {
