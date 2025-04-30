@@ -981,13 +981,24 @@ export const useChatStore = defineStore('chat', {
     
     // Метод для принудительной перезагрузки списка чатов
     triggerChatListUpdate() {
-      // Создаем временный массив и очищаем текущий список чатов
-      const tempChats = [...this.chats];
+      console.log('ChatStore: Принудительное обновление списка чатов');
+      
+      // Создаем глубокую копию списка чатов
+      const tempChats = JSON.parse(JSON.stringify(this.chats));
+      
+      // Очищаем текущий список чатов
       this.chats = [];
       
       // В следующем такте реактивного цикла восстанавливаем список чатов
       this.$nextTick(() => {
         this.chats = tempChats;
+        console.log('ChatStore: Список чатов обновлен, количество:', this.chats.length);
+        
+        // Отправляем событие обновления списка чатов
+        const { $socket } = useNuxtApp();
+        if ($socket) {
+          $socket.emit('client-chat-list-updated');
+        }
       });
     }
   }

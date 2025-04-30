@@ -13,6 +13,7 @@
         </div>
         <div class="sidebar__actions">
           <h3 class="sidebar__title">Чаты</h3>
+          <div class="sidebar__connection-status" :class="{ 'sidebar__connection-status--connected': isConnected }" title="Статус соединения"></div>
           <button class="sidebar__button sidebar__button--new" @click="createNewChat">
             <span>+</span>
           </button>
@@ -50,7 +51,7 @@
             </div>
             <div class="chat-item__meta">
               <div v-if="chat.unread" class="chat-item__badge">{{ chat.unread }}</div>
-              <div v-if="chat.lastMessage?.timestamp" :id="`chat-time-${chat._id}`" class="chat-item__time">
+              <div :id="`chat-time-${chat._id}`" class="chat-item__time">
                 {{ chat.formattedTime }}
               </div>
             </div>
@@ -82,7 +83,12 @@ const chatStore = useChatStore();
 const authStore = useAuthStore();
 const router = useRouter();
 
-// Получаем функции для мобильного отображения
+// Состояние для отображения/скрытия меню
+const isMenuOpen = ref(false);
+
+// Флаг для отслеживания состояния WebSocket соединения
+const isConnected = ref(false);
+
 // Определяем, является ли устройство мобильным
 const isMobile = ref(false);
 
@@ -96,10 +102,11 @@ onMounted(() => {
 
 // Состояние модального окна создания чата
 const showCreateChatModal = ref(false);
-const isMenuOpen = ref(false);
 
 // Инициализация WebSocket слушателей при монтировании компонента
 onMounted(() => {
+  console.log('SideBar: Компонент монтирован');
+  
   // Инициализируем слушатели WebSocket
   chatStore.initSocketListeners();
   
@@ -107,17 +114,126 @@ onMounted(() => {
   if (!chatStore.initialLoadComplete) {
     chatStore.fetchChats();
   }
+  
+  // Получаем ссылку на Socket.IO
+  const { $socket, $socketConnect } = useNuxtApp();
+  
+  if ($socket) {
+    // Прямая подписка на события WebSocket для обновления списка чатов
+    $socket.on('new-message', ({ message, chatId }) => {
+      console.log('SideBar: Получено новое сообщение:', message);
+      
+      // Вызываем метод добавления нового сообщения в хранилище
+      chatStore.addNewMessage(message);
+      
+      // Дополнительно обновляем DOM элементы для нового сообщения
+      setTimeout(() => {
+        // Находим чат в списке
+        const chatId = message.chat;
+        const chat = chatStore.chats.find(c => c._id === chatId);
+        
+        if (chat) {
+          const messageText = message.text || 'Медиа-сообщение';
+          const timeFormatted = formatTime(new Date(message.createdAt || new Date()));
+          
+          // Обновляем элементы в DOM
+          const messageEl = document.getElementById(`chat-message-${chatId}`);
+          const timeEl = document.getElementById(`chat-time-${chatId}`);
+          
+          if (messageEl) {
+            messageEl.textContent = messageText;
+            console.log('SideBar: Обновлен текст сообщения в DOM:', messageText);
+          }
+          
+          if (timeEl) {
+            timeEl.textContent = timeFormatted;
+            console.log('SideBar: Обновлено время в DOM:', timeFormatted);
+          }
+          
+          // Перемещаем чат в начало списка
+          const chatItem = document.querySelector(`[data-chat-id="${chatId}"]`);
+          if (chatItem && chatListRef.value) {
+            chatListRef.value.insertBefore(chatItem, chatListRef.value.firstChild);
+            console.log('SideBar: Чат перемещен в начало списка');
+          }
+        }
+      }, 100);
+      
+      // Принудительно обновляем список чатов
+      forceUpdate.value++;
+    });
+    
+    $socket.on('new-chat', (chat) => {
+      console.log('SideBar: Получен новый чат:', chat);
+      // Принудительно обновляем список чатов
+      forceUpdate.value++;
+    });
+    
+    $socket.on('chat-updated', (chat) => {
+      console.log('SideBar: Чат обновлен:', chat);
+      // Принудительно обновляем список чатов
+      forceUpdate.value++;
+    });
+    
+    $socket.on('chat-deleted', (chatId) => {
+      console.log('SideBar: Чат удален:', chatId);
+      // Принудительно обновляем список чатов
+      forceUpdate.value++;
+    });
+    
+    // Обработка событий подключения и отключения
+    $socket.on('connect', () => {
+      console.log('SideBar: WebSocket подключен');
+      isConnected.value = true;
+      
+      // При подключении обновляем список чатов
+      chatStore.fetchChats();
+    });
+    
+    // Обработка события обновления списка чатов от других клиентов
+    $socket.on('client-chat-list-updated', () => {
+      console.log('SideBar: Получено событие обновления списка чатов от другого клиента');
+      // Принудительно обновляем список чатов
+      forceUpdate.value++;
+    });
+    
+    $socket.on('disconnect', () => {
+      console.log('SideBar: WebSocket отключен');
+      isConnected.value = false;
+    });
+    
+    $socket.on('reconnect', () => {
+      console.log('SideBar: WebSocket переподключен');
+      isConnected.value = true;
+      
+      // При переподключении обновляем список чатов
+      chatStore.fetchChats();
+    });
+    
+    // Проверяем текущее состояние соединения
+    isConnected.value = $socket.connected;
+    console.log('SideBar: Текущее состояние соединения:', isConnected.value);
+    
+    if (!$socket.connected && $socketConnect) {
+      console.log('SideBar: Попытка подключения WebSocket');
+      $socketConnect();
+    }
+  }
 });
 
 // Следим за изменениями в списке чатов
 // Используем computed с глубоким отслеживанием для обеспечения реактивности
 const forceUpdate = ref(0);
 const chats = computed(() => {
-  // Формсируем принудительное обновление (не используется, но необходим для реактивности)
+  // Форсируем принудительное обновление
   const _ = forceUpdate.value;
+  console.log('SideBar: Вычисление списка чатов, количество:', chatStore.chats.length);
   
-  // Возвращаем обработанную копию чатов для обеспечения реактивности
-  return [...chatStore.chats].map(chat => ({
+  // Создаем глубокую копию чатов для предотвращения проблем с реактивностью
+  const chatsCopy = JSON.parse(JSON.stringify(chatStore.chats));
+  
+  // Обрабатываем каждый чат для отображения в интерфейсе
+  return chatsCopy.map(chat => ({
     ...chat,
     _id: chat._id, // Для обновления списка чатов
     lastMessageText: chat.lastMessage?.text || 'Нет сообщений',
@@ -125,8 +241,9 @@ const chats = computed(() => {
   }));
 });
 
-// Следим за изменениями в списке чатов
+// Следим за изменениями в списке чатов с глубоким отслеживанием
 watch(() => chatStore.chats, () => {
+  console.log('SideBar: Обнаружены изменения в списке чатов');
   // Принудительно обновляем компонент
   forceUpdate.value++;
 }, { deep: true });
@@ -307,6 +424,17 @@ onMounted(() => {
     justify-content: space-between
     align-items: center
     margin-top: 12px
+    
+  &__connection-status
+    width: 10px
+    height: 10px
+    border-radius: 50%
+    background-color: #ff5252 // красный для отключенного состояния
+    margin-right: 10px
+    transition: background-color 0.3s ease
+    
+    &--connected
+      background-color: #4caf50 // зеленый для подключенного состояния
   
   &__title
     margin: 0
