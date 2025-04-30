@@ -40,6 +40,8 @@ export default async function handler(req, res) {
   // Используем внешний бэкенд URL
   const backendUrl = process.env.BACKEND_URL || 'https://orglink-production-e9d8.up.railway.app';
   
+  console.log('Using backend URL for Socket.IO proxy:', backendUrl);
+  
   // Формируем путь для проксирования
   let socketPath = '';
   if (url.includes('socket.io')) {

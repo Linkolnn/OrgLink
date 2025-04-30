@@ -34,12 +34,10 @@ export default defineNuxtPlugin((nuxtApp) => {
   const isVercel = typeof window !== 'undefined' && window.location.hostname.includes('vercel.app');
   
   // Определяем URL для Socket.IO
-  // Для Vercel используем текущий домен, чтобы избежать CORS проблем
-  const backendUrl = isVercel 
-    ? window.location.origin // Используем текущий домен для Vercel
-    : (isProduction 
-      ? 'https://org-link.vercel.app' // Прямое подключение к Railway в других продакшен средах
-      : (config.public.backendUrl || 'http://localhost:5000')); // Локальная разработка
+  // В продакшене используем тот же домен, что и для API
+  const backendUrl = isProduction || isVercel 
+    ? window.location.origin
+    : (config.public.backendUrl || 'http://localhost:5000');
   
   console.log('Socket.IO connecting to backend:', backendUrl);
   
@@ -52,7 +50,7 @@ export default defineNuxtPlugin((nuxtApp) => {
     reconnectionDelay: 1000,   // Задержка между попытками переподключения
     timeout: 10000,            // Таймаут соединения
     transports: ['polling'],   // Используем только polling для надежности
-    path: isVercel ? '/api/socket.io' : (isProduction ? '/socket.io' : undefined),
+    path: isProduction || isVercel ? '/api/socket.io' : undefined,
     auth: {
       token: getToken() // Инициализируем с токеном
     }
