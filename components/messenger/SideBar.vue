@@ -197,6 +197,43 @@ onMounted(() => {
       forceUpdate.value++;
     });
     
+    // Обработка события обновления конкретного чата
+    $socket.on('client-chat-updated', ({ chatId }) => {
+      console.log('SideBar: Получено событие обновления чата:', chatId);
+      
+      // Находим чат в списке
+      const chat = chatStore.chats.find(c => c._id === chatId);
+      
+      if (chat && chat.lastMessage) {
+        // Обновляем элементы в DOM
+        setTimeout(() => {
+          const messageEl = document.getElementById(`chat-message-${chatId}`);
+          const timeEl = document.getElementById(`chat-time-${chatId}`);
+          
+          if (messageEl) {
+            messageEl.textContent = chat.lastMessage.text || 'Медиа-сообщение';
+            console.log('SideBar: Обновлен текст сообщения в DOM:', chat.lastMessage.text);
+          }
+          
+          if (timeEl && chat.lastMessage.timestamp) {
+            const formattedTime = formatTime(new Date(chat.lastMessage.timestamp));
+            timeEl.textContent = formattedTime;
+            console.log('SideBar: Обновлено время в DOM:', formattedTime);
+          }
+          
+          // Перемещаем чат в начало списка
+          const chatItem = document.querySelector(`[data-chat-id="${chatId}"]`);
+          if (chatItem && chatListRef.value) {
+            chatListRef.value.insertBefore(chatItem, chatListRef.value.firstChild);
+            console.log('SideBar: Чат перемещен в начало списка');
+          }
+        }, 100);
+      }
+      
+      // Принудительно обновляем список чатов
+      forceUpdate.value++;
+    });
+    
     $socket.on('disconnect', () => {
       console.log('SideBar: WebSocket отключен');
       isConnected.value = false;

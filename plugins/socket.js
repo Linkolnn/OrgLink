@@ -44,13 +44,17 @@ export default defineNuxtPlugin((nuxtApp) => {
     autoConnect: false, // Не подключаемся автоматически
     withCredentials: true,
     reconnection: true,        // Включаем автоматическое переподключение
-    reconnectionAttempts: 10,  // Максимальное количество попыток переподключения
+    reconnectionAttempts: Infinity,  // Бесконечное количество попыток переподключения
     reconnectionDelay: 1000,   // Задержка между попытками переподключения
-    timeout: 10000,            // Таймаут соединения
-    transports: ['polling'],   // Используем только polling для надежности
+    timeout: 20000,            // Увеличиваем таймаут соединения
+    transports: ['polling', 'websocket'],   // Используем оба транспорта для надежности
     path: '/socket.io',
+    forceNew: true,            // Создаем новое соединение
     auth: {
       token: getToken() // Инициализируем с токеном
+    },
+    extraHeaders: {
+      'Authorization': `Bearer ${getToken()}` // Добавляем токен в заголовки
     }
   });
 

@@ -153,7 +153,7 @@ export const useChatStore = defineStore('chat', {
       }
       
       try {
-        // Создаем копию сообщения, чтобы избежать проблем с реактивностью
+        // Создаем глубокую копию сообщения
         const messageClone = JSON.parse(JSON.stringify(message));
         
         // Добавляем сообщение в массив
@@ -194,6 +194,12 @@ export const useChatStore = defineStore('chat', {
             this.activeChat = { ...this.activeChat, lastMessage: updatedChat.lastMessage };
           }
           
+          // Отправляем событие обновления чата напрямую в WebSocket
+          const { $socket } = useNuxtApp();
+          if ($socket && $socket.connected) {
+            $socket.emit('client-chat-updated', { chatId: messageClone.chat });
+          }
+          
           // Применяем принудительное обновление списка чатов
           this.triggerChatListUpdate();
         } else {
@@ -202,18 +208,14 @@ export const useChatStore = defineStore('chat', {
           this.loadChatById(messageClone.chat);
         }
         
-        // Принудительно обновляем список сообщений
-        // Создаем копию текущего массива сообщений
-        const tempMessages = [...this.messages];
-        
-        // Очищаем массив сообщений
+        // Принудительно обновляем список сообщений с использованием $nextTick
+        const tempMessages = JSON.parse(JSON.stringify(this.messages));
         this.messages = [];
         
-        // В следующем такте восстанавливаем сообщения
-        setTimeout(() => {
+        this.$nextTick(() => {
           this.messages = tempMessages;
           console.log('Список сообщений обновлен, текущий размер:', this.messages.length);
-        }, 0);
+        });
       } catch (error) {
         console.error('Ошибка при добавлении нового сообщения:', error);
       }
