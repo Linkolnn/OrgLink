@@ -120,8 +120,15 @@ export const useChatStore = defineStore('chat', {
           this.activeChat = { ...this.activeChat, lastMessage: updatedChat.lastMessage };
         }
         
-        // Прибудите вызов метода triggerChatListUpdate()
+        // Обновляем список чатов для обеспечения реактивности
         this.triggerChatListUpdate();
+        
+        // Обновляем список сообщений для обеспечения реактивности
+        const tempMessages = [...this.messages];
+        this.messages = [];
+        this.$nextTick(() => {
+          this.messages = tempMessages;
+        });
       }
     },
     

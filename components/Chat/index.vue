@@ -1073,6 +1073,16 @@ const setupWebSocketListeners = () => {
           // Показываем индикатор нового сообщения
           showNewMessageIndicator.value = true;
         }
+        
+        // Прокручиваем к новому сообщению, если пользователь находится внизу чата
+        if (isAtBottom.value) {
+          nextTick(() => {
+            scrollToBottom(true);
+          });
+        } else {
+          // Показываем индикатор нового сообщения
+          showNewMessageIndicator.value = true;
+        }
       }
       
       // Если сообщение не от текущего пользователя, отмечаем его как прочитанное
