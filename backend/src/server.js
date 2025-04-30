@@ -26,11 +26,26 @@ dotenv.config({ path: path.resolve(rootDir, '.env') });
 // Инициализируем Express и Socket.IO
 const app = express();
 const httpServer = createServer(app);
+// Получаем список разрешенных фронтенд доменов из переменных окружения
+const defaultFrontendUrls = ['https://org-link.vercel.app', 'https://www.org-link.vercel.app', 'https://orglink.vercel.app', 'http://localhost:3000'];
+
+// Если указан FRONTEND_URL, разбиваем его по запятым и добавляем к списку разрешенных доменов
+let allowedOrigins = [...defaultFrontendUrls];
+if (process.env.FRONTEND_URL) {
+  const envUrls = process.env.FRONTEND_URL.split(',').map(url => url.trim());
+  allowedOrigins = [...new Set([...allowedOrigins, ...envUrls])];
+}
+
+// Если указан FRONTEND_URL, добавляем его к списку разрешенных доменов
+if (process.env.FRONTEND_URL) {
+  allowedOrigins.push(process.env.FRONTEND_URL);
+}
+
+console.log('Разрешенные домены:', allowedOrigins);
+
 const io = new Server(httpServer, {
   cors: {
-    origin: process.env.NODE_ENV === 'production' 
-      ? ['https://org-link.vercel.app', 'https://www.org-link.vercel.app'] 
-      : process.env.FRONTEND_URL,
+    origin: allowedOrigins,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
   }
@@ -43,7 +58,7 @@ export { io };
 
 // Middlewares
 app.use(cors({
-  origin: process.env.NODE_ENV === 'production' ? ['https://org-link.vercel.app', 'https://www.org-link.vercel.app'] : process.env.FRONTEND_URL,
+  origin: allowedOrigins,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'Access-Control-Allow-Credentials']
@@ -52,15 +67,21 @@ app.use(cors({
 // Middleware для предварительной проверки CORS
 app.use((req, res, next) => {
   const origin = req.headers.origin;
-  if (process.env.NODE_ENV === 'production' && 
-      (origin === 'https://org-link.vercel.app' || origin === 'https://www.org-link.vercel.app')) {
+  
+  // Если источник запроса в списке разрешенных, устанавливаем соответствующий заголовок
+  if (origin && allowedOrigins.includes(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
-  } else if (process.env.FRONTEND_URL) {
-    res.setHeader('Access-Control-Allow-Origin', process.env.FRONTEND_URL);
   }
+  
+  // Для OPTIONS запросов сразу возвращаем успех
+  if (req.method === 'OPTIONS') {
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+    return res.status(200).end();
+  }
+  
   res.setHeader('Access-Control-Allow-Credentials', 'true');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   next();
 });
 app.use(express.json());
