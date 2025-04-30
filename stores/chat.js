@@ -31,7 +31,10 @@ export const useChatStore = defineStore('chat', {
   actions: {
     // Инициализация WebSocket слушателей
     initSocketListeners() {
-      if (this.socketListenersInitialized) return;
+      if (this.socketListenersInitialized) {
+        console.log('WebSocket слушатели уже инициализированы');
+        return;
+      }
       
       const { $socket } = useNuxtApp();
       
@@ -39,6 +42,8 @@ export const useChatStore = defineStore('chat', {
         console.error('WebSocket не инициализирован');
         return;
       }
+      
+      console.log('Инициализация WebSocket слушателей...');
       
       // Удаляем существующие обработчики, чтобы избежать дублирования
       $socket.off('new-message');
@@ -51,36 +56,88 @@ export const useChatStore = defineStore('chat', {
       $socket.on('new-message', ({ message, chatId }) => {
         console.log('WebSocket: Получено новое сообщение:', message, 'для чата:', chatId);
         
-        // Создаем копию сообщения для добавления в список
-        const messageCopy = JSON.parse(JSON.stringify(message));
-        
-        // Добавляем сообщение в список
-        this.addNewMessage(messageCopy);
+        try {
+          // Создаем копию сообщения для добавления в список
+          const messageCopy = JSON.parse(JSON.stringify(message));
+          
+          // Добавляем сообщение в список
+          this.addNewMessage(messageCopy);
+        } catch (error) {
+          console.error('Ошибка при обработке нового сообщения:', error);
+        }
       });
       
       // Слушаем прочтение сообщений
       $socket.on('messages-read', ({ chatId, userId }) => {
-        this.updateMessagesReadStatus(chatId, userId);
+        console.log('WebSocket: Получено уведомление о прочтении сообщений в чате:', chatId);
+        try {
+          this.updateMessagesReadStatus(chatId, userId);
+        } catch (error) {
+          console.error('Ошибка при обработке прочтения сообщений:', error);
+        }
       });
       
       // Слушаем создание новых чатов
       $socket.on('new-chat', (chat) => {
-        console.log('Получено уведомление о новом чате:', chat);
-        this.addNewChat({...chat});
+        console.log('WebSocket: Получено уведомление о новом чате:', chat);
+        try {
+          // Создаем копию чата для добавления в список
+          const chatCopy = JSON.parse(JSON.stringify(chat));
+          this.addNewChat(chatCopy);
+          
+          // Принудительно обновляем список чатов
+          this.triggerChatListUpdate();
+        } catch (error) {
+          console.error('Ошибка при обработке нового чата:', error);
+        }
       });
       
       // Слушаем обновление чатов
       $socket.on('chat-updated', (updatedChat) => {
-        console.log('Получено уведомление об обновлении чата:', updatedChat);
-        this.updateChatInList({...updatedChat});
+        console.log('WebSocket: Получено уведомление об обновлении чата:', updatedChat);
+        try {
+          // Создаем копию чата для обновления в списке
+          const chatCopy = JSON.parse(JSON.stringify(updatedChat));
+          this.updateChatInList(chatCopy);
+          
+          // Принудительно обновляем список чатов
+          this.triggerChatListUpdate();
+        } catch (error) {
+          console.error('Ошибка при обработке обновления чата:', error);
+        }
       });
       
       // Слушаем удаление чатов
       $socket.on('chat-deleted', (chatId) => {
-        console.log('Получено уведомление об удалении чата:', chatId);
-        this.removeChatFromList(chatId);
+        console.log('WebSocket: Получено уведомление об удалении чата:', chatId);
+        try {
+          this.removeChatFromList(chatId);
+          
+          // Принудительно обновляем список чатов
+          this.triggerChatListUpdate();
+        } catch (error) {
+          console.error('Ошибка при обработке удаления чата:', error);
+        }
       });
       
+      // Добавляем обработчик события подключения
+      $socket.on('connect', () => {
+        console.log('WebSocket: Успешное подключение к серверу');
+        this.socketConnected = true;
+        
+        // При подключении обновляем список чатов
+        if (this.initialLoadComplete) {
+          this.fetchChats();
+        }
+      });
+      
+      // Добавляем обработчик события отключения
+      $socket.on('disconnect', () => {
+        console.log('WebSocket: Отключение от сервера');
+        this.socketConnected = false;
+      });
+      
+      console.log('WebSocket слушатели успешно инициализированы');
       this.socketListenersInitialized = true;
     },
     
@@ -136,10 +193,14 @@ export const useChatStore = defineStore('chat', {
           if (this.activeChat && this.activeChat._id === messageClone.chat) {
             this.activeChat = { ...this.activeChat, lastMessage: updatedChat.lastMessage };
           }
+          
+          // Применяем принудительное обновление списка чатов
+          this.triggerChatListUpdate();
+        } else {
+          // Если чат не найден в списке, загружаем его с сервера
+          console.log('Чат не найден в списке, загружаем информацию о чате');
+          this.loadChatById(messageClone.chat);
         }
-        
-        // Применяем принудительное обновление списка чатов
-        this.triggerChatListUpdate();
         
         // Принудительно обновляем список сообщений
         // Создаем копию текущего массива сообщений
@@ -324,6 +385,41 @@ export const useChatStore = defineStore('chat', {
         throw error;
       } finally {
         this.loading = false;
+      }
+    },
+    
+    // Загрузка информации о чате по ID
+    async loadChatById(chatId) {
+      console.log('Загрузка информации о чате по ID:', chatId);
+      
+      try {
+        const config = useRuntimeConfig();
+        const chat = await $fetch(`${config.public.backendUrl}/api/chats/${chatId}`, {
+          credentials: 'include'
+        });
+        
+        console.log('Получена информация о чате:', chat);
+        
+        // Проверяем, нет ли уже такого чата в списке
+        const existingChatIndex = this.chats.findIndex(c => c._id === chat._id);
+        
+        if (existingChatIndex === -1) {
+          // Добавляем новый чат в начало списка
+          this.chats.unshift(chat);
+          console.log('Чат добавлен в список:', chat.name);
+        } else {
+          // Обновляем существующий чат
+          this.chats[existingChatIndex] = { ...this.chats[existingChatIndex], ...chat };
+          console.log('Существующий чат обновлен:', chat.name);
+        }
+        
+        // Применяем принудительное обновление списка чатов
+        this.triggerChatListUpdate();
+        
+        return chat;
+      } catch (error) {
+        console.error('Ошибка при загрузке информации о чате:', error);
+        return null;
       }
     },
     
