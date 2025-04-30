@@ -144,7 +144,7 @@
         
         <!-- Индикатор новых сообщений -->
         <transition name="scroll-btn">
-          <NewMessagesButton 
+          <ChatNewMessagesButton 
             v-if="!isAtBottom && !chatStore.loadingMore && messages.length > 0" 
             @click="scrollToNewMessages" 
           />
@@ -196,7 +196,7 @@
     @close="showChatSettingsModal = false" 
     @saved="onChatUpdated" 
   />
-  <MessageContextMenu 
+  <ChatMessageContextMenu 
     v-if="contextMenuVisible" 
     :is-visible="contextMenuVisible"
     :position="contextMenuPosition" 
@@ -208,13 +208,8 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
-import { useNuxtApp } from '#app';
 import { useChatStore } from '~/stores/chat';
 import { useAuthStore } from '~/stores/auth';
-import NewMessagesButton from './NewMessagesButton.vue';
-import ChatSettingsModal from './ChatSettingsModal.vue';
-import MessageContextMenu from './MessageContextMenu.vue';
 import { secureUrl } from '~/utils/secureUrl';
 
 // Хранилища
