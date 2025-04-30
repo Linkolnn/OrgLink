@@ -1510,17 +1510,16 @@ const openChatSettings = () => {
       height: 100%
       
     .messages_container
-      flex: 1
+      flex: 0.9
       overflow-y: auto
       max-height: calc(100vh - 130px) // Учитываем высоту header и input_area
       
     .input_area
+      min-height: 80px
       position: sticky
-      bottom: 0
+      transform: translateY(-10%)
       width: 100%
-      // background-color: $bg-color
       z-index: 10
-      padding: 10px
       
     .message_wrap
       .message
