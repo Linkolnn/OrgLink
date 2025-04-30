@@ -168,7 +168,7 @@
             v-model="messageText" 
             class="inp inp--textarea message_input" 
             placeholder="Введите сообщение..." 
-            @keydown.enter.exact.prevent="isMobile ? addNewLine : sendMessage"
+            @keydown.enter.exact.prevent="handleEnterKey"
             @keydown.shift.enter.prevent="addNewLine"
             @input="adjustTextareaHeight"
             ref="messageInput"
@@ -855,6 +855,18 @@ watch(messages, (newMessages) => {
 const messageInput = ref(null);
 const inputContainer = ref(null);
 const inputArea = ref(null);
+// Обработка нажатия клавиши Enter
+const handleEnterKey = () => {
+  // На мобильных устройствах Enter добавляет новую строку
+  if (isMobile.value) {
+    addNewLine();
+  } else {
+    // На десктопе Enter отправляет сообщение
+    sendMessage();
+  }
+};
+
+// Добавление новой строки при нажатии Shift+Enter
 const addNewLine = () => {
   messageText.value += '\n';
   nextTick(() => {
@@ -1487,11 +1499,32 @@ const openChatSettings = () => {
 
 @include mobile
   .chat-page
+    display: flex
+    flex-direction: column
+    height: 100vh
+    overflow: hidden
+    
+    .chat-content
+      display: flex
+      flex-direction: column
+      height: 100%
+      
     .messages_container
-      max-height: 75vh
-      .message_wrap
-        .message
-          max-width: 90%
+      flex: 1
+      overflow-y: auto
+      max-height: calc(100vh - 130px) // Учитываем высоту header и input_area
+      
+    .input_area
+      position: sticky
+      bottom: 0
+      width: 100%
+      // background-color: $bg-color
+      z-index: 10
+      padding: 10px
+      
+    .message_wrap
+      .message
+        max-width: 90%
 
 .image-container
   position: relative

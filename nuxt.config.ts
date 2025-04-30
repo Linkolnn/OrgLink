@@ -9,6 +9,7 @@ export default defineNuxtConfig({
   // Переменные окружения, доступные на клиенте
   runtimeConfig: {
     // Приватные ключи, доступны только на сервере
+    jwtSecret: process.env.JWT_SECRET,
     // публичные ключи, доступны на клиенте
     public: {
       backendUrl: process.env.BACKEND_URL,
