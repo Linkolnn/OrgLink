@@ -38,7 +38,7 @@ export default defineNuxtPlugin((nuxtApp) => {
   const backendUrl = isVercel 
     ? window.location.origin // Используем текущий домен для Vercel
     : (isProduction 
-      ? 'https://orglink-production-e9d8.up.railway.app' // Прямое подключение к Railway в других продакшен средах
+      ? 'https://org-link.vercel.app' // Прямое подключение к Railway в других продакшен средах
       : (config.public.backendUrl || 'http://localhost:5000')); // Локальная разработка
   
   console.log('Socket.IO connecting to backend:', backendUrl);
