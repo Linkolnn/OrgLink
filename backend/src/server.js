@@ -28,7 +28,7 @@ const app = express();
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {
-    origin: process.env.NODE_ENV === 'development' 
+    origin: process.env.NODE_ENV === 'production' 
       ? ['https://org-link.vercel.app', 'https://www.org-link.vercel.app'] 
       : process.env.FRONTEND_URL,
     credentials: true,
@@ -43,7 +43,7 @@ export { io };
 
 // Middlewares
 app.use(cors({
-  origin: process.env.NODE_ENV === 'development' ? ['https://org-link.vercel.app', 'https://www.org-link.vercel.app'] : process.env.FRONTEND_URL,
+  origin: process.env.NODE_ENV === 'production' ? ['https://org-link.vercel.app', 'https://www.org-link.vercel.app'] : process.env.FRONTEND_URL,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'Access-Control-Allow-Credentials']
@@ -52,7 +52,7 @@ app.use(cors({
 // Middleware для предварительной проверки CORS
 app.use((req, res, next) => {
   const origin = req.headers.origin;
-  if (process.env.NODE_ENV === 'development' && 
+  if (process.env.NODE_ENV === 'production' && 
       (origin === 'https://org-link.vercel.app' || origin === 'https://www.org-link.vercel.app')) {
     res.setHeader('Access-Control-Allow-Origin', origin);
   } else if (process.env.FRONTEND_URL) {
@@ -76,7 +76,7 @@ app.use((req, res, next) => {
 
 // Статические файлы
 // Обработка статических файлов в зависимости от окружения
-if (process.env.NODE_ENV === 'development') {
+if (process.env.NODE_ENV === 'production') {
   // В продакшене используем временную директорию
   const os = await import('os');
   const tmpDir = os.tmpdir();
@@ -212,7 +212,7 @@ io.on('connection', (socket) => {
 
 // Запускаем сервер только в режиме разработки
 // В Vercel это не нужно, там приложение запускается как serverless
-if (process.env.NODE_ENV !== 'development') {
+if (process.env.NODE_ENV !== 'production') {
   httpServer.listen(PORT, () => {
     console.log(`Сервер запущен на порту ${PORT}`);
   });

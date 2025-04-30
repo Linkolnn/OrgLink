@@ -11,7 +11,7 @@ export default defineNuxtConfig({
     // Приватные ключи, доступны только на сервере
     // публичные ключи, доступны на клиенте
     public: {
-      backendUrl: process.env.BACKEND_URL,
+      backendUrl: process.env.BACKEND_URL || 'http://localhost:5000',
     }
   },
   
