@@ -18,7 +18,8 @@ export const useChatStore = defineStore('chat', {
     },
     socketConnected: false,
     socketListenersInitialized: false,
-    initialLoadComplete: false // Флаг для отслеживания первоначальной загрузки
+    initialLoadComplete: false, // Флаг для отслеживания первоначальной загрузки
+    lastUpdated: Date.now(), // Временная метка последнего обновления для отслеживания изменений
   }),
   
   getters: {
@@ -181,8 +182,15 @@ export const useChatStore = defineStore('chat', {
           
           // Увеличиваем счетчик непрочитанных сообщений, если сообщение не от текущего пользователя
           let unreadCount = currentChat.unread || 0;
-          if (messageClone.sender && messageClone.sender._id !== currentUserId) {
+          const senderIsCurrentUser = (
+            (messageClone.sender && typeof messageClone.sender === 'object' && messageClone.sender._id === currentUserId) ||
+            (messageClone.sender && typeof messageClone.sender === 'string' && messageClone.sender === currentUserId)
+          );
+          
+          // Если сообщение не от текущего пользователя и чат не активен
+          if (!senderIsCurrentUser && (!this.activeChat || this.activeChat._id !== currentChat._id)) {
             unreadCount++;
+            console.log(`Увеличен счетчик непрочитанных сообщений для чата ${currentChat._id} до ${unreadCount}`);
           }
           
           // Обновляем чат на месте без перемещения
@@ -204,7 +212,11 @@ export const useChatStore = defineStore('chat', {
           }
           
           // Отмечаем обновление списка чатов
-          this.lastUpdated = new Date().getTime();
+          this.initialLoadComplete = true;
+          
+          // Обновляем временную метку для отслеживания изменений
+          this.lastUpdated = Date.now();
+          console.log('Обновлена временная метка lastUpdated');
           
           // Отправляем событие обновления чата для других клиентов
           const { $socket } = useNuxtApp();
@@ -431,6 +443,10 @@ export const useChatStore = defineStore('chat', {
         // Отмечаем обновление списка чатов
         this.triggerChatListUpdate();
         
+        // Обновляем временную метку для отслеживания изменений
+        this.lastUpdated = Date.now();
+        console.log('ChatStore: Обновлена временная метка lastUpdated');
+        
         return response;
       } catch (error) {
         console.error('Ошибка при загрузке чатов:', error);
@@ -562,11 +578,19 @@ export const useChatStore = defineStore('chat', {
           this.activeChat = chatResponse;
         }
         
-        // Сбрасываем счетчик непрочитанных сообщений
+        // Обнуляем счетчик непрочитанных сообщений в локальном состоянии
         const chatIndex = this.chats.findIndex(chat => chat._id === chatId);
         if (chatIndex !== -1) {
+          // Обновляем счетчик непрочитанных сообщений
           const updatedChat = { ...this.chats[chatIndex], unread: 0 };
+          
+          // Обновляем чат в списке
           this.chats.splice(chatIndex, 1, updatedChat);
+          
+          // Обновляем временную метку для отслеживания изменений
+          this.lastUpdated = Date.now();
+          
+          console.log(`Обнулен счетчик непрочитанных сообщений для чата ${chatId}`);
         }
         
         // Отмечаем сообщения как прочитанные и подключаемся к WebSocket

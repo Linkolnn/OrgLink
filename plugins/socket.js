@@ -34,12 +34,29 @@ export default defineNuxtPlugin((nuxtApp) => {
   const isVercel = typeof window !== 'undefined' && window.location.hostname.includes('vercel.app');
   
   // Определяем URL для Socket.IO
-  // Всегда используем прямое подключение к бэкенду на Railway
-  const backendUrl = 'https://orglink-production-e9d8.up.railway.app';
+  let backendUrl;
+  let socketPath;
   
-  console.log('Socket.IO connecting to backend:', backendUrl);
+  if (isProduction && isVercel) {
+    // В продакшене на Vercel используем тот же домен с путем /api/socket.io
+    backendUrl = window.location.origin;
+    socketPath = '/api/socket.io';
+    console.log('Socket.IO: Используем Vercel прокси для WebSocket');
+  } else {
+    // В других случаях используем прямое подключение к бэкенду
+    backendUrl = 'https://orglink-production-e9d8.up.railway.app';
+    socketPath = '/socket.io';
+    console.log('Socket.IO: Прямое подключение к бэкенду');
+  }
   
-  // Прямое соединение с бэкендом через API роуты
+  // Проверяем, что URL не заканчивается на слэш для предотвращения проблем с двойными слэшами
+  if (backendUrl.endsWith('/')) {
+    backendUrl = backendUrl.slice(0, -1);
+  }
+  
+  console.log('Socket.IO connecting to:', backendUrl, 'with path:', socketPath);
+  
+  // Создаем соединение Socket.IO
   const socket = io(backendUrl, {
     autoConnect: false, // Не подключаемся автоматически
     withCredentials: true,
@@ -48,7 +65,7 @@ export default defineNuxtPlugin((nuxtApp) => {
     reconnectionDelay: 1000,   // Задержка между попытками переподключения
     timeout: 20000,            // Увеличиваем таймаут соединения
     transports: ['polling'],   // Используем только polling для надежности
-    path: '/socket.io',
+    path: socketPath,          // Используем путь в зависимости от окружения
     forceNew: true,            // Создаем новое соединение
     auth: {
       token: getToken() // Инициализируем с токеном
@@ -58,10 +75,14 @@ export default defineNuxtPlugin((nuxtApp) => {
     }
   });
   
+  // Получаем токен для логирования
+  const hasToken = getToken() ? 'Токен установлен' : 'Токен отсутствует';
+  
   console.log('Socket.IO настройки:', {
     url: backendUrl,
+    path: socketPath,
     transports: ['polling'],
-    token: getToken() ? 'Токен установлен' : 'Токен отсутствует'
+    token: hasToken
   });
 
   // Обработчики событий сокета

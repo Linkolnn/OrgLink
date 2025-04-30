@@ -50,7 +50,7 @@
               </div>
             </div>
             <div class="chat-item__meta">
-              <div v-if="chat.unread" class="chat-item__badge">{{ chat.unread }}</div>
+              <div v-if="chat.unread && chat.unread > 0" class="chat-item__badge">{{ chat.unread }}</div>
               <div :id="`chat-time-${chat._id}`" class="chat-item__time">
                 {{ chat.formattedTime }}
               </div>
@@ -298,12 +298,36 @@ const chats = computed(() => {
   }
   
   // Обрабатываем каждый чат для отображения в интерфейсе
-  return chatStore.chats.map(chat => ({
-    ...chat,
-    _id: chat._id,
-    lastMessageText: chat.lastMessage?.text || 'Нет сообщений',
-    formattedTime: chat.lastMessage?.timestamp ? formatTime(new Date(chat.lastMessage.timestamp)) : ''
-  }));
+  return chatStore.chats.map(chat => {
+    // Получаем имя отправителя последнего сообщения
+    let senderName = '';
+    if (chat.lastMessage?.sender) {
+      if (typeof chat.lastMessage.sender === 'object') {
+        senderName = chat.lastMessage.sender.name || chat.lastMessage.sender.username || '';
+      } else if (chat.members) {
+        // Если отправитель указан как ID, пытаемся найти его в списке участников
+        const member = chat.members.find(m => m._id === chat.lastMessage.sender);
+        if (member) {
+          senderName = member.name || member.username || '';
+        }
+      }
+    }
+    
+    // Формируем текст последнего сообщения с именем отправителя
+    const messageText = chat.lastMessage?.text || 'Нет сообщений';
+    const lastMessageText = senderName ? `${senderName}: ${messageText}` : messageText;
+    
+    // Убеждаемся, что счетчик непрочитанных сообщений есть число
+    const unread = typeof chat.unread === 'number' ? chat.unread : 0;
+    
+    return {
+      ...chat,
+      _id: chat._id,
+      lastMessageText,
+      unread,
+      formattedTime: chat.lastMessage?.timestamp ? formatTime(new Date(chat.lastMessage.timestamp)) : ''
+    };
+  });
 });
 
 // Следим за изменениями в списке чатов
