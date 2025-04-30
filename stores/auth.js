@@ -103,9 +103,19 @@ export const useAuthStore = defineStore('auth', {
         
         // Если токена нет, пытаемся получить данные пользователя с сервера
         try {
-          // Используем правильный эндпоинт /api/auth/me
-          const response = await $fetch(`${config.public.backendUrl}/api/auth/me`, {
-            credentials: 'include'
+          // Используем прямое подключение к бэкенду на Railway в продакшене
+          const backendUrl = process.env.NODE_ENV === 'production' || (typeof window !== 'undefined' && window.location.hostname.includes('vercel.app'))
+            ? 'https://orglink-production-e9d8.up.railway.app'
+            : config.public.backendUrl;
+          
+          // Удаляем слэш в конце URL если он есть
+          const normalizedUrl = backendUrl.endsWith('/') ? backendUrl.slice(0, -1) : backendUrl;
+          
+          const response = await $fetch(`${normalizedUrl}/api/auth/me`, {
+            credentials: 'include',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+            }
           });
           
           if (response && response.token) {
@@ -191,9 +201,21 @@ export const useAuthStore = defineStore('auth', {
       try {
         // Отправляем запрос на сервер для удаления серверной cookie
         const config = useRuntimeConfig();
-        await $fetch(`${config.public.backendUrl}/api/auth/logout`, {
+        
+        // Используем прямое подключение к бэкенду на Railway в продакшене
+        const backendUrl = process.env.NODE_ENV === 'production' || (typeof window !== 'undefined' && window.location.hostname.includes('vercel.app'))
+          ? 'https://orglink-production-e9d8.up.railway.app'
+          : config.public.backendUrl;
+        
+        // Удаляем слэш в конце URL если он есть
+        const normalizedUrl = backendUrl.endsWith('/') ? backendUrl.slice(0, -1) : backendUrl;
+        
+        await $fetch(`${normalizedUrl}/api/auth/logout`, {
           method: 'POST',
-          credentials: 'include'
+          credentials: 'include',
+          headers: {
+            'Authorization': `Bearer ${this.token}`,
+          }
         });
       } catch (error) {
         // Ошибка при выходе
