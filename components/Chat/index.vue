@@ -1001,16 +1001,20 @@ const setupWebSocketListeners = () => {
   
   // Слушаем новые сообщения
   $socket.on('new-message', ({ message, chatId }) => {
-    // alert('Получено новое сообщение через WebSocket:', message, 'для чата:', chatId);
+    console.log('Получено новое сообщение через WebSocket:', message, 'для чата:', chatId);
     
     // Если сообщение для текущего чата, добавляем его в список
     if (chatData.value && chatData.value._id === chatId) {
       // Проверяем, не добавлено ли уже это сообщение (избегаем дубликатов)
       const isDuplicate = chatStore.messages.some(m => m._id === message._id);
       if (isDuplicate) {
-        // alert('Дублирующееся сообщение проигнорировано:', message._id);
+        console.log('Дублирующееся сообщение проигнорировано:', message._id);
         return;
       }
+      
+      // Напрямую добавляем сообщение в список, минуя хранилище
+      const newMessages = [...chatStore.messages, {...message}];
+      chatStore.messages = newMessages;
       
       // alert('Добавляем новое сообщение в чат:', message);
       
