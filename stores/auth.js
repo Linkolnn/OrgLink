@@ -187,6 +187,7 @@ export const useAuthStore = defineStore('auth', {
     
     // Выход пользователя
     async logout() {
+      console.log('Начало процесса выхода из учетной записи');
       this.isLoggingOut = true;
       
       // Очищаем данные пользователя
@@ -194,33 +195,72 @@ export const useAuthStore = defineStore('auth', {
       this.user = null;
       this.token = null;
       
-      // Удаляем локальную копию токена
+      // Удаляем все возможные токены из cookie
+      const tokenCookie = useCookie('token');
       const clientTokenCookie = useCookie('client_token');
+      
+      console.log('Удаление токенов из cookie');
+      tokenCookie.value = null;
       clientTokenCookie.value = null;
       
+      // Удаляем все другие куки, связанные с аутентификацией
+      const authCookie = useCookie('auth');
+      const userCookie = useCookie('user');
+      
+      authCookie.value = null;
+      userCookie.value = null;
+      
       try {
-        // Отправляем запрос на сервер для удаления серверной cookie
+        // Отправляем запрос на сервер Railway для удаления серверной cookie
         const config = useRuntimeConfig();
         
-        // Используем прямое подключение к бэкенду на Railway в продакшене
-        const backendUrl = process.env.NODE_ENV === 'production' || (typeof window !== 'undefined' && window.location.hostname.includes('vercel.app'))
-          ? 'https://orglink-production-e9d8.up.railway.app'
-          : config.public.backendUrl;
+        // Всегда используем прямое подключение к бэкенду на Railway
+        const railwayBackendUrl = 'https://orglink-production-e9d8.up.railway.app';
+        const normalizedRailwayUrl = railwayBackendUrl.endsWith('/') ? railwayBackendUrl.slice(0, -1) : railwayBackendUrl;
         
-        // Удаляем слэш в конце URL если он есть
-        const normalizedUrl = backendUrl.endsWith('/') ? backendUrl.slice(0, -1) : backendUrl;
-        
-        await $fetch(`${normalizedUrl}/api/auth/logout`, {
+        console.log('Отправка запроса на выход на Railway:', `${normalizedRailwayUrl}/api/auth/logout`);
+        await $fetch(`${normalizedRailwayUrl}/api/auth/logout`, {
           method: 'POST',
           credentials: 'include',
           headers: {
             'Authorization': `Bearer ${this.token}`,
           }
         });
+        
+        // Если мы на Vercel, также отправляем запрос на выход на локальный API маршрут
+        if (typeof window !== 'undefined' && window.location.hostname.includes('vercel.app')) {
+          console.log('Отправка запроса на выход на Vercel:', `/api/auth/logout`);
+          try {
+            await $fetch(`/api/auth/logout`, {
+              method: 'POST',
+              credentials: 'include'
+            });
+          } catch (vercelError) {
+            console.error('Ошибка при выходе на Vercel:', vercelError);
+          }
+        }
+        
+        // Очищаем локальное хранилище
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem('token');
+          localStorage.removeItem('user');
+          sessionStorage.removeItem('token');
+          sessionStorage.removeItem('user');
+        }
+        
+        console.log('Успешный выход из учетной записи');
       } catch (error) {
-        // Ошибка при выходе
+        console.error('Ошибка при выходе:', error);
       } finally {
         this.isLoggingOut = false;
+        
+        // Перенаправляем на страницу входа после выхода
+        if (typeof window !== 'undefined') {
+          // Используем небольшую задержку, чтобы все запросы успели завершиться
+          setTimeout(() => {
+            window.location.href = '/login';
+          }, 300);
+        }
       }
     }
   }
