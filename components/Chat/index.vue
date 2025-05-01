@@ -682,9 +682,14 @@ const adjustContainerHeight = (adjustTextarea = false) => {
 
   // Получаем высоту .page_header
   const headerHeight = pageHeader.value.offsetHeight || 60; // Фоллбэк на 60px
+  
+  // Выбираем значение vh в зависимости от типа устройства
+  // Для десктопа используем 99vh, для мобильных - 90vh
+  const viewportHeight = isMobile.value ? '90vh' : '99vh';
+  console.log(`Using ${viewportHeight} for device type: ${isMobile.value ? 'mobile' : 'desktop'}`);
 
   // Обновляем max-height для .messages_container
-  messagesContainer.value.style.maxHeight = `calc(90vh - ${headerHeight}px - ${inputAreaHeight}px)`;
+  messagesContainer.value.style.maxHeight = `calc(${viewportHeight} - ${headerHeight}px - ${inputAreaHeight}px)`;
 };
 
 // Алиас для обратной совместимости
