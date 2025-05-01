@@ -50,9 +50,18 @@ export default defineNuxtPlugin((nuxtApp) => {
   console.log('Socket.IO connecting to:', backendUrl, 'with path:', socketPath);
   
   // Создаем соединение Socket.IO
-  // Используем все доступные транспорты, так как Render поддерживает WebSocket
+  // Для совместимости с Safari на iOS, сначала используем polling, затем websocket
   const transports = ['polling', 'websocket'];
   console.log(`Socket.IO: Используем транспорты: ${transports.join(', ')}`);
+  
+  // Определяем, используется ли Safari
+  const isSafari = typeof navigator !== 'undefined' && /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+  const isIOS = typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+  
+  // Увеличиваем таймаут для Safari и iOS
+  const connectionTimeout = (isSafari || isIOS) ? 30000 : 20000;
+  
+  console.log('Browser detection:', { isSafari, isIOS, connectionTimeout });
   
   const socket = io(backendUrl, {
     autoConnect: false, // Не подключаемся автоматически
@@ -60,14 +69,17 @@ export default defineNuxtPlugin((nuxtApp) => {
     reconnection: true,        // Включаем автоматическое переподключение
     reconnectionAttempts: Infinity,  // Бесконечное количество попыток переподключения
     reconnectionDelay: 1000,   // Задержка между попытками переподключения
-    timeout: 20000,            // Увеличиваем таймаут соединения
+    timeout: connectionTimeout, // Увеличенный таймаут для Safari/iOS
     transports: transports,    // Используем транспорты в зависимости от окружения
     path: socketPath,          // Используем путь в зависимости от окружения
     forceNew: true,            // Создаем новое соединение
     auth: {
       token: getToken() // Инициализируем с токеном
+    },
+    // Добавляем extraHeaders для решения проблем с CORS в Safari
+    extraHeaders: {
+      "Origin": typeof window !== 'undefined' ? window.location.origin : 'https://org-link.vercel.app'
     }
-    // Убираем extraHeaders, так как они могут конфликтовать с auth
   });
   
   // Получаем токен для логирования
@@ -79,7 +91,9 @@ export default defineNuxtPlugin((nuxtApp) => {
     transports: transports,
     token: hasToken,
     isVercel: isVercel,
-    isProduction: isProduction
+    isProduction: isProduction,
+    isSafari: isSafari,
+    isIOS: isIOS
   });
 
   // Обработчики событий сокета
@@ -90,6 +104,27 @@ export default defineNuxtPlugin((nuxtApp) => {
   socket.on('connect_error', (error) => {
     // Логируем ошибку подключения
     console.error('Socket.io connection error:', error.message, error);
+    
+    // Проверка на ошибки CORS
+    if (error.message.includes('CORS') || error.message.includes('Access-Control')) {
+      console.log('Ошибка CORS, пробуем использовать только polling');
+      // Пробуем использовать только polling для Safari/iOS
+      socket.io.opts.transports = ['polling'];
+      setTimeout(() => {
+        socket.connect();
+      }, 1000);
+      return;
+    }
+    
+    // Проверка на ошибки транспорта
+    if (error.message.includes('transport') || error.message.includes('xhr')) {
+      console.log('Ошибка транспорта, пробуем использовать только polling');
+      socket.io.opts.transports = ['polling'];
+      setTimeout(() => {
+        socket.connect();
+      }, 1000);
+      return;
+    }
     
     // Если ошибка связана с аутентификацией, попробуем обновить токен и переподключиться
     if (error.message.includes('Authentication') || error.message.includes('auth')) {

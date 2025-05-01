@@ -17,13 +17,24 @@ export default async function handler(req, res) {
 
   // Обрабатываем preflight запросы CORS
   if (req.method === 'OPTIONS') {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    // Получаем значение Origin из заголовка запроса или используем звездочку
+    const origin = req.headers.origin || '*';
+    
+    // Добавляем расширенные заголовки CORS для совместимости с Safari и iOS
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, X-Socket-IO-Proxied');
     res.setHeader('Access-Control-Allow-Credentials', 'true');
     res.setHeader('Access-Control-Max-Age', '86400'); // 24 часа
+    res.setHeader('Vary', 'Origin'); // Важно для кэширования
     return res.status(204).end();
   }
+  
+  // Добавляем CORS заголовки для всех ответов, не только для OPTIONS
+  const origin = req.headers.origin || '*';
+  res.setHeader('Access-Control-Allow-Origin', origin);
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Vary', 'Origin');
 
   // Проверяем, не является ли текущий запрос уже проксированным
   // Это поможет избежать циклических перенаправлений
@@ -43,6 +54,12 @@ export default async function handler(req, res) {
   // Проверяем, что URL не заканчивается на слэш
   const cleanBackendUrl = backendUrl.endsWith('/') ? backendUrl.slice(0, -1) : backendUrl;
   
+  // Определяем, используется ли Safari или iOS
+  const userAgent = req.headers['user-agent'] || '';
+  const isSafari = /^((?!chrome|android).)*safari/i.test(userAgent);
+  const isIOS = /iPad|iPhone|iPod/.test(userAgent) && !userAgent.includes('MSStream');
+  
+  console.log('Socket.IO proxy browser detection:', { isSafari, isIOS });
   console.log('Using backend URL for Socket.IO proxy:', backendUrl);
   
   // Формируем путь для проксирования
@@ -79,12 +96,20 @@ export default async function handler(req, res) {
       }
     }
 
-    // Получаем origin запроса для CORS
-    const origin = req.headers.origin || req.headers.referer || '*';
+    // Создаем объект с опциями для запроса
+    const options = {
+      method: method,
+      headers: {
+        ...req.headers,
+        'x-socket-io-proxied': 'true', // Метка для предотвращения циклических перенаправлений
+        'host': new URL(cleanBackendUrl).host, // Заменяем заголовок host на целевой хост
+        'origin': req.headers.origin || 'https://org-link.vercel.app', // Добавляем явный origin для Safari/iOS
+      },
+      // Добавляем параметры для совместимости с Safari/iOS
+      credentials: 'include',
+      mode: 'cors',
+    };
 
-    // Настраиваем параметры запроса
-    const headers = {};
-    
     // Копируем необходимые заголовки
     const headersToKeep = [
       'accept', 'accept-encoding', 'accept-language', 'content-type', 'content-length',

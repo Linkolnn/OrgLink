@@ -4,6 +4,7 @@ import { useCookie } from '#app';
 import { useNuxtApp } from '#app';
 import { useRouter } from '#app';
 import { jwtDecode } from 'jwt-decode';
+import { safeFetch } from '~/utils/safeFetch';
 
 export const useAuthStore = defineStore('auth', {
   state: () => {
@@ -114,11 +115,22 @@ export const useAuthStore = defineStore('auth', {
           // Удаляем слэш в конце URL если он есть
           const normalizedUrl = backendUrl.endsWith('/') ? backendUrl.slice(0, -1) : backendUrl;
           
-          const response = await $fetch(`${normalizedUrl}/api/auth/me`, {
+          // Определяем, используется ли Safari или iOS
+          const isSafari = typeof navigator !== 'undefined' && /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+          const isIOS = typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+          
+          console.log('Auth check browser detection:', { isSafari, isIOS });
+          
+          // Используем safeFetch для совместимости с Safari/iOS
+          const response = await safeFetch(`${normalizedUrl}/api/auth/me`, {
+            method: 'GET',
             credentials: 'include',
             headers: {
               'Authorization': `Bearer ${token}`,
             }
+          }).then(res => res.json()).catch(err => {
+            console.error('Auth check error:', err);
+            return null;
           });
           
           if (response && response.token) {
@@ -142,6 +154,17 @@ export const useAuthStore = defineStore('auth', {
           }
         } catch (error) {
           // Ошибка при запросе к серверу
+          console.error('Auth check fetch error:', error);
+          
+          // Если ошибка связана с CORS и мы на Safari/iOS, показываем более подробную информацию
+          if (error.message && (error.message.includes('CORS') || error.message.includes('Failed to fetch'))) {
+            const isSafari = typeof navigator !== 'undefined' && /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+            const isIOS = typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+            
+            if (isSafari || isIOS) {
+              console.warn('Safari/iOS CORS issue detected. Using fallback authentication.');
+            }
+          }
         }
         
         return false;
