@@ -37,17 +37,10 @@ export default defineNuxtPlugin((nuxtApp) => {
   let backendUrl;
   let socketPath;
   
-  if (isProduction && isVercel) {
-    // В продакшене на Vercel используем тот же домен с путем /api/socket.io
-    backendUrl = window.location.origin;
-    socketPath = '/api/socket.io';
-    console.log('Socket.IO: Используем Vercel прокси для WebSocket');
-  } else {
-    // В других случаях используем прямое подключение к бэкенду
-    backendUrl = config.public.backendUrl || 'https://orglink-production-e9d8.up.railway.app';
-    socketPath = '/socket.io';
-    console.log('Socket.IO: Прямое подключение к бэкенду:', backendUrl);
-  }
+  // Всегда используем прямое подключение к бэкенду на Render
+  backendUrl = config.public.backendUrl || 'https://orglink.onrender.com';
+  socketPath = '/socket.io';
+  console.log('Socket.IO: Прямое подключение к бэкенду на Render:', backendUrl);
   
   // Проверяем, что URL не заканчивается на слэш для предотвращения проблем с двойными слэшами
   if (backendUrl.endsWith('/')) {
@@ -57,8 +50,8 @@ export default defineNuxtPlugin((nuxtApp) => {
   console.log('Socket.IO connecting to:', backendUrl, 'with path:', socketPath);
   
   // Создаем соединение Socket.IO
-  // На Vercel используем только polling, так как WebSocket не поддерживается в API роутах
-  const transports = (isProduction && isVercel) ? ['polling'] : ['polling', 'websocket'];
+  // Используем все доступные транспорты, так как Render поддерживает WebSocket
+  const transports = ['polling', 'websocket'];
   console.log(`Socket.IO: Используем транспорты: ${transports.join(', ')}`);
   
   const socket = io(backendUrl, {

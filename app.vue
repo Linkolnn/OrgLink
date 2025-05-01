@@ -40,22 +40,39 @@ const sidebarVisible = ref(false);
 const checkMobile = () => {
   const wasMobile = isMobile.value;
   isMobile.value = window.innerWidth <= 859;
+  console.log('[App] Проверка мобильного устройства:', { isMobile: isMobile.value, wasMobile, needsSidebar: needsSidebar.value, path: route.path });
   
-  // На мобильных устройствах первоначально показываем sidebar на страницах мессенджера и админа
-  if (isMobile.value && !wasMobile && needsSidebar.value) {
-    sidebarVisible.value = true;
+  // На мобильных устройствах первоначально показываем sidebar на страницах мессенжера и админа
+  if (isMobile.value && needsSidebar.value) {
+    // Используем setTimeout, чтобы дать время на отрисовку компонентов
+    setTimeout(() => {
+      sidebarVisible.value = true;
+      console.log('[App] Показываем SideBar после проверки мобильного устройства');
+    }, 0);
   }
 };
 
 // Следим за изменением маршрута
 watch(() => route?.path, (newPath) => {
-  // Если перешли на страницу мессенджера или админа и на мобильном устройстве
-  if ((newPath === '/messenger' || newPath === '/admin') && isMobile.value) {
-    sidebarVisible.value = true;
+  // Если перешли на страницу мессенджера или админа
+  if (newPath === '/messenger' || newPath === '/admin') {
+    // Проверяем ширину экрана непосредственно при изменении маршрута
+    const isMobileNow = window.innerWidth <= 859;
+    isMobile.value = isMobileNow;
+    
+    // На мобильных устройствах показываем sidebar
+    if (isMobileNow) {
+      // Используем setTimeout, чтобы дать время на отрисовку компонентов
+      setTimeout(() => {
+        sidebarVisible.value = true;
+        console.log('[App] Показываем SideBar на мобильном устройстве', { path: newPath, isMobile: isMobileNow });
+      }, 0);
+    }
   }
 }, { immediate: true });
 
 onMounted(() => {
+  // Проверяем размер экрана при загрузке
   checkMobile();
   window.addEventListener('resize', checkMobile);
   
@@ -67,6 +84,15 @@ onMounted(() => {
   watch(() => nuxtApp.$sidebarVisible.value, (newValue) => {
     sidebarVisible.value = newValue;
   });
+  
+  // Если мы на странице мессенжера или админа и на мобильном устройстве
+  if ((route.path === '/messenger' || route.path === '/admin') && isMobile.value) {
+    // Используем setTimeout, чтобы дать время на отрисовку компонентов
+    setTimeout(() => {
+      sidebarVisible.value = true;
+      console.log('[App] Показываем SideBar при монтировании', { path: route.path, isMobile: isMobile.value });
+    }, 0);
+  }
 });
 
 onUnmounted(() => {
