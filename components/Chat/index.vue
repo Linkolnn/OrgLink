@@ -61,81 +61,21 @@
           
           <!-- Сообщения группы -->
           <div v-for="message in group.messages" :key="message._id" class="message_wrap">
-            <!-- Service message -->
-            <div v-if="message.type === 'service'" class="service_message">
-              <div>{{ message.text }}</div>
-              <div class="time">{{ formatTime(message.createdAt || message.timestamp) }}</div>
-            </div>
-            
-            <!-- Regular message -->
-            <div 
-              v-else 
-              class="message" 
-              :class="isOwnMessage(message) ? 'own' : 'other'"
-              @contextmenu.prevent="showContextMenu($event, message)"
-              @click="handleMessageClick($event, message)"
-            >
-              <!-- Имя отправителя (для групповых чатов) -->
-              <div 
-                v-if="!isOwnMessage(message) && chatData.participants?.length > 2" 
-                class="message__from"
-              >
-                {{ message.sender?.name }}
-              </div>
-              
-              <!-- Контент сообщения -->
-              <div class="message__content">
-                <!-- Имя отправителя (для групповых чатов) -->
-                <div 
-                  v-if="!isOwnMessage(message) && chatData.participants?.length > 2 && message.media_type !== 'none'" 
-                  class="message__from"
-                >
-                  {{ message.sender?.name }}
-                </div>
-                
-                <!-- Message content based on type -->
-                <div v-if="message.media_type === 'none'" class="message__text">
-                  <pre>{{ message.text }}</pre>
-                </div>
-                
-                <div v-else-if="message.media_type === 'image'" class="image-container">
-                  <div v-if="!message.imageLoaded" class="image-loading">
-                    <div class="loading-spinner"></div>
-                  </div>
-                  <img 
-                    :src="message.file" 
-                    alt="Image" 
-                    class="message-image" 
-                    @load="message.imageLoaded = true"
-                    :class="{ 'loaded': message.imageLoaded }"
-                  />
-                </div>
-                
-                <div v-else-if="message.media_type === 'video'" class="video-container">
-                  <video 
-                    :id="message._id" 
-                    class="video-message-player" 
-                    controls 
-                    :src="message.file"
-                  ></video>
-                </div>
-                
-                <div v-else-if="message.media_type === 'sticker'" class="sticker-container">
-                  <img :src="message.file" alt="Sticker" class="message-sticker" />
-                </div>
-                
-                <div v-else-if="message.media_type === 'file'" class="file-container">
-                  <a :href="message.file" target="_blank" class="file-link">
-                    <i class="fas fa-file file-icon"></i>
-                    {{ message.fileName || 'Файл' }}
-                  </a>
-                </div>
-                
-                <div class="message__time">
-                  {{ formatTime(message.createdAt || message.timestamp) }}
-                </div>
-              </div>
-            </div>
+            <Message 
+              :message="message" 
+              :is-group-chat="chatData.participants?.length > 2"
+              :is-mobile="isMobile.value"
+              @context-menu="showContextMenu"
+              @click="handleMessageClick"
+              @image-loaded="(messageId) => { 
+                const msgIndex = chatStore.messages.findIndex(m => m._id === messageId);
+                if (msgIndex !== -1) {
+                  chatStore.messages[msgIndex].imageLoaded = true;
+                }
+              }"
+              @video-play="handleVideoPlay"
+              @profile-click="openUserProfile"
+            />
           </div>
         </div>
         
@@ -207,6 +147,8 @@
 <script setup>
 import { useChatStore } from '~/stores/chat';
 import { useAuthStore } from '~/stores/auth';
+import { useNuxtApp } from '#app';
+import Message from './Message.vue';
 import { secureUrl } from '~/utils/secureUrl';
 
 // Хранилища
@@ -522,9 +464,7 @@ const stopVideo = () => {
 
 // Проверка, является ли сообщение собственным
 const isOwnMessage = (message) => {
-  const senderIdMatch = message.sender?._id === authStore.user?._id;
-  const emailMatch = message.sender?.email === authStore.user?.email;
-  return senderIdMatch || emailMatch;
+  return message.sender && authStore.user && message.sender._id === authStore.user._id;
 };
 
 // Получение инициалов из имени
@@ -948,8 +888,18 @@ const setupWebSocketListeners = () => {
   });
 };
 
+// Открытие настроек чата
 const openChatSettings = () => {
   showChatSettingsModal.value = true;
+};
+
+// Открытие профиля пользователя
+const openUserProfile = (userId) => {
+  if (!userId) return;
+  console.log('Открытие профиля пользователя:', userId);
+  // Здесь будет код для открытия профиля пользователя
+  // Например, переход на страницу профиля
+  // navigateTo(`/profile/${userId}`);
 };
 </script>
 
@@ -1147,7 +1097,7 @@ const openChatSettings = () => {
       
       .message
         display: flex
-        flex-direction: column
+        width: max-content
         max-width: 70%
         margin-bottom: 5px
         
@@ -1178,81 +1128,6 @@ const openChatSettings = () => {
           font-size: 14px
         
         &__text
-          color: $white
-          
-          pre
-            font-family: inherit
-            margin: 0
-            white-space: pre-wrap
-            word-break: break-word
-        
-        &__time
-          text-align: right
-          font-size: 10px
-          color: rgba(255, 255, 255, 0.6)
-          margin-top: 5px
-        
-        .video-container, .image-container
-          margin: 5px 0
-          position: relative
-          
-          .video-message-player, .message-image
-            max-width: 100%
-            border-radius: 8px
-            max-height: 300px
-            opacity: 0
-            transition: opacity 0.3s ease-in-out
-            
-            &.loaded
-              opacity: 1
-          
-          .image-loading
-            position: absolute
-            top: 0
-            left: 0
-            width: 100%
-            height: 100%
-            display: flex
-            align-items: center
-            justify-content: center
-            background-color: rgba(0, 0, 0, 0.1)
-            z-index: 2
-            border-radius: 8px
-            
-            .loading-spinner
-              width: 30px
-              height: 30px
-              border: 3px solid rgba(255, 255, 255, 0.3)
-              border-radius: 50%
-              border-top-color: $purple
-              animation: spin 1s ease-in-out infinite
-              margin: 0 auto
-              background-color: transparent
-              will-change: transform; // Оптимизация для анимации
-    
-        .sticker-container
-          .message-sticker
-            max-width: 120px
-            max-height: 120px
-        
-        .file-container
-          margin: 5px 0
-          
-          .file-link
-            display: flex
-            align-items: center
-            color: $white
-            text-decoration: none
-            background-color: rgba(255, 255, 255, 0.1)
-            padding: 8px 12px
-            border-radius: 8px
-            
-            &:hover
-              background-color: rgba(255, 255, 255, 0.2)
-            
-            .file-icon
-              margin-right: 8px
-              font-size: 16px
   
   .input_area
     align-self: center
@@ -1374,41 +1249,5 @@ const openChatSettings = () => {
       .message
         max-width: 90%
 
-.image-container
-  position: relative
-  margin: 5px 0
-  max-width: 300px
-  
-  .image-loading
-    position: absolute
-    top: 0
-    left: 0
-    width: 100%
-    height: 100%
-    display: flex
-    align-items: center
-    justify-content: center
-    background-color: rgba(0, 0, 0, 0.2)
-    z-index: 2
-    border-radius: 8px
-    
-    .loading-spinner
-      width: 30px
-      height: 30px
-      border: 3px solid rgba(255, 255, 255, 0.3)
-      border-radius: 50%
-      border-top-color: $purple
-      animation: spin 1s ease-in-out infinite
-      margin: 0 auto
-      background-color: transparent
-      will-change: transform; // Оптимизация для анимации
-    
-  .message-image
-    max-width: 100%
-    border-radius: 8px
-    opacity: 0.7
-    transition: opacity 0.3s ease
-    
-    &.loaded
-      opacity: 1
+// Стили изображений перенесены в компонент Message
 </style>
