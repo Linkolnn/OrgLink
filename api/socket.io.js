@@ -114,52 +114,92 @@ export default async function handler(req, res) {
       fetchOptions.headers['content-type'] = 'application/json';
     }
 
-    // Выполняем запрос к бэкенду
-    const fetchResponse = await fetch(targetUrl, fetchOptions);
-
-    // Получаем ответ
-    const responseData = await fetchResponse.text();
-    const contentType = fetchResponse.headers.get('content-type');
-
-    // Устанавливаем заголовки ответа
-    res.setHeader('Content-Type', contentType || 'text/plain');
+    // Выполняем запрос к бэкенду с таймаутом
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 секунд таймаут (меньше чем у Vercel)
     
-    // Добавляем CORS заголовки для поддержки WebSocket
-    res.setHeader('Access-Control-Allow-Origin', origin !== '*' ? origin : '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    try {
+      fetchOptions.signal = controller.signal;
+      const fetchResponse = await fetch(targetUrl, fetchOptions);
+      clearTimeout(timeoutId);
+
+      // Получаем ответ
+      const responseData = await fetchResponse.text();
+      const contentType = fetchResponse.headers.get('content-type');
+
+      // Устанавливаем заголовки ответа
+      res.setHeader('Content-Type', contentType || 'text/plain');
     
-    // Копируем все заголовки из ответа бэкенда
-    for (const [key, value] of fetchResponse.headers.entries()) {
-      // Пропускаем заголовки, которые мы уже установили
-      if (!['content-type', 'access-control-allow-origin', 'access-control-allow-methods', 
-           'access-control-allow-headers', 'access-control-allow-credentials'].includes(key.toLowerCase())) {
-        res.setHeader(key, value);
+      // Добавляем CORS заголовки для поддержки WebSocket
+      res.setHeader('Access-Control-Allow-Origin', origin !== '*' ? origin : '*');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+      
+      // Копируем все заголовки из ответа бэкенда
+      for (const [key, value] of fetchResponse.headers.entries()) {
+        // Пропускаем заголовки, которые мы уже установили
+        if (!['content-type', 'access-control-allow-origin', 'access-control-allow-methods', 
+             'access-control-allow-headers', 'access-control-allow-credentials'].includes(key.toLowerCase())) {
+          res.setHeader(key, value);
+        }
       }
-    }
 
-    // Отправляем ответ клиенту
-    res.status(fetchResponse.status);
+      // Отправляем ответ клиенту
+      res.status(fetchResponse.status);
 
-    if (contentType && contentType.includes('application/json')) {
-      try {
-        const jsonData = JSON.parse(responseData);
-        return res.json(jsonData);
-      } catch (e) {
-        // Если не удалось распарсить JSON, отправляем как текст
+      if (contentType && contentType.includes('application/json')) {
+        try {
+          const jsonData = JSON.parse(responseData);
+          return res.json(jsonData);
+        } catch (e) {
+          // Если не удалось распарсить JSON, отправляем как текст
+        }
       }
-    }
 
-    return res.send(responseData);
+      return res.send(responseData);
+    } catch (error) {
+      console.error(`Socket.IO proxy error for ${targetUrl}:`, error);
+
+      // Возвращаем ошибку
+      // Проверяем, является ли ошибка таймаутом
+      if (error.name === 'AbortError') {
+        console.error('Socket.IO proxy timeout for:', targetUrl);
+        return res.status(504).json({
+          statusCode: 504,
+          statusMessage: 'Gateway Timeout',
+          message: 'Socket.IO proxy request timed out',
+        });
+      }
+      
+      return res.status(error.status || 500).json({
+        statusCode: error.status || 500,
+        statusMessage: error.statusMessage || 'Internal Server Error',
+        message: error.message || 'Failed to proxy Socket.IO request',
+      });
+    } finally {
+      clearTimeout(timeoutId);
+    }
   } catch (error) {
     console.error(`Socket.IO proxy error for ${targetUrl}:`, error);
 
     // Возвращаем ошибку
+    // Проверяем, является ли ошибка таймаутом
+    if (error.name === 'AbortError') {
+      console.error('Socket.IO proxy timeout for:', targetUrl);
+      return res.status(504).json({
+        statusCode: 504,
+        statusMessage: 'Gateway Timeout',
+        message: 'Socket.IO proxy request timed out',
+      });
+    }
+    
     return res.status(error.status || 500).json({
       statusCode: error.status || 500,
       statusMessage: error.statusMessage || 'Internal Server Error',
       message: error.message || 'Failed to proxy Socket.IO request',
     });
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
