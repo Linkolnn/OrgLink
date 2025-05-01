@@ -829,19 +829,30 @@ const setupWebSocketListeners = () => {
   
   $socket.on('new-message', ({ message, chatId }) => {
     if (chatData.value && chatData.value._id === chatId) {
+      // Проверяем, не является ли сообщение дубликатом
       const isDuplicate = chatStore.messages.some(m => m._id === message._id);
       if (isDuplicate) return;
       
+      // Обработка изображений
       if (message.media_type === 'image' && message.file) {
+        // Устанавливаем флаг, что изображение еще не загружено
         message.imageLoaded = false;
-        chatStore.messages.push({...message});
         
+        // Добавляем сообщение в хранилище
+        chatStore.messages = [...chatStore.messages, {...message}];
+        
+        // Загружаем изображение
         const img = new Image();
         img.onload = () => {
           const msgIndex = chatStore.messages.findIndex(m => m._id === message._id);
           if (msgIndex !== -1) {
-            chatStore.messages[msgIndex].imageLoaded = true;
+            // Создаем новый массив с обновленным сообщением для реактивности
+            const updatedMessages = [...chatStore.messages];
+            updatedMessages[msgIndex] = {...updatedMessages[msgIndex], imageLoaded: true};
+            chatStore.messages = updatedMessages;
           }
+          
+          // Прокручиваем к новому сообщению, если пользователь находится внизу чата
           if (isAtBottom.value) {
             nextTick(() => {
               scrollToBottom(true);
@@ -850,11 +861,17 @@ const setupWebSocketListeners = () => {
             showNewMessageIndicator.value = true;
           }
         };
+        
         img.onerror = () => {
           const msgIndex = chatStore.messages.findIndex(m => m._id === message._id);
           if (msgIndex !== -1) {
-            chatStore.messages[msgIndex].imageLoaded = true;
+            // Создаем новый массив с обновленным сообщением для реактивности
+            const updatedMessages = [...chatStore.messages];
+            updatedMessages[msgIndex] = {...updatedMessages[msgIndex], imageLoaded: true};
+            chatStore.messages = updatedMessages;
           }
+          
+          // Прокручиваем к новому сообщению, если пользователь находится внизу чата
           if (isAtBottom.value) {
             nextTick(() => {
               scrollToBottom(true);
@@ -863,9 +880,13 @@ const setupWebSocketListeners = () => {
             showNewMessageIndicator.value = true;
           }
         };
+        
         img.src = message.file;
       } else {
-        chatStore.messages.push({...message});
+        // Добавляем сообщение в хранилище (не изображение)
+        chatStore.messages = [...chatStore.messages, {...message}];
+        
+        // Прокручиваем к новому сообщению, если пользователь находится внизу чата
         if (isAtBottom.value) {
           nextTick(() => {
             scrollToBottom(true);
