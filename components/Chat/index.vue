@@ -10,7 +10,7 @@
       <!-- Шапка чата -->
       <div class="page_header" ref="pageHeader" @click="openChatSettings">
         <!-- Кнопка переключения боковой панели для мобильных устройств -->
-        <button class="toggle-sidebar-btn" @click.stop="toggleSidebar">
+        <button class="toggle-sidebar-btn" @click.stop="toggleSidebar($event)">
           <IconBottomArrow class="toggle-sidebar-btn__icon" filled />
         </button>
         
@@ -109,6 +109,8 @@
             @keydown.shift.enter.prevent="addNewLine"
             @input="adjustTextareaHeight"
             @click.stop
+            @focus.stop="preventSidebarOnFocus"
+            @touchstart.stop
             ref="messageInput"
             rows="1"
           ></textarea>
@@ -567,7 +569,12 @@ const handleMessageClick = (event, message) => {
 };
 
 // Функция для переключения боковой панели на мобильных устройствах
-const toggleSidebar = () => {
+const toggleSidebar = (event) => {
+  // Предотвращаем всплытие события, если оно передано
+  if (event) {
+    event.stopPropagation();
+  }
+  
   const nuxtApp = useNuxtApp();
   if (nuxtApp && nuxtApp.$sidebarVisible !== undefined) {
     nuxtApp.$sidebarVisible.value = !nuxtApp.$sidebarVisible.value;
@@ -575,6 +582,20 @@ const toggleSidebar = () => {
     const app = document.querySelector('.app');
     if (app) {
       app.classList.toggle('sidebar-visible');
+    }
+  }
+};
+
+// Предотвращаем появление SideBar при фокусе на поле ввода
+const preventSidebarOnFocus = (event) => {
+  event.stopPropagation();
+  
+  // Убедимся, что SideBar скрыт на мобильных устройствах
+  if (isMobile.value) {
+    const nuxtApp = useNuxtApp();
+    if (nuxtApp && nuxtApp.$sidebarVisible !== undefined && nuxtApp.$sidebarVisible.value) {
+      nuxtApp.$sidebarVisible.value = false;
+      console.log('[Chat] Скрываем SideBar при фокусе на поле ввода');
     }
   }
 };

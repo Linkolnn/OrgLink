@@ -39,8 +39,9 @@ const checkMobile = () => {
   isMobile.value = window.innerWidth <= 859;
   console.log('[App] Проверка мобильного устройства:', { isMobile: isMobile.value, wasMobile, needsSidebar: needsSidebar.value, path: route.path });
   
-  // На мобильных устройствах первоначально показываем sidebar на страницах мессенжера и админа
-  if (isMobile.value && needsSidebar.value) {
+  // На мобильных устройствах первоначально показываем sidebar на страницах мессенжера и админа,
+  // но только при первоначальной загрузке, а не при изменении размера окна
+  if (isMobile.value && needsSidebar.value && !wasMobile) {
     // Используем setTimeout, чтобы дать время на отрисовку компонентов
     setTimeout(() => {
       sidebarVisible.value = true;
@@ -61,12 +62,17 @@ watch(
       const isMobileNow = window.innerWidth <= 859;
       isMobile.value = isMobileNow;
       
-      // На мобильных устройствах показываем sidebar
-      if (isMobileNow) {
+      // На мобильных устройствах показываем sidebar только при первом входе на страницу
+      // Проверяем, что мы перешли с другой страницы (не с /messenger или /admin)
+      const comingFromDifferentPage = !route.from || 
+                                    (route.from.path !== '/messenger' && route.from.path !== '/admin');
+      
+      if (isMobileNow && comingFromDifferentPage) {
         // Используем nextTick вместо setTimeout для гарантии отрисовки
         nextTick(() => {
           sidebarVisible.value = true;
-          console.log('[App] Показываем SideBar на мобильном устройстве', { path: newPath, isMobile: isMobileNow });
+          console.log('[App] Показываем SideBar на мобильном устройстве при входе на страницу', 
+                     { path: newPath, isMobile: isMobileNow, from: route.from?.path });
         });
       }
     }
@@ -90,13 +96,22 @@ onMounted(() => {
     sidebarVisible.value = newValue;
   });
   
-  // Если мы на странице мессенжера или админа и на мобильном устройстве
+  // Если мы на странице мессенжера или админа и на мобильном устройстве,
+  // показываем SideBar только при первой загрузке страницы
   if (isAuthenticated.value && (route.path === '/messenger' || route.path === '/admin') && isMobile.value) {
-    // Используем вложенные setTimeout для гарантии отрисовки
-    setTimeout(() => {
-      sidebarVisible.value = true;
-      console.log('[App] Показываем SideBar при монтировании', { path: route.path, isMobile: isMobile.value });
-    }, 50);
+    // Проверяем, что это первая загрузка страницы, а не возврат из чата
+    const isInitialPageLoad = !sessionStorage.getItem('hasVisitedMessenger');
+    
+    if (isInitialPageLoad) {
+      // Отмечаем, что пользователь уже посетил страницу мессенджера
+      sessionStorage.setItem('hasVisitedMessenger', 'true');
+      
+      // Используем вложенные setTimeout для гарантии отрисовки
+      setTimeout(() => {
+        sidebarVisible.value = true;
+        console.log('[App] Показываем SideBar при первом монтировании', { path: route.path, isMobile: isMobile.value });
+      }, 50);
+    }
   }
 });
 
