@@ -89,7 +89,7 @@
       </div>
       
       <!-- Input area -->
-      <div class="input_area" ref="inputArea">
+      <div class="input_area" ref="inputArea" @click.stop>
         <!-- Индикатор редактирования сообщения -->
         <div v-if="isEditingMessage" class="editing-indicator">
           <div class="editing-text">
@@ -108,15 +108,16 @@
             @keydown.enter.exact.prevent="handleEnterKey"
             @keydown.shift.enter.prevent="addNewLine"
             @input="adjustTextareaHeight"
+            @click.stop
             ref="messageInput"
             rows="1"
           ></textarea>
-          <div class="button_container">
+          <div class="button_container" @click.stop>
             <button 
               type="button" 
               class="send_button"
               :disabled="!messageText.trim()"
-              @click="sendMessage"
+              @click.stop="sendMessage"
             >
               <i class="fas fa-paper-plane"></i>
             </button>
