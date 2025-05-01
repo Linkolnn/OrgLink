@@ -508,7 +508,7 @@ const selectChat = (chatId) => {
           if (isMobile.value) {
           showChat();
         }
-    }, 100);
+    }, 150);
 };
 
 // Создание нового чата

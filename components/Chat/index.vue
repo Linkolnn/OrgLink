@@ -628,10 +628,23 @@ const adjustContainerHeight = (adjustTextarea = false) => {
   // Получаем высоту .page_header
   const headerHeight = pageHeader.value.offsetHeight || 60; // Фоллбэк на 60px
   
-  // Выбираем значение vh в зависимости от типа устройства
-  // Для десктопа используем 99vh, для мобильных - 90vh
-  const viewportHeight = isMobile.value ? '90vh' : '99vh';
-  console.log(`Using ${viewportHeight} for device type: ${isMobile.value ? 'mobile' : 'desktop'}`);
+  // Определяем, запущено ли приложение в режиме PWA или в полноэкранном режиме
+  const isPWA = window.matchMedia('(display-mode: standalone)').matches || 
+                window.matchMedia('(display-mode: fullscreen)').matches || 
+                window.navigator.standalone === true; // Для iOS
+  
+  // Выбираем значение vh в зависимости от типа устройства и режима приложения
+  let viewportHeight;
+  
+  if (isMobile.value) {
+    // Для мобильных устройств
+    viewportHeight = isPWA ? '99vh' : '90vh'; // Если PWA, то используем 99vh, иначе 90vh
+  } else {
+    // Для десктопа
+    viewportHeight = '99vh';
+  }
+  
+  console.log(`[Chat] Using ${viewportHeight} for device type: ${isMobile.value ? 'mobile' : 'desktop'}, PWA mode: ${isPWA}`);
 
   // Обновляем max-height для .messages_container
   messagesContainer.value.style.maxHeight = `calc(${viewportHeight} - ${headerHeight}px - ${inputAreaHeight}px)`;
@@ -662,11 +675,32 @@ const selectChatMobile = () => {
   }
 };
 
-// Определяем checkMobile в глобальной области видимости компонента
+// Проверяем ширину экрана и режим приложения при загрузке и при изменении размера окна
 const checkMobile = () => {
-  if (isMobile && typeof isMobile.value !== 'undefined') {
-    isMobile.value = window.innerWidth <= 859;
-  }
+  isMobile.value = window.innerWidth <= 768;
+  adjustContainerHeight();
+};
+
+// Отслеживаем изменения режима отображения (PWA или браузер)
+const setupDisplayModeListener = () => {
+  const displayModeMediaQuery = window.matchMedia('(display-mode: standalone)');
+  const fullscreenModeMediaQuery = window.matchMedia('(display-mode: fullscreen)');
+  
+  // Обработчик изменения режима отображения
+  const handleDisplayModeChange = () => {
+    console.log('[Chat] Display mode changed, adjusting container height');
+    adjustContainerHeight();
+  };
+  
+  // Добавляем слушатели для обоих режимов
+  displayModeMediaQuery.addEventListener('change', handleDisplayModeChange);
+  fullscreenModeMediaQuery.addEventListener('change', handleDisplayModeChange);
+  
+  // Возвращаем функцию для удаления слушателей
+  return () => {
+    displayModeMediaQuery.removeEventListener('change', handleDisplayModeChange);
+    fullscreenModeMediaQuery.removeEventListener('change', handleDisplayModeChange);
+  };
 };
 
 // Жизненный цикл компонента
@@ -686,6 +720,9 @@ onMounted(() => {
   
   checkMobile();
   window.addEventListener('resize', checkMobile);
+  
+  // Настраиваем отслеживание режима отображения (PWA или браузер)
+  const removeDisplayModeListener = setupDisplayModeListener();
   
   setupInfiniteScroll();
   
@@ -711,26 +748,28 @@ onMounted(() => {
     const { $socketJoinChat } = useNuxtApp();
     $socketJoinChat(chatData.value._id);
   }
-});
-
-onUnmounted(() => {
-  if (observer.value) {
-    observer.value.disconnect();
-  }
   
-  const { $socket } = useNuxtApp();
-  if ($socket) {
-    $socket.off('connect');
-    $socket.off('new-message');
-    $socket.off('messages-read');
+  // Сохраняем функцию удаления слушателя для использования при размонтировании
+  onUnmounted(() => {
+    removeDisplayModeListener();
+    window.removeEventListener('resize', checkMobile);
     
-    if (chatData.value && chatData.value._id) {
-      const { $socketLeaveChat } = useNuxtApp();
-      $socketLeaveChat(chatData.value._id);
+    if (observer.value) {
+      observer.value.disconnect();
     }
-  }
-  
-  window.removeEventListener('resize', checkMobile);
+    
+    const { $socket } = useNuxtApp();
+    if ($socket) {
+      $socket.off('connect');
+      $socket.off('new-message');
+      $socket.off('messages-read');
+      
+      if (chatData.value && chatData.value._id) {
+        const { $socketLeaveChat } = useNuxtApp();
+        $socketLeaveChat(chatData.value._id);
+      }
+    }
+  });
 });
 
 // Следим за изменением активного чата
@@ -1117,7 +1156,6 @@ const openUserProfile = (userId) => {
     display: flex
     width: 100%
     flex-direction: column
-    position: relative
     z-index: 1
     @include custom-scrollbar
     >*
@@ -1227,7 +1265,7 @@ const openUserProfile = (userId) => {
     align-self: center
     max-width: 700px
     width: 100%
-    padding: 5px 10px
+    padding: 5px 14px
     flex: 0 0 auto
     position: relative
     z-index: 2
@@ -1330,7 +1368,6 @@ const openUserProfile = (userId) => {
     .messages_container
       flex: 1 1 auto
       overflow-y: auto
-      position: relative
       z-index: 1
       min-height: 0 // Предотвращает переполнение
       

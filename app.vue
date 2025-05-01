@@ -16,11 +16,8 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, provide, computed, watch } from 'vue';
-import { useNuxtApp } from '#app';
 import { storeToRefs } from 'pinia';
 import { useAuthStore } from '~/stores/auth';
-import { useRoute } from 'vue-router';
 
 const authStore = useAuthStore();
 const { isAuthenticated } = storeToRefs(authStore);
@@ -52,26 +49,34 @@ const checkMobile = () => {
   }
 };
 
-// Следим за изменением маршрута
-watch(() => route?.path, (newPath) => {
-  // Если перешли на страницу мессенджера или админа
-  if (newPath === '/messenger' || newPath === '/admin') {
-    // Проверяем ширину экрана непосредственно при изменении маршрута
-    const isMobileNow = window.innerWidth <= 859;
-    isMobile.value = isMobileNow;
+// Следим за изменением маршрута и состоянием аутентификации
+watch(
+  [() => route?.path, () => isAuthenticated.value],
+  ([newPath, isAuth]) => {
+    console.log('[App] Изменение маршрута или состояния аутентификации:', { path: newPath, isAuth });
     
-    // На мобильных устройствах показываем sidebar
-    if (isMobileNow) {
-      // Используем setTimeout, чтобы дать время на отрисовку компонентов
-      setTimeout(() => {
-        sidebarVisible.value = true;
-        console.log('[App] Показываем SideBar на мобильном устройстве', { path: newPath, isMobile: isMobileNow });
-      }, 0);
+    // Если пользователь аутентифицирован и находится на странице мессенжера или админа
+    if (isAuth && (newPath === '/messenger' || newPath === '/admin')) {
+      // Проверяем ширину экрана
+      const isMobileNow = window.innerWidth <= 859;
+      isMobile.value = isMobileNow;
+      
+      // На мобильных устройствах показываем sidebar
+      if (isMobileNow) {
+        // Используем nextTick вместо setTimeout для гарантии отрисовки
+        nextTick(() => {
+          sidebarVisible.value = true;
+          console.log('[App] Показываем SideBar на мобильном устройстве', { path: newPath, isMobile: isMobileNow });
+        });
+      }
     }
-  }
-}, { immediate: true });
+  },
+  { immediate: true }
+);
 
 onMounted(() => {
+  console.log('[App] Монтирование компонента');
+  
   // Проверяем размер экрана при загрузке
   checkMobile();
   window.addEventListener('resize', checkMobile);
@@ -86,12 +91,12 @@ onMounted(() => {
   });
   
   // Если мы на странице мессенжера или админа и на мобильном устройстве
-  if ((route.path === '/messenger' || route.path === '/admin') && isMobile.value) {
-    // Используем setTimeout, чтобы дать время на отрисовку компонентов
+  if (isAuthenticated.value && (route.path === '/messenger' || route.path === '/admin') && isMobile.value) {
+    // Используем вложенные setTimeout для гарантии отрисовки
     setTimeout(() => {
       sidebarVisible.value = true;
       console.log('[App] Показываем SideBar при монтировании', { path: route.path, isMobile: isMobile.value });
-    }, 0);
+    }, 50);
   }
 });
 
