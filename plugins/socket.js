@@ -31,7 +31,7 @@ export default defineNuxtPlugin((nuxtApp) => {
   
   // Определяем, находимся ли мы в production окружении (Vercel)
   const isProduction = process.env.NODE_ENV === 'production';
-  const isVercel = typeof window !== 'undefined' && window.location.hostname.includes('vercel.app');
+  const isVercel = typeof window !== 'undefined' && (window.location.hostname.includes('vercel.app') || window.location.hostname === 'org-link.vercel.app');
   
   // Определяем URL для Socket.IO
   let backendUrl;
@@ -57,6 +57,10 @@ export default defineNuxtPlugin((nuxtApp) => {
   console.log('Socket.IO connecting to:', backendUrl, 'with path:', socketPath);
   
   // Создаем соединение Socket.IO
+  // На Vercel используем только polling, так как WebSocket не поддерживается в API роутах
+  const transports = (isProduction && isVercel) ? ['polling'] : ['polling', 'websocket'];
+  console.log(`Socket.IO: Используем транспорты: ${transports.join(', ')}`);
+  
   const socket = io(backendUrl, {
     autoConnect: false, // Не подключаемся автоматически
     withCredentials: true,
@@ -64,7 +68,7 @@ export default defineNuxtPlugin((nuxtApp) => {
     reconnectionAttempts: Infinity,  // Бесконечное количество попыток переподключения
     reconnectionDelay: 1000,   // Задержка между попытками переподключения
     timeout: 20000,            // Увеличиваем таймаут соединения
-    transports: ['polling', 'websocket'],   // Используем polling и websocket
+    transports: transports,    // Используем транспорты в зависимости от окружения
     path: socketPath,          // Используем путь в зависимости от окружения
     forceNew: true,            // Создаем новое соединение
     auth: {
@@ -79,8 +83,10 @@ export default defineNuxtPlugin((nuxtApp) => {
   console.log('Socket.IO настройки:', {
     url: backendUrl,
     path: socketPath,
-    transports: ['polling'],
-    token: hasToken
+    transports: transports,
+    token: hasToken,
+    isVercel: isVercel,
+    isProduction: isProduction
   });
 
   // Обработчики событий сокета

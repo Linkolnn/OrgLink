@@ -40,6 +40,9 @@ export default async function handler(req, res) {
   // Используем внешний бэкенд URL
   const backendUrl = process.env.BACKEND_URL || 'https://orglink-production-e9d8.up.railway.app';
   
+  // Проверяем, что URL не заканчивается на слэш
+  const cleanBackendUrl = backendUrl.endsWith('/') ? backendUrl.slice(0, -1) : backendUrl;
+  
   console.log('Using backend URL for Socket.IO proxy:', backendUrl);
   
   // Формируем путь для проксирования
@@ -52,7 +55,7 @@ export default async function handler(req, res) {
     }
   }
   
-  const targetUrl = `${backendUrl}/socket.io${socketPath}`;
+  const targetUrl = `${cleanBackendUrl}/socket.io${socketPath}`;
 
   console.log(`Socket.IO proxy: ${method} ${url} -> ${targetUrl}`);
 
@@ -80,20 +83,29 @@ export default async function handler(req, res) {
     const origin = req.headers.origin || req.headers.referer || '*';
 
     // Настраиваем параметры запроса
+    const headers = {};
+    
+    // Копируем необходимые заголовки
+    const headersToKeep = [
+      'accept', 'accept-encoding', 'accept-language', 'content-type', 'content-length',
+      'user-agent', 'cookie', 'authorization', 'connection', 'cache-control',
+      'if-none-match', 'if-modified-since', 'referer', 'origin'
+    ];
+    
+    // Добавляем только необходимые заголовки
+    for (const header of headersToKeep) {
+      if (req.headers[header]) {
+        headers[header] = req.headers[header];
+      }
+    }
+    
+    // Добавляем дополнительные заголовки
+    headers['x-socket-io-proxied'] = '1';
+    headers['origin'] = origin;
+    
     const fetchOptions = {
       method,
-      headers: {
-        ...req.headers,
-        // Удаляем заголовки, которые могут вызвать проблемы при проксировании
-        host: undefined,
-        'x-forwarded-host': undefined,
-        'x-vercel-deployment-url': undefined,
-        'x-vercel-id': undefined,
-        // Добавляем маркер, что запрос уже проксирован
-        'x-socket-io-proxied': '1',
-        // Добавляем origin для CORS
-        'origin': origin
-      },
+      headers,
       credentials: 'include',
     };
 
@@ -117,6 +129,15 @@ export default async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
     res.setHeader('Access-Control-Allow-Credentials', 'true');
+    
+    // Копируем все заголовки из ответа бэкенда
+    for (const [key, value] of fetchResponse.headers.entries()) {
+      // Пропускаем заголовки, которые мы уже установили
+      if (!['content-type', 'access-control-allow-origin', 'access-control-allow-methods', 
+           'access-control-allow-headers', 'access-control-allow-credentials'].includes(key.toLowerCase())) {
+        res.setHeader(key, value);
+      }
+    }
 
     // Отправляем ответ клиенту
     res.status(fetchResponse.status);
