@@ -61,21 +61,81 @@
           
           <!-- Сообщения группы -->
           <div v-for="message in group.messages" :key="message._id" class="message_wrap">
-            <Message 
-              :message="message" 
-              :is-group-chat="chatData.participants?.length > 2"
-              :is-mobile="isMobile.value"
-              @context-menu="showContextMenu"
-              @click="handleMessageClick"
-              @image-loaded="(messageId) => { 
-                const msgIndex = chatStore.messages.findIndex(m => m._id === messageId);
-                if (msgIndex !== -1) {
-                  chatStore.messages[msgIndex].imageLoaded = true;
-                }
-              }"
-              @video-play="handleVideoPlay"
-              @profile-click="openUserProfile"
-            />
+            <!-- Service message -->
+            <div v-if="message.type === 'service'" class="service_message">
+              <div>{{ message.text }}</div>
+              <div class="time">{{ formatTime(message.createdAt || message.timestamp) }}</div>
+            </div>
+            
+            <!-- Regular message -->
+            <div 
+              v-else 
+              class="message" 
+              :class="isOwnMessage(message) ? 'own' : 'other'"
+              @contextmenu.prevent="showContextMenu($event, message)"
+              @click="handleMessageClick($event, message)"
+            >
+              <!-- Имя отправителя (для групповых чатов) -->
+              <div 
+                v-if="!isOwnMessage(message) && chatData.participants?.length > 2" 
+                class="message__from"
+              >
+                {{ message.sender?.name }}
+              </div>
+              
+              <!-- Контент сообщения -->
+              <div class="message__content">
+                <!-- Имя отправителя (для групповых чатов) -->
+                <div 
+                  v-if="!isOwnMessage(message) && chatData.participants?.length > 2 && message.media_type !== 'none'" 
+                  class="message__from"
+                >
+                  {{ message.sender?.name }}
+                </div>
+                
+                <!-- Message content based on type -->
+                <div v-if="message.media_type === 'none'" class="message__text">
+                  <pre>{{ message.text }}</pre>
+                </div>
+                
+                <div v-else-if="message.media_type === 'image'" class="image-container">
+                  <div v-if="!message.imageLoaded" class="image-loading">
+                    <div class="loading-spinner"></div>
+                  </div>
+                  <img 
+                    :src="message.file" 
+                    alt="Image" 
+                    class="message-image" 
+                    @load="message.imageLoaded = true"
+                    :class="{ 'loaded': message.imageLoaded }"
+                  />
+                </div>
+                
+                <div v-else-if="message.media_type === 'video'" class="video-container">
+                  <video 
+                    :id="message._id" 
+                    class="video-message-player" 
+                    controls 
+                    :src="message.file"
+                  ></video>
+                </div>
+                
+                <div v-else-if="message.media_type === 'sticker'" class="sticker-container">
+                  <img :src="message.file" alt="Sticker" class="message-sticker" />
+                </div>
+                
+                <div v-else-if="message.media_type === 'file'" class="file-container">
+                  <a :href="message.file" target="_blank" class="file-link">
+                    <i class="fas fa-file file-icon"></i>
+                    {{ message.fileName || 'Файл' }}
+                  </a>
+                </div>
+                
+                <div class="message__time">
+                  {{ formatTime(message.createdAt || message.timestamp) }}
+                </div>
+              </div>
+            </div>
           </div>
         </div>
         
@@ -147,8 +207,6 @@
 <script setup>
 import { useChatStore } from '~/stores/chat';
 import { useAuthStore } from '~/stores/auth';
-import { useNuxtApp } from '#app';
-import Message from './Message.vue';
 import { secureUrl } from '~/utils/secureUrl';
 
 // Хранилища
@@ -338,25 +396,20 @@ const sendMessage = async () => {
     return;
   }
   
-  console.log('[WebSocket] Отправка сообщения в чат:', chatData.value._id);
-  
   try {
     await chatStore.sendMessage({
       chatId: chatData.value._id,
-      text: messageText.value,
-      media_type: 'none'
+      text: messageText.value.trim()
     });
     
-    console.log('[WebSocket] Сообщение отправлено успешно');
     messageText.value = '';
     adjustTextareaHeight();
     
     nextTick(() => {
-      console.log('[Chat] Прокрутка вниз после отправки сообщения');
       scrollToBottom(true);
     });
   } catch (error) {
-    console.error('[WebSocket] Ошибка при отправке сообщения:', error);
+    console.error('Ошибка при отправке сообщения:', error);
   }
 };
 
@@ -469,7 +522,9 @@ const stopVideo = () => {
 
 // Проверка, является ли сообщение собственным
 const isOwnMessage = (message) => {
-  return message.sender && authStore.user && message.sender._id === authStore.user._id;
+  const senderIdMatch = message.sender?._id === authStore.user?._id;
+  const emailMatch = message.sender?.email === authStore.user?.email;
+  return senderIdMatch || emailMatch;
 };
 
 // Получение инициалов из имени
@@ -671,15 +726,9 @@ const checkMobile = () => {
 
 // Жизненный цикл компонента
 onMounted(() => {
-  console.log('[Chat] Монтирование компонента');
-  
-  const nuxtApp = useNuxtApp();
-  if (nuxtApp && nuxtApp.$sidebarVisible !== undefined) {
-    nuxtApp.$sidebarVisible.value = false;
-    sidebarVisible.value = false;
-    
-    // Синхронизация с глобальным состоянием
-    watch(nuxtApp.$sidebarVisible, (newValue) => {
+  if (nuxtApp.$sidebarVisible) {
+    sidebarVisible.value = nuxtApp.$sidebarVisible.value;
+    watch(() => nuxtApp.$sidebarVisible.value, (newValue) => {
       sidebarVisible.value = newValue;
     });
   }
@@ -690,26 +739,24 @@ onMounted(() => {
   setupInfiniteScroll();
   
   visibleMessages.value = Array.isArray(messages.value) ? messages.value : [];
-  console.log('[Chat] Начальное количество сообщений:', visibleMessages.value.length);
   
   const { $socket, $socketConnect } = useNuxtApp();
-  console.log('[WebSocket] Статус при монтировании:', $socket?.connected);
   
   if ($socket && !$socket.connected) {
-    console.log('[WebSocket] Подключение при монтировании...');
     $socketConnect();
     setTimeout(() => {
-      console.log('[WebSocket] Настройка слушателей после подключения');
       setupWebSocketListeners();
-    }, 1000);
+      if (chatData.value && chatData.value._id) {
+        const { $socketJoinChat } = useNuxtApp();
+        $socketJoinChat(chatData.value._id);
+      }
+    }, 500);
   } else {
-    console.log('[WebSocket] Настройка слушателей при монтировании');
     setupWebSocketListeners();
-  }
-  
-  if (chatData.value && chatData.value._id) {
-    const { $socketJoinChat } = useNuxtApp();
-    $socketJoinChat(chatData.value._id);
+    if (chatData.value && chatData.value._id) {
+      const { $socketJoinChat } = useNuxtApp();
+      $socketJoinChat(chatData.value._id);
+    }
   }
 });
 
@@ -735,19 +782,14 @@ onUnmounted(() => {
 
 // Следим за изменением активного чата
 watch(() => chatStore.activeChat, (newChat, oldChat) => {
-  console.log('[Chat] Изменение активного чата:', newChat?._id);
-  
   if (oldChat && oldChat._id) {
-    console.log('[WebSocket] Покидаем чат:', oldChat._id);
     const { $socketLeaveChat } = useNuxtApp();
     $socketLeaveChat(oldChat._id);
   }
   
   if (newChat && newChat._id) {
-    console.log('[WebSocket] Присоединяемся к чату:', newChat._id);
     const { $socketJoinChat } = useNuxtApp();
     $socketJoinChat(newChat._id);
-    console.log('[WebSocket] Переустановка слушателей для нового чата');
     setupWebSocketListeners();
     setTimeout(() => {
       adjustContainerHeight();
@@ -763,17 +805,12 @@ watch(() => chatStore.activeChat, (newChat, oldChat) => {
   });
 });
 
-// Обработка обновления сообщений
+// Следим за изменениями в сообщениях
 watch(messages, (newMessages) => {
-  console.log('[Chat] Обновление сообщений, количество:', newMessages?.length);
-  
   if (Array.isArray(newMessages)) {
     visibleMessages.value = newMessages;
-    console.log('[Chat] Обновлены видимые сообщения, количество:', visibleMessages.value.length);
-    
     requestAnimationFrame(() => {
       nextTick(() => {
-        console.log('[Chat] Прокрутка вниз после обновления сообщений');
         scrollToBottom(true);
       });
     });
@@ -829,18 +866,11 @@ const debugWebSocket = () => {
 // Настройка WebSocket слушателей
 const setupWebSocketListeners = () => {
   const { $socket, $socketConnect, $socketJoinChat } = useNuxtApp();
-  if (!$socket) {
-    console.error('[WebSocket] Socket не доступен');
-    return;
-  }
-  
-  console.log('[WebSocket] Настройка слушателей, статус подключения:', $socket.connected);
+  if (!$socket) return;
   
   if (!$socket.connected) {
-    console.log('[WebSocket] Попытка подключения...');
     $socketConnect();
   } else if (chatData.value && chatData.value._id) {
-    console.log('[WebSocket] Подключение к чату:', chatData.value._id);
     $socketJoinChat(chatData.value._id);
   }
   
@@ -850,121 +880,58 @@ const setupWebSocketListeners = () => {
   $socket.off('joined-chat');
   
   $socket.on('connect', () => {
-    console.log('[WebSocket] Соединение установлено');
     if (chatData.value && chatData.value._id) {
-      console.log('[WebSocket] Присоединение к чату после подключения:', chatData.value._id);
       $socketJoinChat(chatData.value._id);
     }
   });
   
-  $socket.on('joined-chat', ({ chatId, success }) => {
-    console.log('[WebSocket] Присоединился к чату:', chatId, 'Успешно:', success);
-  });
+  $socket.on('joined-chat', ({ chatId, success }) => {});
   
   $socket.on('new-message', ({ message, chatId }) => {
-    console.log('[WebSocket] Получено новое сообщение:', message, 'для чата:', chatId);
-    console.log('[WebSocket] Текущий активный чат:', chatData.value?._id);
-    
     if (chatData.value && chatData.value._id === chatId) {
-      console.log('[WebSocket] Сообщение для текущего чата');
-      
-      // Проверяем, не является ли сообщение дубликатом
       const isDuplicate = chatStore.messages.some(m => m._id === message._id);
-      if (isDuplicate) {
-        console.log('[WebSocket] Дубликат сообщения, пропускаем:', message._id);
-        return;
-      }
+      if (isDuplicate) return;
       
-      console.log('[WebSocket] Добавление нового сообщения в хранилище, тип:', message.media_type);
-      
-      // Обработка изображений
       if (message.media_type === 'image' && message.file) {
-        console.log('[WebSocket] Обработка изображения');
-        
-        // Устанавливаем флаг, что изображение еще не загружено
         message.imageLoaded = false;
+        chatStore.messages.push({...message});
         
-        try {
-          // Важно: создаем новый массив для реактивности
-          const newMessages = [...chatStore.messages, {...message}];
-          console.log('[WebSocket] Обновление хранилища сообщений, количество:', newMessages.length);
-          chatStore.messages = newMessages;
-          
-          // Загружаем изображение
-          const img = new Image();
-          img.onload = () => {
-            console.log('[WebSocket] Изображение загружено:', message._id);
-            const msgIndex = chatStore.messages.findIndex(m => m._id === message._id);
-            
-            if (msgIndex !== -1) {
-              // Создаем новый массив с обновленным сообщением для реактивности
-              const updatedMessages = [...chatStore.messages];
-              updatedMessages[msgIndex] = {...updatedMessages[msgIndex], imageLoaded: true};
-              console.log('[WebSocket] Обновление статуса изображения');
-              chatStore.messages = updatedMessages;
-            }
-            
-            // Прокручиваем к новому сообщению, если пользователь находится внизу чата
-            if (isAtBottom.value) {
-              console.log('[WebSocket] Прокрутка вниз после загрузки изображения');
-              nextTick(() => {
-                scrollToBottom(true);
-              });
-            } else {
-              console.log('[WebSocket] Показ индикатора новых сообщений');
-              showNewMessageIndicator.value = true;
-            }
-          };
-          
-          img.onerror = (err) => {
-            console.error('[WebSocket] Ошибка загрузки изображения:', err);
-            const msgIndex = chatStore.messages.findIndex(m => m._id === message._id);
-            
-            if (msgIndex !== -1) {
-              // Создаем новый массив с обновленным сообщением для реактивности
-              const updatedMessages = [...chatStore.messages];
-              updatedMessages[msgIndex] = {...updatedMessages[msgIndex], imageLoaded: true};
-              chatStore.messages = updatedMessages;
-            }
-            
-            // Прокручиваем к новому сообщению, если пользователь находится внизу чата
-            if (isAtBottom.value) {
-              nextTick(() => {
-                scrollToBottom(true);
-              });
-            } else {
-              showNewMessageIndicator.value = true;
-            }
-          };
-          
-          img.src = message.file;
-        } catch (error) {
-          console.error('[WebSocket] Ошибка при обработке изображения:', error);
-        }
-      } else {
-        console.log('[WebSocket] Обработка обычного сообщения');
-        
-        try {
-          // Важно: создаем новый массив для реактивности
-          const newMessages = [...chatStore.messages, {...message}];
-          console.log('[WebSocket] Обновление хранилища сообщений, количество:', newMessages.length);
-          chatStore.messages = newMessages;
-          
-          // Обновляем groupedMessages для отображения
-          console.log('[WebSocket] Текущие сгруппированные сообщения:', groupedMessages.value.length);
-          
-          // Прокручиваем к новому сообщению, если пользователь находится внизу чата
+        const img = new Image();
+        img.onload = () => {
+          const msgIndex = chatStore.messages.findIndex(m => m._id === message._id);
+          if (msgIndex !== -1) {
+            chatStore.messages[msgIndex].imageLoaded = true;
+          }
           if (isAtBottom.value) {
-            console.log('[WebSocket] Прокрутка вниз');
             nextTick(() => {
               scrollToBottom(true);
             });
           } else {
-            console.log('[WebSocket] Показ индикатора новых сообщений');
             showNewMessageIndicator.value = true;
           }
-        } catch (error) {
-          console.error('[WebSocket] Ошибка при обработке сообщения:', error);
+        };
+        img.onerror = () => {
+          const msgIndex = chatStore.messages.findIndex(m => m._id === message._id);
+          if (msgIndex !== -1) {
+            chatStore.messages[msgIndex].imageLoaded = true;
+          }
+          if (isAtBottom.value) {
+            nextTick(() => {
+              scrollToBottom(true);
+            });
+          } else {
+            showNewMessageIndicator.value = true;
+          }
+        };
+        img.src = message.file;
+      } else {
+        chatStore.messages.push({...message});
+        if (isAtBottom.value) {
+          nextTick(() => {
+            scrollToBottom(true);
+          });
+        } else {
+          showNewMessageIndicator.value = true;
         }
       }
       
@@ -975,25 +942,14 @@ const setupWebSocketListeners = () => {
   });
   
   $socket.on('messages-read', ({ chatId, userId }) => {
-    console.log('[WebSocket] Сообщения прочитаны в чате:', chatId, 'пользователем:', userId);
     if (chatData.value && chatData.value._id === chatId) {
       chatStore.updateMessagesReadStatus(chatId, userId);
     }
   });
 };
 
-// Открытие настроек чата
 const openChatSettings = () => {
   showChatSettingsModal.value = true;
-};
-
-// Открытие профиля пользователя
-const openUserProfile = (userId) => {
-  if (!userId) return;
-  console.log('Открытие профиля пользователя:', userId);
-  // Здесь будет код для открытия профиля пользователя
-  // Например, переход на страницу профиля
-  // navigateTo(`/profile/${userId}`);
 };
 </script>
 
@@ -1191,7 +1147,7 @@ const openUserProfile = (userId) => {
       
       .message
         display: flex
-        width: max-content
+        flex-direction: column
         max-width: 70%
         margin-bottom: 5px
         
@@ -1222,6 +1178,81 @@ const openUserProfile = (userId) => {
           font-size: 14px
         
         &__text
+          color: $white
+          
+          pre
+            font-family: inherit
+            margin: 0
+            white-space: pre-wrap
+            word-break: break-word
+        
+        &__time
+          text-align: right
+          font-size: 10px
+          color: rgba(255, 255, 255, 0.6)
+          margin-top: 5px
+        
+        .video-container, .image-container
+          margin: 5px 0
+          position: relative
+          
+          .video-message-player, .message-image
+            max-width: 100%
+            border-radius: 8px
+            max-height: 300px
+            opacity: 0
+            transition: opacity 0.3s ease-in-out
+            
+            &.loaded
+              opacity: 1
+          
+          .image-loading
+            position: absolute
+            top: 0
+            left: 0
+            width: 100%
+            height: 100%
+            display: flex
+            align-items: center
+            justify-content: center
+            background-color: rgba(0, 0, 0, 0.1)
+            z-index: 2
+            border-radius: 8px
+            
+            .loading-spinner
+              width: 30px
+              height: 30px
+              border: 3px solid rgba(255, 255, 255, 0.3)
+              border-radius: 50%
+              border-top-color: $purple
+              animation: spin 1s ease-in-out infinite
+              margin: 0 auto
+              background-color: transparent
+              will-change: transform; // Оптимизация для анимации
+    
+        .sticker-container
+          .message-sticker
+            max-width: 120px
+            max-height: 120px
+        
+        .file-container
+          margin: 5px 0
+          
+          .file-link
+            display: flex
+            align-items: center
+            color: $white
+            text-decoration: none
+            background-color: rgba(255, 255, 255, 0.1)
+            padding: 8px 12px
+            border-radius: 8px
+            
+            &:hover
+              background-color: rgba(255, 255, 255, 0.2)
+            
+            .file-icon
+              margin-right: 8px
+              font-size: 16px
   
   .input_area
     align-self: center
@@ -1343,5 +1374,41 @@ const openUserProfile = (userId) => {
       .message
         max-width: 90%
 
-// Стили изображений перенесены в компонент Message
+.image-container
+  position: relative
+  margin: 5px 0
+  max-width: 300px
+  
+  .image-loading
+    position: absolute
+    top: 0
+    left: 0
+    width: 100%
+    height: 100%
+    display: flex
+    align-items: center
+    justify-content: center
+    background-color: rgba(0, 0, 0, 0.2)
+    z-index: 2
+    border-radius: 8px
+    
+    .loading-spinner
+      width: 30px
+      height: 30px
+      border: 3px solid rgba(255, 255, 255, 0.3)
+      border-radius: 50%
+      border-top-color: $purple
+      animation: spin 1s ease-in-out infinite
+      margin: 0 auto
+      background-color: transparent
+      will-change: transform; // Оптимизация для анимации
+    
+  .message-image
+    max-width: 100%
+    border-radius: 8px
+    opacity: 0.7
+    transition: opacity 0.3s ease
+    
+    &.loaded
+      opacity: 1
 </style>

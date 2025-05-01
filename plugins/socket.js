@@ -44,9 +44,9 @@ export default defineNuxtPlugin((nuxtApp) => {
     console.log('Socket.IO: Используем Vercel прокси для WebSocket');
   } else {
     // В других случаях используем прямое подключение к бэкенду
-    backendUrl = 'https://orglink-production-e9d8.up.railway.app';
+    backendUrl = config.public.backendUrl || 'https://orglink-production-e9d8.up.railway.app';
     socketPath = '/socket.io';
-    console.log('Socket.IO: Прямое подключение к бэкенду');
+    console.log('Socket.IO: Прямое подключение к бэкенду:', backendUrl);
   }
   
   // Проверяем, что URL не заканчивается на слэш для предотвращения проблем с двойными слэшами
@@ -64,15 +64,13 @@ export default defineNuxtPlugin((nuxtApp) => {
     reconnectionAttempts: Infinity,  // Бесконечное количество попыток переподключения
     reconnectionDelay: 1000,   // Задержка между попытками переподключения
     timeout: 20000,            // Увеличиваем таймаут соединения
-    transports: ['polling'],   // Используем только polling для надежности
+    transports: ['polling', 'websocket'],   // Используем polling и websocket
     path: socketPath,          // Используем путь в зависимости от окружения
     forceNew: true,            // Создаем новое соединение
     auth: {
       token: getToken() // Инициализируем с токеном
-    },
-    extraHeaders: {
-      'Authorization': `Bearer ${getToken()}` // Добавляем токен в заголовки
     }
+    // Убираем extraHeaders, так как они могут конфликтовать с auth
   });
   
   // Получаем токен для логирования
@@ -92,10 +90,11 @@ export default defineNuxtPlugin((nuxtApp) => {
 
   socket.on('connect_error', (error) => {
     // Логируем ошибку подключения
-    console.warn('Socket.io connection error:', error.message);
+    console.error('Socket.io connection error:', error.message, error);
     
     // Если ошибка связана с аутентификацией, попробуем обновить токен и переподключиться
-    if (error.message.includes('Authentication')) {
+    if (error.message.includes('Authentication') || error.message.includes('auth')) {
+      console.log('Ошибка аутентификации, пробуем обновить токен');
       const token = getToken();
       if (token) {
         socket.auth.token = token;
@@ -106,11 +105,18 @@ export default defineNuxtPlugin((nuxtApp) => {
     }
     // Если ошибка связана с транспортом, попробуем другой транспорт
     else if (error.message.includes('transport') || error.message.includes('xhr poll error')) {
+      console.log('Ошибка транспорта, переключаемся на polling');
       // Переключаемся на polling, если websocket не работает
       socket.io.opts.transports = ['polling'];
       setTimeout(() => {
         socket.connect();
       }, 1000);
+    } else {
+      // Для других ошибок просто пробуем переподключиться
+      console.log('Неизвестная ошибка, пробуем переподключиться');
+      setTimeout(() => {
+        socket.connect();
+      }, 2000);
     }
   });
 
@@ -175,13 +181,14 @@ export default defineNuxtPlugin((nuxtApp) => {
     const token = getToken();
     
     if (!token) {
-      // Невозможно подключиться: токен не найден
+      console.warn('Socket.IO: Невозможно подключиться, токен не найден');
       
       // Добавляем отложенную попытку подключения через 1 секунду
       // Это может помочь, если токен появится после инициализации
       setTimeout(() => {
         const newToken = getToken();
         if (newToken) {
+          console.log('Socket.IO: Токен получен, пробуем подключиться');
           socket.auth.token = newToken;
           socket.connect();
         }
@@ -192,6 +199,7 @@ export default defineNuxtPlugin((nuxtApp) => {
     
     // Обновляем токен аутентификации
     socket.auth.token = token;
+    console.log('Socket.IO: Подключаемся с токеном');
     
     if (!socket.connected) {
       socket.connect();
