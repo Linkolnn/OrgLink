@@ -1253,7 +1253,7 @@ const openChatSettings = () => {
     align-self: center
     max-width: 700px
     width: 100%
-    padding: 15px
+    padding: 5px 10px
     flex: 0 0 auto
     position: relative
     z-index: 2
@@ -1363,8 +1363,6 @@ const openChatSettings = () => {
     .input_area
       flex: 0 0 auto
       width: 100%
-      z-index: 2
-      padding: 10px
       position: relative
       
     .message_wrap
