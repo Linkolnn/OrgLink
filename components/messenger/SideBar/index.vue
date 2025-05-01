@@ -2,10 +2,9 @@
     <aside class="sidebar">
       <header class="sidebar__header">
         <MessengerSideBarMenu />
-        <MessengerSideBarBtnGroupCreate
-          :is-connected="isConnected" 
-          @create-chat="createNewChat" 
-        />
+        <div class="sidebar__actions">
+          <h3 class="sidebar__title">Чаты</h3>
+        </div>
       </header>
       <div class="sidebar__content">
         <div v-if="chatStore.loading && !chatStore.chats.length" class="sidebar__loading">
@@ -34,6 +33,10 @@
         :is-new-chat="true"
         @close="showCreateChatModal = false"
         @saved="onChatCreated"
+      />
+      <MessengerSideBarBtnGroupCreate
+        :is-connected="isConnected" 
+        @create-chat="createNewChat" 
       />
     </aside>
 </template>
@@ -598,10 +601,11 @@ const formatTime = (date) => {
 </script>
 
 <style lang="sass" scoped>
-@import '~/assets/styles/variables'
+@import '@variables'
 
 // Стили для адаптивного дизайна
 .sidebar
+  position: relative
   width: $sidebar-width
   height: 100vh
   background: $header-bg
@@ -624,14 +628,16 @@ const formatTime = (date) => {
       transform: translateX(0)
 
   &__header
-    padding: 16px
-    border-bottom: 1px solid rgba($white, 0.1)
+    padding: 15px
+    display: flex
+    flex-direction: column
     position: relative
+    justify-content: space-between
   
   &__content
     flex: 1
     overflow-y: auto
-    padding: 16px
+    padding: 0px
     @include custom-scrollbar
   
   &__empty, &__loading

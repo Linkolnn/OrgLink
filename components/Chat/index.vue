@@ -8,7 +8,7 @@
     <!-- Если чат выбран -->
     <div v-else class="chat-content">
       <!-- Шапка чата -->
-      <div class="page_header"@click="openChatSettings">
+      <div class="page_header" ref="pageHeader" @click="openChatSettings">
         <!-- Кнопка переключения боковой панели для мобильных устройств -->
         <button class="toggle-sidebar-btn" @click.stop="toggleSidebar">
           <IconBottomArrow class="toggle-sidebar-btn__icon" filled />
@@ -34,10 +34,7 @@
       </div>
       
       <!-- Контейнер сообщений -->
-      <div class="messages_container" ref="messagesContainer" @scroll="checkIfAtBottom">
-        <!-- Триггер для загрузки дополнительных сообщений -->
-        <div v-if="loading" ref="loadingTrigger" class="loading-trigger"></div>
-        
+      <div class="messages_container" ref="messagesContainer" @scroll="checkIfAtBottom">        
         <!-- Индикатор загрузки дополнительных сообщений -->
         <div v-if="chatStore.loadingMore" class="loading-indicator loading-more">
           <div class="spinner"></div>
@@ -230,6 +227,12 @@ const isAtBottom = ref(true);
 const messagesContainer = ref(null);
 const showNewMessageIndicator = ref(false);
 
+// Ссылки на элементы
+const inputArea = ref(null);
+const messageInput = ref(null);
+const inputContainer = ref(null);
+const pageHeader = ref(null);
+
 // Функция для проверки, находится ли пользователь внизу чата
 const checkIfAtBottom = () => {
   if (!messagesContainer.value) return true;
@@ -262,7 +265,6 @@ const showChatSettingsModal = ref(false);
 
 // Обработка обновления чата после сохранения в модальном окне
 const onChatUpdated = () => {
-  // Обновляем данные чата, если необходимо
   if (chatData.value && chatData.value._id) {
     chatStore.setActiveChat(chatData.value._id);
   }
@@ -294,18 +296,16 @@ const playbackControlData = ref({
 
 // Группировка сообщений по датам
 const groupedMessages = computed(() => {
-  // Проверяем, что сообщения существуют
   if (!messages.value || !Array.isArray(messages.value)) {
     return [];
   }
   
   const groups = {};
   messages.value.forEach(message => {
-    if (!message) return; // Пропускаем недействительные сообщения
+    if (!message) return;
     
-    // Безопасно получаем дату
     const timestamp = message.createdAt || message.timestamp;
-    if (!timestamp) return; // Пропускаем сообщения без времени
+    if (!timestamp) return;
     
     const date = new Date(timestamp);
     const key = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
@@ -322,41 +322,32 @@ const groupedMessages = computed(() => {
 
 // Настройка бесконечной прокрутки
 const setupInfiniteScroll = () => {
-  // Отключаем предыдущий observer, если он существует
   if (observer.value) {
     observer.value.disconnect();
   }
   
-  // Создаем новый Intersection Observer для бесконечной прокрутки
   observer.value = new IntersectionObserver(async (entries) => {
     const entry = entries[0];
     
-    // Если триггер виден и есть еще сообщения для загрузки
     if (entry.isIntersecting && chatStore.pagination.hasMore && !chatStore.loadingMore) {
       chatStore.loadingMore = true;
       
       try {
-        // Получаем ID самого старого сообщения
         const oldestMessageId = chatStore.pagination.nextCursor;
         
         if (oldestMessageId) {
-          // Загружаем более старые сообщения
           await chatStore.loadMoreMessages(chatData.value._id, oldestMessageId);
           
-          // Сохраняем текущую позицию прокрутки
           const { scrollHeight, scrollTop } = messagesContainer.value;
           const currentPosition = scrollHeight - scrollTop;
           
-          // Ждем обновления DOM
           await nextTick();
           
-          // Восстанавливаем позицию прокрутки относительно нового содержимого
           if (messagesContainer.value) {
             messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight - currentPosition;
           }
         }
       } catch (error) {
-        // Показываем уведомление об ошибке
         useNotification('Ошибка при загрузке старых сообщений', 'error');
       } finally {
         chatStore.loadingMore = false;
@@ -364,7 +355,6 @@ const setupInfiniteScroll = () => {
     }
   }, { threshold: 0.1 });
   
-  // Начинаем наблюдение за триггером загрузки
   if (loadingTrigger.value) {
     observer.value.observe(loadingTrigger.value);
   }
@@ -374,14 +364,12 @@ const setupInfiniteScroll = () => {
 const loadMoreMessages = async () => {
   if (chatStore.loadingMore || !chatData.value || !chatStore.pagination.hasMore) return;
   
-  // Запоминаем позицию прокрутки перед загрузкой
   const container = messagesContainer.value;
   const scrollHeight = container.scrollHeight;
   const scrollTop = container.scrollTop;
   
   await chatStore.loadMoreMessages();
   
-  // Восстанавливаем позицию прокрутки после загрузки
   nextTick(() => {
     if (container) {
       container.scrollTop = container.scrollHeight - scrollHeight + scrollTop;
@@ -392,40 +380,31 @@ const loadMoreMessages = async () => {
 // Прокрутка к последнему сообщению
 const scrollToBottom = (smooth = false) => {
   if (messagesContainer.value) {
-    // Используем плавную прокрутку для лучшего UX
     messagesContainer.value.scrollTo({
       top: messagesContainer.value.scrollHeight,
-      behavior: smooth ? 'smooth' : 'auto' // Используем 'smooth' для плавной прокрутки при необходимости
+      behavior: smooth ? 'smooth' : 'auto'
     });
   }
 };
 
 // Отправка сообщения
 const sendMessage = async () => {
-  // Проверяем, есть ли текст сообщения
   if (!messageText.value.trim()) return;
   
-  // Если редактируем сообщение, сохраняем изменения
   if (isEditingMessage.value && selectedMessage.value) {
     await saveEditedMessage();
     return;
   }
   
-  // Иначе отправляем новое сообщение
   try {
-    // Отправляем сообщение через хранилище чата
     await chatStore.sendMessage({
       chatId: chatData.value._id,
       text: messageText.value.trim()
     });
     
-    // Очищаем поле ввода
     messageText.value = '';
-    
-    // Сбрасываем высоту textarea
     adjustTextareaHeight();
     
-    // Прокручиваем чат вниз
     nextTick(() => {
       scrollToBottom(true);
     });
@@ -525,7 +504,6 @@ const handleVideoPlay = (messageId) => {
 const changePlaybackSpeed = (speed) => {
   playbackControlData.value.speed = speed;
   
-  // Найти все видео и установить скорость
   const videos = document.querySelectorAll('video');
   videos.forEach(video => {
     video.playbackRate = speed;
@@ -536,7 +514,6 @@ const changePlaybackSpeed = (speed) => {
 const stopVideo = () => {
   playbackControlData.value.isActive = false;
   
-  // Найти все видео и остановить их
   const videos = document.querySelectorAll('video');
   videos.forEach(video => {
     video.pause();
@@ -545,13 +522,8 @@ const stopVideo = () => {
 
 // Проверка, является ли сообщение собственным
 const isOwnMessage = (message) => {
-  // Проверяем ID отправителя
   const senderIdMatch = message.sender?._id === authStore.user?._id;
-  
-  // Проверяем email отправителя как дополнительный идентификатор
   const emailMatch = message.sender?.email === authStore.user?.email;
-  
-  // Если совпадает ID или email, считаем сообщение своим
   return senderIdMatch || emailMatch;
 };
 
@@ -566,29 +538,18 @@ const getInitials = (name) => {
 };
 
 // Обработчики событий модальных окон
-const onParticipantsUpdated = () => {
-  // Обновление уже произошло в хранилище
-};
+const onParticipantsUpdated = () => {};
 
-const onChatLeft = () => {
-  // Обработка выхода из чата (чат уже удален из хранилища)
-};
+const onChatLeft = () => {};
 
 // Функции для управления контекстным меню сообщений
 const showContextMenu = (event, message) => {
-  // Предотвращаем стандартное контекстное меню браузера
   event.preventDefault();
-  
-  // Устанавливаем позицию меню
   contextMenuPosition.value = {
     x: event.clientX,
     y: event.clientY
   };
-  
-  // Устанавливаем выбранное сообщение
   selectedMessage.value = message;
-  
-  // Показываем меню
   contextMenuVisible.value = true;
 };
 
@@ -598,23 +559,14 @@ const hideContextMenu = () => {
 
 // Функции для редактирования сообщений
 const startEditingMessage = (message) => {
-  // Проверяем, что сообщение существует и принадлежит текущему пользователю
   if (!message || !isOwnMessage(message)) return;
   
-  // Сохраняем оригинальный текст сообщения
   originalMessageText.value = message.text;
-  
-  // Устанавливаем текст для редактирования
   editingMessageText.value = message.text;
   messageText.value = message.text;
-  
-  // Устанавливаем выбранное сообщение
   selectedMessage.value = message;
-  
-  // Включаем режим редактирования
   isEditingMessage.value = true;
   
-  // Фокусируемся на поле ввода
   nextTick(() => {
     if (messageInput.value) {
       messageInput.value.focus();
@@ -623,7 +575,6 @@ const startEditingMessage = (message) => {
 };
 
 const cancelEditingMessage = () => {
-  // Сбрасываем состояние редактирования
   isEditingMessage.value = false;
   selectedMessage.value = null;
   messageText.value = '';
@@ -632,21 +583,17 @@ const cancelEditingMessage = () => {
 };
 
 const saveEditedMessage = async () => {
-  // Проверяем, что сообщение выбрано и текст изменился
   if (!selectedMessage.value || messageText.value.trim() === originalMessageText.value) {
     cancelEditingMessage();
     return;
   }
   
   try {
-    // Обновляем сообщение через хранилище чата
     await chatStore.updateMessage({
       messageId: selectedMessage.value._id,
       chatId: chatData.value._id,
       text: messageText.value.trim()
     });
-    
-    // Сбрасываем состояние редактирования
     cancelEditingMessage();
   } catch (error) {
     console.error('Ошибка при обновлении сообщения:', error);
@@ -654,11 +601,9 @@ const saveEditedMessage = async () => {
 };
 
 const deleteMessage = async (message) => {
-  // Проверяем, что сообщение существует и принадлежит текущему пользователю
   if (!message || !isOwnMessage(message)) return;
   
   try {
-    // Удаляем сообщение через хранилище чата
     await chatStore.deleteMessage({
       messageId: message._id,
       chatId: chatData.value._id
@@ -670,51 +615,81 @@ const deleteMessage = async (message) => {
 
 // Обработка клика на сообщении
 const handleMessageClick = (event, message) => {
-  // Если клик на сообщении на мобильном устройстве, показываем контекстное меню
   if (isMobile.value) {
     showContextMenu(event, message);
   }
 };
 
-// Получаем функцию и состояние переключения боковой панели из app.vue
 // Функция для переключения боковой панели на мобильных устройствах
 const toggleSidebar = () => {
-  // Получаем доступ к глобальному состоянию видимости боковой панели
   const nuxtApp = useNuxtApp();
-  
-  // Если есть доступ к глобальному состоянию
   if (nuxtApp && nuxtApp.$sidebarVisible !== undefined) {
     nuxtApp.$sidebarVisible.value = !nuxtApp.$sidebarVisible.value;
   } else {
-    // Фоллбэк: прямое переключение класса в DOM
     const app = document.querySelector('.app');
     if (app) {
       app.classList.toggle('sidebar-visible');
     }
   }
 };
+
 // Получаем доступ к глобальному состоянию
 const nuxtApp = useNuxtApp();
 const sidebarVisible = ref(false);
 const isMobile = ref(false);
 
-// Обновляем состояние при монтировании компонента
-onMounted(() => {
-  if (nuxtApp.$sidebarVisible) {
-    sidebarVisible.value = nuxtApp.$sidebarVisible.value;
-    
-    // Следим за изменениями глобального состояния
-    watch(() => nuxtApp.$sidebarVisible.value, (newValue) => {
-      sidebarVisible.value = newValue;
-    });
+// Универсальная функция для адаптации высоты контейнеров и textarea
+const adjustContainerHeight = (adjustTextarea = false) => {
+  // Проверяем наличие chatData
+  if (!chatData.value || !chatData.value._id) {
+    console.log('Chat data not available, skipping adjustContainerHeight');
+    return;
   }
   
-  // Проверяем размер экрана
-  isMobile.value = window.innerWidth <= 859;
-  window.addEventListener('resize', () => {
-    isMobile.value = window.innerWidth <= 859;
-  });
-});
+  // Проверяем наличие всех необходимых ref
+  if (!inputArea.value || !messagesContainer.value || !pageHeader.value || 
+      (adjustTextarea && !messageInput.value)) {
+    console.warn('Missing refs:', {
+      inputArea: inputArea.value,
+      messagesContainer: messagesContainer.value,
+      pageHeader: pageHeader.value,
+      messageInput: adjustTextarea ? messageInput.value : 'not required'
+    });
+    return;
+  }
+
+  // Если нужно адаптировать textarea (для ввода текста)
+  if (adjustTextarea && messageInput.value) {
+    // Важно: сначала полностью сбрасываем высоту
+    messageInput.value.style.height = 'auto';
+    
+    // Определяем минимальную и максимальную высоту
+    const maxHeight = 150;
+    const minHeight = 44; // Минимальная высота равна высоте кнопки
+    
+    // Получаем актуальную высоту контента
+    const scrollHeight = messageInput.value.scrollHeight;
+
+    // Всегда вычисляем высоту в зависимости от содержимого
+    // Это позволит корректно обрабатывать как добавление, так и удаление переносов строк
+    const newHeight = Math.min(maxHeight, Math.max(minHeight, scrollHeight));
+    messageInput.value.style.height = `${newHeight}px`;
+
+  }
+
+  // Получаем высоту .input_area после возможного изменения textarea
+  const inputAreaHeight = inputArea.value.offsetHeight;
+
+  // Получаем высоту .page_header
+  const headerHeight = pageHeader.value.offsetHeight || 60; // Фоллбэк на 60px
+
+  // Обновляем max-height для .messages_container
+  messagesContainer.value.style.maxHeight = `calc(90vh - ${headerHeight}px - ${inputAreaHeight}px)`;
+};
+
+// Алиас для обратной совместимости
+const adjustTextareaHeight = () => adjustContainerHeight(true);
+
 // Функция для показа боковой панели
 const showSidebar = () => {
   if (nuxtApp.$sidebarVisible) {
@@ -730,7 +705,6 @@ const showSidebar = () => {
 // Функция для выбора чата на мобильных устройствах
 const selectChatMobile = () => {
   if (isMobile.value) {
-    // Скрываем боковую панель на мобильных устройствах
     const nuxtApp = useNuxtApp();
     if (nuxtApp.$sidebarVisible) {
       nuxtApp.$sidebarVisible.value = false;
@@ -747,39 +721,33 @@ const checkMobile = () => {
 
 // Жизненный цикл компонента
 onMounted(() => {
-  // Проверяем размер экрана при загрузке
+  if (nuxtApp.$sidebarVisible) {
+    sidebarVisible.value = nuxtApp.$sidebarVisible.value;
+    watch(() => nuxtApp.$sidebarVisible.value, (newValue) => {
+      sidebarVisible.value = newValue;
+    });
+  }
+  
   checkMobile();
   window.addEventListener('resize', checkMobile);
   
-  // Инициализируем бесконечную прокрутку
   setupInfiniteScroll();
   
-  // Инициализируем видимые сообщения с пустым массивом, если сообщения еще не загружены
   visibleMessages.value = Array.isArray(messages.value) ? messages.value : [];
   
-  // Инициализируем WebSocket слушатели для реального времени
   const { $socket, $socketConnect } = useNuxtApp();
   
-  // Если сокет не подключен, выполняем подключение
   if ($socket && !$socket.connected) {
     $socketConnect();
-    
-    // Даем немного времени на установку соединения
     setTimeout(() => {
-      // Настройка WebSocket слушателей
       setupWebSocketListeners();
-      
-      // Если есть активный чат, подключаемся к его комнате
       if (chatData.value && chatData.value._id) {
         const { $socketJoinChat } = useNuxtApp();
         $socketJoinChat(chatData.value._id);
       }
     }, 500);
   } else {
-    // Настройка WebSocket слушателей
     setupWebSocketListeners();
-    
-    // Если есть активный чат, подключаемся к его комнате
     if (chatData.value && chatData.value._id) {
       const { $socketJoinChat } = useNuxtApp();
       $socketJoinChat(chatData.value._id);
@@ -792,46 +760,40 @@ onUnmounted(() => {
     observer.value.disconnect();
   }
   
-  // Отписываемся от WebSocket событий при уничтожении компонента
   const { $socket } = useNuxtApp();
   if ($socket) {
     $socket.off('connect');
     $socket.off('new-message');
     $socket.off('messages-read');
     
-    // Если есть активный чат, покидаем его комнату
     if (chatData.value && chatData.value._id) {
       const { $socketLeaveChat } = useNuxtApp();
       $socketLeaveChat(chatData.value._id);
     }
   }
   
-  // Удаляем обработчик изменения размера окна
   window.removeEventListener('resize', checkMobile);
 });
 
 // Следим за изменением активного чата
 watch(() => chatStore.activeChat, (newChat, oldChat) => {
-  // Если был активен другой чат, покидаем его комнату
   if (oldChat && oldChat._id) {
     const { $socketLeaveChat } = useNuxtApp();
     $socketLeaveChat(oldChat._id);
   }
   
-  // Если выбран новый чат, подключаемся к его комнате
   if (newChat && newChat._id) {
     const { $socketJoinChat } = useNuxtApp();
     $socketJoinChat(newChat._id);
-    
-    // Обновляем WebSocket слушатели
     setupWebSocketListeners();
+    setTimeout(() => {
+      adjustContainerHeight();
+    }, 100);
   }
   
   nextTick(() => {
     setupInfiniteScroll();
     scrollToBottom(true);
-    
-    // На мобильных устройствах скрываем sidebar при выборе чата
     if (isMobile.value) {
       selectChatMobile();
     }
@@ -842,7 +804,6 @@ watch(() => chatStore.activeChat, (newChat, oldChat) => {
 watch(messages, (newMessages) => {
   if (Array.isArray(newMessages)) {
     visibleMessages.value = newMessages;
-    // Используем requestAnimationFrame для оптимизации производительности
     requestAnimationFrame(() => {
       nextTick(() => {
         scrollToBottom(true);
@@ -851,17 +812,11 @@ watch(messages, (newMessages) => {
   }
 }, { deep: true });
 
-// Добавление новой строки при нажатии Shift+Enter
-const messageInput = ref(null);
-const inputContainer = ref(null);
-const inputArea = ref(null);
 // Обработка нажатия клавиши Enter
 const handleEnterKey = () => {
-  // На мобильных устройствах Enter добавляет новую строку
   if (isMobile.value) {
     addNewLine();
   } else {
-    // На десктопе Enter отправляет сообщение
     sendMessage();
   }
 };
@@ -874,190 +829,87 @@ const addNewLine = () => {
   });
 };
 
-// Автоматическая адаптация высоты textarea при вводе
-const adjustTextareaHeight = () => {
-  if (!messageInput.value || !messagesContainer.value || !inputArea.value) return;
-  
-  // Сначала сбрасываем высоту, чтобы получить правильный scrollHeight
-  messageInput.value.style.height = 'auto';
-  
-  // Ограничиваем максимальную высоту
-  const maxHeight = 150;
-  const minHeight = 44; // Минимальная высота равна высоте кнопки
-  const scrollHeight = messageInput.value.scrollHeight;
-  
-  // Устанавливаем новую высоту, но не больше максимальной и не меньше минимальной
-  const newHeight = Math.max(minHeight, Math.min(scrollHeight, maxHeight));
-  messageInput.value.style.height = newHeight + 'px';
-  
-  // Если текста много, включаем скролл
-  messageInput.value.style.overflowY = scrollHeight > maxHeight ? 'auto' : 'hidden';
-  
-  // Обновляем высоту контейнера ввода и корректируем высоту контейнера сообщений
-  // Базовая высота textarea - 44px (минимальная высота)
-  const heightDifference = newHeight - minHeight;
-  
-  if (heightDifference > 0) {
-    // Обновляем высоту области ввода
-    const baseInputAreaHeight = 80; // Высота с учетом padding
-    inputArea.value.style.height = `${baseInputAreaHeight + heightDifference}px`;
-    
-    // Корректируем высоту контейнера сообщений
-    messagesContainer.value.style.height = `calc(100% - ${baseInputAreaHeight + heightDifference}px - 80px)`;
-  } else {
-    // Возвращаем стандартные значения
-    inputArea.value.style.height = '80px';
-    messagesContainer.value.style.height = 'calc(100% - 160px)'; // 80px header + 80px input
-  }
-};
-
 // Функция отладки WebSocket
 const debugWebSocket = () => {
   const { $socket, $socketConnect } = useNuxtApp();
-  
-  if (!$socket) {
-    // alert('WebSocket не инициализирован');
-    return;
-  }
-  
-  // alert(`WebSocket: ${$socket.connected ? 'Подключен' : 'Отключен'}`);
+  if (!$socket) return;
   
   if (!$socket.connected) {
-    // alert('Попытка переподключения WebSocket...');
-    
-    // Перед подключением удаляем все обработчики и перенастраиваем их
     $socket.off('connect');
     $socket.off('new-message');
     $socket.off('messages-read');
     $socket.off('joined-chat');
     
-    // Пробуем переключиться на polling, если есть проблемы с websocket
     $socket.io.opts.transports = ['polling', 'websocket'];
-    
-    // Переподключаемся
     $socketConnect();
     
-    // Перенастраиваем слушатели после переподключения
     setTimeout(() => {
       setupWebSocketListeners();
-      
-      // Если есть активный чат, подключаемся к его комнате
       if (chatData.value && chatData.value._id) {
         const { $socketJoinChat } = useNuxtApp();
         $socketJoinChat(chatData.value._id);
       }
     }, 1000);
   } else if (chatData.value && chatData.value._id) {
-    // alert(`Переподключились к чату: ${chatData.value.name}`);
-    
-    // Проверяем подключение к комнате чата
     const { $socketJoinChat } = useNuxtApp();
     $socketJoinChat(chatData.value._id);
-    
-    // Перенастраиваем слушатели
     setupWebSocketListeners();
-    
-    // Пробуем перезагрузить сообщения чата
     chatStore.fetchMessages(chatData.value._id);
   }
 };
 
 // Настройка WebSocket слушателей
 const setupWebSocketListeners = () => {
-  // Получаем доступ к WebSocket
   const { $socket, $socketConnect, $socketJoinChat } = useNuxtApp();
+  if (!$socket) return;
   
-  // Проверяем, что у нас есть доступ к сокету
-  if (!$socket) {
-    // alert('WebSocket не инициализирован');
-    return;
-  }
-  
-  // Убедимся, что WebSocket подключен
   if (!$socket.connected) {
     $socketConnect();
-  } else {
-    // alert('WebSocket уже подключен');
-    
-    // Если сокет уже подключен и есть активный чат, сразу подключаемся к комнате
-    if (chatData.value && chatData.value._id) {
-      $socketJoinChat(chatData.value._id);
-    }
+  } else if (chatData.value && chatData.value._id) {
+    $socketJoinChat(chatData.value._id);
   }
   
-  // Удаляем существующие обработчики, чтобы избежать дублирования
   $socket.off('connect');
   $socket.off('new-message');
   $socket.off('messages-read');
   $socket.off('joined-chat');
   
-  // Подписываемся на события WebSocket
   $socket.on('connect', () => {
-    // alert('WebSocket подключен успешно');
-    
-    // Если есть активный чат, подключаемся к его комнате
     if (chatData.value && chatData.value._id) {
       $socketJoinChat(chatData.value._id);
     }
   });
   
-  // Обработчик успешного подключения к комнате чата
-  $socket.on('joined-chat', ({ chatId, success }) => {
-    // alert(`Подключение к комнате чата ${chatId}: ${success ? 'успешно' : 'не удалось'}`);
-  });
+  $socket.on('joined-chat', ({ chatId, success }) => {});
   
-  // Слушаем новые сообщения
   $socket.on('new-message', ({ message, chatId }) => {
-    // alert('Получено новое сообщение через WebSocket:', message, 'для чата:', chatId);
-    
-    // Если сообщение для текущего чата, добавляем его в список
     if (chatData.value && chatData.value._id === chatId) {
-      // Проверяем, не добавлено ли уже это сообщение (избегаем дубликатов)
       const isDuplicate = chatStore.messages.some(m => m._id === message._id);
-      if (isDuplicate) {
-        // alert('Дублирующееся сообщение проигнорировано:', message._id);
-        return;
-      }
+      if (isDuplicate) return;
       
-      // alert('Добавляем новое сообщение в чат:', message);
-      
-      // Для изображений, предварительно загружаем их перед добавлением в список сообщений
       if (message.media_type === 'image' && message.file) {
-        // Инициализируем флаг загрузки изображения
         message.imageLoaded = false;
-        
-        // Добавляем сообщение сразу, чтобы показать загрузчик
         chatStore.messages.push({...message});
         
         const img = new Image();
         img.onload = () => {
-          // Находим сообщение в массиве и обновляем его статус
           const msgIndex = chatStore.messages.findIndex(m => m._id === message._id);
           if (msgIndex !== -1) {
-            // Устанавливаем флаг, что изображение загружено
             chatStore.messages[msgIndex].imageLoaded = true;
           }
-          
-          // Прокручиваем к новому сообщению, если пользователь находится внизу чата
           if (isAtBottom.value) {
             nextTick(() => {
               scrollToBottom(true);
             });
           } else {
-            // Показываем индикатор нового сообщения
             showNewMessageIndicator.value = true;
           }
         };
         img.onerror = () => {
-          // alert('Ошибка загрузки изображения:', message.file);
-          
-          // Находим сообщение в массиве и обновляем его статус
           const msgIndex = chatStore.messages.findIndex(m => m._id === message._id);
           if (msgIndex !== -1) {
-            // Помечаем как загруженное, чтобы не показывать бесконечную загрузку
             chatStore.messages[msgIndex].imageLoaded = true;
           }
-          
           if (isAtBottom.value) {
             nextTick(() => {
               scrollToBottom(true);
@@ -1068,42 +920,23 @@ const setupWebSocketListeners = () => {
         };
         img.src = message.file;
       } else {
-        // Для не-изображений добавляем сообщение сразу
         chatStore.messages.push({...message});
-        
-        // Прокручиваем к новому сообщению, если пользователь находится внизу чата
         if (isAtBottom.value) {
           nextTick(() => {
             scrollToBottom(true);
           });
         } else {
-          // Показываем индикатор нового сообщения
-          showNewMessageIndicator.value = true;
-        }
-        
-        // Прокручиваем к новому сообщению, если пользователь находится внизу чата
-        if (isAtBottom.value) {
-          nextTick(() => {
-            scrollToBottom(true);
-          });
-        } else {
-          // Показываем индикатор нового сообщения
           showNewMessageIndicator.value = true;
         }
       }
       
-      // Если сообщение не от текущего пользователя, отмечаем его как прочитанное
       if (message.sender && message.sender._id !== authStore.user._id) {
         chatStore.markMessagesAsRead(chatId);
       }
     }
   });
   
-  // Слушаем прочтение сообщений
   $socket.on('messages-read', ({ chatId, userId }) => {
-    // alert('Сообщения отмечены как прочитанные:', { chatId, userId });
-    
-    // Обновляем статус прочтения сообщений в текущем чате
     if (chatData.value && chatData.value._id === chatId) {
       chatStore.updateMessagesReadStatus(chatId, userId);
     }
@@ -1225,14 +1058,18 @@ const openChatSettings = () => {
     display: flex
     flex-direction: column
     height: 100%
+    width: 100%
+    overflow: hidden
   
   .messages_container
-    flex: 1
+    flex: 1 1 auto
     overflow-y: auto
-    padding: 20px 20px 0px 20px
+    padding: 0px 20px
     display: flex
     width: 100%
     flex-direction: column
+    position: relative
+    z-index: 1
     @include custom-scrollbar
     >*
       max-width: 700px;
@@ -1416,8 +1253,10 @@ const openChatSettings = () => {
     align-self: center
     max-width: 700px
     width: 100%
-    // background-color: $header-bg
     padding: 15px
+    flex: 0 0 auto
+    position: relative
+    z-index: 2
     
     .editing-indicator
       display: flex
@@ -1508,18 +1347,25 @@ const openChatSettings = () => {
       display: flex
       flex-direction: column
       height: 100%
+      width: 100%
+      overflow: hidden
+      
+    .page_header
+      flex: 0 0 auto
       
     .messages_container
-      flex: 0.9
+      flex: 1 1 auto
       overflow-y: auto
-      max-height: calc(100vh - 130px) // Учитываем высоту header и input_area
+      position: relative
+      z-index: 1
+      min-height: 0 // Предотвращает переполнение
       
     .input_area
-      min-height: 80px
-      position: sticky
-      transform: translateY(-10%)
+      flex: 0 0 auto
       width: 100%
-      z-index: 10
+      z-index: 2
+      padding: 10px
+      position: relative
       
     .message_wrap
       .message

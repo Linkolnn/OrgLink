@@ -1,11 +1,7 @@
 <template>
-  <div class="sidebar__actions">
-    <h3 class="sidebar__title">Чаты</h3>
-    <div class="sidebar__connection-status" :class="{ 'sidebar__connection-status--connected': isConnected }" title="Статус соединения"></div>
-    <button class="sidebar__button sidebar__button--new" @click="$emit('create-chat')">
-      <span>+</span>
-    </button>
-  </div>
+  <button class="sidebar__button sidebar__button--new" @click="$emit('create-chat')">
+    <span>+</span>
+  </button>
 </template>
 
 <script setup>
