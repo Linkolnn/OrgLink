@@ -41,7 +41,7 @@ defineEmits(['create-chat']);
       
       // Специальные стили для режима PWA
       @media (display-mode: standalone), (display-mode: fullscreen)
-        bottom: 20px
+        bottom: 40px
         right: 20px
       
       &:hover
