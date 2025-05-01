@@ -1,6 +1,8 @@
 import { defineStore } from 'pinia';
 import { useRuntimeConfig } from '#imports';
 import { useNuxtApp } from '#app';
+import { safeFetch } from '~/utils/safeFetch';
+import { useCookie } from '#imports';
 
 export const useChatStore = defineStore('chat', {
   state: () => ({
@@ -391,8 +393,34 @@ export const useChatStore = defineStore('chat', {
       try {
         console.log('ChatStore: Загрузка списка чатов...');
         const config = useRuntimeConfig();
-        const response = await $fetch(`${config.public.backendUrl}/api/chats`, {
-          credentials: 'include'
+        
+        // Определяем, используется ли Safari или iOS
+        const isSafari = typeof navigator !== 'undefined' && /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+        const isIOS = typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+        
+        // Получаем токен из cookie
+        const tokenCookie = useCookie('token');
+        const clientTokenCookie = useCookie('client_token');
+        const token = tokenCookie.value || clientTokenCookie.value;
+        
+        console.log('ChatStore: Загрузка чатов', { isSafari, isIOS, hasToken: !!token });
+        
+        // Используем safeFetch для совместимости с Safari/iOS
+        const response = await safeFetch(`${config.public.backendUrl}/api/chats`, {
+          method: 'GET',
+          credentials: 'include',
+          headers: {
+            'Authorization': token ? `Bearer ${token}` : undefined
+          }
+        }).then(res => res.json()).catch(err => {
+          console.error('ChatStore: Ошибка при загрузке чатов:', err);
+          
+          // Если получили 401, пробуем запрос с токеном в URL
+          if (err.status === 401 && token) {
+            console.log('ChatStore: Пробуем запрос с токеном в URL');
+            return fetch(`${config.public.backendUrl}/api/chats?token=${token}`).then(res => res.json());
+          }
+          throw err;
         });
         
         console.log('ChatStore: Список чатов получен, количество:', response.length);
@@ -639,9 +667,42 @@ export const useChatStore = defineStore('chat', {
           limit: this.pagination.limit
         };
         
-        const response = await $fetch(`${config.public.backendUrl}/api/chats/${chatId}/messages`, {
+        // Получаем токен из cookie
+        const tokenCookie = useCookie('token');
+        const clientTokenCookie = useCookie('client_token');
+        const token = tokenCookie.value || clientTokenCookie.value;
+        
+        // Определяем, используется ли Safari или iOS
+        const isSafari = typeof navigator !== 'undefined' && /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+        const isIOS = typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+        
+        console.log('ChatStore: Загрузка сообщений', { chatId, isSafari, isIOS, hasToken: !!token });
+        
+        // Формируем URL с параметрами
+        let url = `${config.public.backendUrl}/api/chats/${chatId}/messages`;
+        if (params.limit) {
+          url += `?limit=${params.limit}`;
+        }
+        
+        // Используем safeFetch для совместимости с Safari/iOS
+        const response = await safeFetch(url, {
+          method: 'GET',
           credentials: 'include',
-          params
+          headers: {
+            'Authorization': token ? `Bearer ${token}` : undefined
+          }
+        }).then(res => res.json()).catch(err => {
+          console.error('ChatStore: Ошибка при загрузке сообщений:', err);
+          
+          // Если получили 401, пробуем запрос с токеном в URL
+          if (err.status === 401 && token) {
+            console.log('ChatStore: Пробуем запрос сообщений с токеном в URL');
+            const urlWithToken = url.includes('?') 
+              ? `${url}&token=${token}` 
+              : `${url}?token=${token}`;
+            return fetch(urlWithToken).then(res => res.json());
+          }
+          throw err;
         });
         
         // Устанавливаем сообщения

@@ -1,5 +1,6 @@
 // Утилита для безопасных запросов с поддержкой CORS для Safari и iOS
 import { useRuntimeConfig } from '#imports';
+import { useCookie } from '#imports';
 
 /**
  * Выполняет fetch запрос с учетом особенностей Safari и iOS
@@ -23,16 +24,50 @@ export const safeFetch = async (url, options = {}) => {
     fullUrl = `${backendUrl}${url.startsWith('/') ? url : `/${url}`}`;
   }
   
+  // Получаем токен из cookie
+  const tokenCookie = useCookie('token');
+  const clientTokenCookie = useCookie('client_token');
+  const token = tokenCookie.value || clientTokenCookie.value;
+  
+  // Добавляем заголовок Authorization, если есть токен и он не указан в опциях
+  const headers = {
+    ...options.headers,
+  };
+  
+  if (token && !headers['Authorization']) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  
+  // Для Safari и iOS удаляем заголовок Origin, так как он запрещен
+  if (isSafari || isIOS) {
+    delete headers['Origin'];
+  }
+  
+  console.log(`SafeFetch: Запрос к ${fullUrl}`, { isSafari, isIOS, hasToken: !!token });
+  
   try {
     // Сначала пробуем обычный запрос
     const response = await fetch(fullUrl, {
       ...options,
       credentials: 'include',
-      headers: {
-        ...options.headers,
-        'Origin': window.location.origin,
-      }
+      headers: headers
     });
+    
+    // Проверяем статус ответа
+    if (response.status === 401 && token) {
+      console.warn('SafeFetch: Получен 401, пробуем повторный запрос с явным токеном');
+      
+      // Пробуем еще раз с явным токеном в URL
+      const urlWithToken = fullUrl.includes('?') 
+        ? `${fullUrl}&token=${token}` 
+        : `${fullUrl}?token=${token}`;
+      
+      return await fetch(urlWithToken, {
+        ...options,
+        credentials: 'include',
+        headers: headers
+      });
+    }
     
     return response;
   } catch (error) {
@@ -43,8 +78,15 @@ export const safeFetch = async (url, options = {}) => {
         (isSafari || isIOS)) {
       console.log('Using CORS proxy for Safari/iOS');
       
-      // Формируем URL для прокси
-      const proxyUrl = `${window.location.origin}/api/cors-proxy?url=${encodeURIComponent(fullUrl)}`;
+      // Формируем URL для прокси с токеном
+      let proxyUrl = `${window.location.origin}/api/cors-proxy?url=${encodeURIComponent(fullUrl)}`;
+      
+      // Добавляем токен в URL для iOS
+      if (token) {
+        proxyUrl += `&token=${encodeURIComponent(token)}`;
+      }
+      
+      console.log('SafeFetch: Используем CORS прокси', { proxyUrl });
       
       // Выполняем запрос через прокси
       const proxyResponse = await fetch(proxyUrl, {
@@ -53,6 +95,8 @@ export const safeFetch = async (url, options = {}) => {
         headers: {
           ...options.headers,
           'X-Requested-With': 'XMLHttpRequest',
+          // Удаляем Origin для Safari
+          ...(isSafari || isIOS ? { Origin: undefined } : {})
         }
       });
       

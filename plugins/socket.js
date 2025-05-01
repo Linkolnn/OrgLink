@@ -76,9 +76,9 @@ export default defineNuxtPlugin((nuxtApp) => {
     auth: {
       token: getToken() // Инициализируем с токеном
     },
-    // Добавляем extraHeaders для решения проблем с CORS в Safari
+    // Не используем extraHeaders с Origin, так как Safari запрещает это
     extraHeaders: {
-      "Origin": typeof window !== 'undefined' ? window.location.origin : 'https://org-link.vercel.app'
+      "X-Client-Info": "iOS-Safari-Compatible"
     }
   });
   
