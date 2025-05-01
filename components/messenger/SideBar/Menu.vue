@@ -34,7 +34,7 @@ const isProfileModalOpen = ref(false);
 // Выход из аккаунта
 function logout() {
   authStore.logout();
-  router.push('/login');
+  router.push('/');
   isMenuOpen.value = false;
 }
 
