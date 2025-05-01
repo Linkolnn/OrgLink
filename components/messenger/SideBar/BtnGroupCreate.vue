@@ -5,55 +5,31 @@
 </template>
 
 <script setup>
-defineProps({
-  isConnected: {
-    type: Boolean,
-    default: false
-  }
-});
-
 defineEmits(['create-chat']);
 </script>
 
 <style lang="sass" scoped>
-@import '~/assets/styles/variables'
+@import '@variables'
 
 .sidebar
-  &__actions
-    display: flex
-    align-items: center
-    gap: 12px
-  
-  &__connection-status
-    width: 10px
-    height: 10px
-    border-radius: 50%
-    background-color: #f44336 // красный для отключенного состояния
-    transition: background-color 0.3s ease
-    
-    &--connected
-      background-color: #4caf50 // зеленый для подключенного состояния
-  
-  &__title
-    margin: 0
-    font-size: 18px
-    font-weight: 600
-  
   &__button
     border: none
     cursor: pointer
     transition: background-color $transition-speed $transition-function
     
     &--new
+      position: absolute
       background-color: $purple
+      right: 20px
+      bottom: 20px
       color: $white
-      width: 28px
-      height: 28px
+      width: 50px
+      height: 50px
       border-radius: 50%
       display: flex
       align-items: center
       justify-content: center
-      font-size: 18px
+      font-size: 36px
       line-height: 1
       
       &:hover

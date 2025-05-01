@@ -35,9 +35,12 @@
             {{ message.sender?.name }}
           </div>
           <!-- Текстовое сообщение -->
-          <div v-if="message.media_type === 'none' && message.text" class="message__text">
+          <p v-if="message.media_type === 'none' && message.text" class="message__text">
             {{ message.text }}
-          </div>
+            <span class="message__time">
+              {{ formatTime(message.createdAt || message.timestamp) }}
+            </span>
+          </p>
           
           <!-- Изображение -->
           <div v-else-if="message.media_type === 'image'" class="image-container">
@@ -77,9 +80,6 @@
           </div>
           
           <!-- Время отправки -->
-          <div class="message__time">
-            {{ formatTime(message.createdAt || message.timestamp) }}
-          </div>
         </div>
       </div>
     </div>
@@ -212,7 +212,7 @@ const handleMessageClick = (event) => {
     .message__text
       margin-bottom: 5px
       white-space: pre-wrap
-      padding-right: 40px  // Добавляем отступ справа для времени
+      padding-right: 30px  // Добавляем отступ справа для времени
     
     .message__time
       font-size: 12px

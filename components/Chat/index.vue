@@ -1253,6 +1253,7 @@ const openUserProfile = (userId) => {
         display: flex
         width: max-content
         max-width: 70%
+        min-width: 12%
         margin-bottom: 5px
         
         &.own
@@ -1261,7 +1262,6 @@ const openUserProfile = (userId) => {
           .message__content
             background-color: $purple
             border-radius: 15px 15px 0 15px
-            margin-left: auto
         
         &.other
           align-self: flex-start
