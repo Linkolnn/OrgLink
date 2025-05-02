@@ -540,10 +540,30 @@ export const useChatStore = defineStore('chat', {
       
       try {
         const config = useRuntimeConfig();
-        const response = await $fetch(`${config.public.backendUrl}/api/chats`, {
+        
+        // Получаем токен из cookie
+        const tokenCookie = useCookie('token');
+        const clientTokenCookie = useCookie('client_token');
+        const token = tokenCookie.value || clientTokenCookie.value;
+        
+        // Определяем, используется ли Safari или iOS
+        const isSafari = typeof navigator !== 'undefined' && /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+        const isIOS = typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+        
+        console.log('ChatStore: Создание чата', { isSafari, isIOS, hasToken: !!token });
+        
+        // Используем safeFetch для совместимости с Safari/iOS
+        const response = await safeFetch(`${config.public.backendUrl}/api/chats`, {
           method: 'POST',
-          body: chatData,
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': token ? `Bearer ${token}` : undefined
+          },
+          body: JSON.stringify(chatData),
           credentials: 'include'
+        }).then(res => res.json()).catch(err => {
+          console.error('ChatStore: Ошибка при создании чата:', err);
+          throw err;
         });
         
         // Добавляем новый чат в список и делаем его активным
@@ -859,9 +879,29 @@ export const useChatStore = defineStore('chat', {
       
       try {
         const config = useRuntimeConfig();
-        const response = await $fetch(`${config.public.backendUrl}/api/chats/search-users`, {
-          params: { query },
+        
+        // Получаем токен из cookie
+        const tokenCookie = useCookie('token');
+        const clientTokenCookie = useCookie('client_token');
+        const token = tokenCookie.value || clientTokenCookie.value;
+        
+        // Определяем, используется ли Safari или iOS
+        const isSafari = typeof navigator !== 'undefined' && /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+        const isIOS = typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+        
+        console.log('ChatStore: Поиск пользователей', { query, isSafari, isIOS, hasToken: !!token });
+        
+        // Используем safeFetch для совместимости с Safari/iOS
+        const url = `${config.public.backendUrl}/api/chats/search-users?query=${encodeURIComponent(query)}`;
+        const response = await safeFetch(url, {
+          method: 'GET',
+          headers: {
+            'Authorization': token ? `Bearer ${token}` : undefined
+          },
           credentials: 'include'
+        }).then(res => res.json()).catch(err => {
+          console.error('ChatStore: Ошибка при поиске пользователей:', err);
+          throw err;
         });
         
         return response;
@@ -1131,8 +1171,24 @@ export const useChatStore = defineStore('chat', {
       
       try {
         const config = useRuntimeConfig();
-        await $fetch(`${config.public.backendUrl}/api/chats/${chatId}/messages/${messageId}`, {
+        
+        // Получаем токен из cookie
+        const tokenCookie = useCookie('token');
+        const clientTokenCookie = useCookie('client_token');
+        const token = tokenCookie.value || clientTokenCookie.value;
+        
+        // Определяем, используется ли Safari или iOS
+        const isSafari = typeof navigator !== 'undefined' && /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+        const isIOS = typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+        
+        console.log('ChatStore: Удаление сообщения', { chatId, messageId, isSafari, isIOS, hasToken: !!token });
+        
+        // Используем safeFetch для совместимости с Safari/iOS
+        await safeFetch(`${config.public.backendUrl}/api/chats/${chatId}/messages/${messageId}`, {
           method: 'DELETE',
+          headers: {
+            'Authorization': token ? `Bearer ${token}` : undefined
+          },
           credentials: 'include'
         });
         
@@ -1171,8 +1227,25 @@ export const useChatStore = defineStore('chat', {
       
       try {
         const config = useRuntimeConfig();
-        await $fetch(`${config.public.backendUrl}/api/chats/${chatId}/messages/read`, {
+        
+        // Получаем токен из cookie
+        const tokenCookie = useCookie('token');
+        const clientTokenCookie = useCookie('client_token');
+        const token = tokenCookie.value || clientTokenCookie.value;
+        
+        // Определяем, используется ли Safari или iOS
+        const isSafari = typeof navigator !== 'undefined' && /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+        const isIOS = typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+        
+        console.log('ChatStore: Отметка сообщений как прочитанных', { chatId, isSafari, isIOS, hasToken: !!token });
+        
+        // Используем safeFetch для совместимости с Safari/iOS
+        await safeFetch(`${config.public.backendUrl}/api/chats/${chatId}/messages/read`, {
           method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': token ? `Bearer ${token}` : undefined
+          },
           credentials: 'include'
         });
         

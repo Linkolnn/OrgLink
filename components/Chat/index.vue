@@ -1287,7 +1287,6 @@ const openUserProfile = (userId) => {
     align-self: center
     max-width: 700px
     width: 100%
-    padding: 5px 14px
     flex: 0 0 auto
     position: relative
     z-index: 2
@@ -1394,9 +1393,8 @@ const openUserProfile = (userId) => {
       min-height: 0 // Предотвращает переполнение
       
     .input_area
-      flex: 0 0 auto
-      width: 100%
-      position: relative
+      padding: 5px 14px
+
       
     .message_wrap
       .message

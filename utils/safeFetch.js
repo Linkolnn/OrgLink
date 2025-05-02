@@ -73,31 +73,66 @@ export const safeFetch = async (url, options = {}) => {
   } catch (error) {
     console.error('Fetch error:', error);
     
-    // Если ошибка связана с CORS и используется Safari/iOS, используем прокси
-    if ((error.message.includes('CORS') || error.message.includes('Failed to fetch')) && 
+    // Если ошибка связана с CORS или аутентификацией и используется Safari/iOS
+    if ((error.message.includes('CORS') || error.message.includes('Failed to fetch') || 
+         error.message.includes('401') || error.status === 401) && 
         (isSafari || isIOS)) {
-      console.log('Using CORS proxy for Safari/iOS');
+      console.log('SafeFetch: Используем универсальный iOS API прокси');
       
-      // Формируем URL для прокси с токеном
-      let proxyUrl = `${window.location.origin}/api/cors-proxy?url=${encodeURIComponent(fullUrl)}`;
+      // Используем универсальный iOS API прокси
+      const proxyUrl = `${window.location.origin}/api/ios-api-proxy`;
       
-      // Добавляем токен в URL для iOS
-      if (token) {
-        proxyUrl += `&token=${encodeURIComponent(token)}`;
+      // Извлекаем относительный путь API из полного URL
+      let endpoint = fullUrl;
+      if (fullUrl.includes(backendUrl)) {
+        endpoint = fullUrl.replace(backendUrl, '');
       }
       
-      console.log('SafeFetch: Используем CORS прокси', { proxyUrl });
-      
-      // Выполняем запрос через прокси
-      const proxyResponse = await fetch(proxyUrl, {
-        ...options,
-        credentials: 'include',
-        headers: {
-          ...options.headers,
-          'X-Requested-With': 'XMLHttpRequest',
-          // Удаляем Origin для Safari
-          ...(isSafari || isIOS ? { Origin: undefined } : {})
+      // Извлекаем параметры запроса
+      let params = {};
+      if (options.body) {
+        try {
+          // Если тело запроса является JSON-строкой
+          if (typeof options.body === 'string') {
+            params = JSON.parse(options.body);
+          } else if (options.body instanceof FormData) {
+            // Если тело запроса является FormData, преобразуем его в объект
+            for (const [key, value] of options.body.entries()) {
+              params[key] = value;
+            }
+          } else {
+            // Если тело запроса является объектом
+            params = options.body;
+          }
+        } catch (e) {
+          console.error('SafeFetch: Ошибка при парсинге тела запроса:', e);
         }
+      }
+      
+      // Извлекаем параметры запроса из URL для GET-запросов
+      if (options.method === 'GET' && fullUrl.includes('?')) {
+        const urlParams = new URLSearchParams(fullUrl.split('?')[1]);
+        for (const [key, value] of urlParams.entries()) {
+          params[key] = value;
+        }
+        // Удаляем параметры из endpoint
+        endpoint = endpoint.split('?')[0];
+      }
+      
+      console.log('SafeFetch: Используем универсальный прокси', { endpoint, method: options.method || 'GET', params });
+      
+      // Выполняем запрос через универсальный прокси
+      const proxyResponse = await fetch(proxyUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          endpoint,
+          method: options.method || 'GET',
+          token,
+          params
+        })
       });
       
       return proxyResponse;
