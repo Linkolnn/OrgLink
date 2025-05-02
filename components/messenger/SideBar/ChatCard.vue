@@ -9,10 +9,24 @@
       class="chat-item__avatar"
       :style="chat.avatar ? { backgroundImage: `url(${secureUrl(chat.avatar)})` } : {}"
     >
-      <div v-if="!chat.avatar" class="chat-item__initials">{{ getInitials(chat.name) }}</div>
+      <div v-if="!chat.avatar" class="chat-item__initials">
+        <template v-if="isPrivateChat(chat)">
+          {{ getInitials(getOtherParticipantName(chat)) }}
+        </template>
+        <template v-else>
+          {{ getInitials(chat.name) }}
+        </template>
+      </div>
     </div>
     <div class="chat-item__info">
-      <div class="chat-item__name">{{ chat.name }}</div>
+      <div class="chat-item__name">
+        <template v-if="isPrivateChat(chat)">
+          {{ getOtherParticipantName(chat) }}
+        </template>
+        <template v-else>
+          {{ chat.name }}
+        </template>
+      </div>
       <div :id="`chat-message-${chat._id}`" class="chat-item__message">
         {{ chat.lastMessageText }}
       </div>
@@ -28,6 +42,11 @@
 
 <script setup>
 import { secureUrl } from '~/utils/secureUrl';
+import { useChatStore } from '~/stores/chat';
+import { useAuthStore } from '~/stores/auth';
+
+const chatStore = useChatStore();
+const authStore = useAuthStore();
 
 const props = defineProps({
   chat: {
@@ -56,6 +75,27 @@ function getInitials(name) {
     // Если несколько слов, берем первые буквы первых двух слов
     return (words[0][0] + words[1][0]).toUpperCase();
   }
+}
+
+// Проверка, является ли чат приватным
+function isPrivateChat(chat) {
+  return chatStore.isPrivateChat(chat);
+}
+
+// Получение имени собеседника в личном чате
+function getOtherParticipantName(chat) {
+  if (!chat || !chat.participants || chat.participants.length === 0) {
+    return chat.name || 'Чат';
+  }
+  
+  // Получаем ID текущего пользователя
+  const currentUserId = authStore.user?._id;
+  
+  // Находим собеседника (не текущего пользователя)
+  const otherParticipant = chat.participants.find(p => p._id !== currentUserId);
+  
+  // Возвращаем имя собеседника или название чата, если собеседник не найден
+  return otherParticipant?.name || chat.name || 'Чат';
 }
 </script>
 

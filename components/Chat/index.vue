@@ -20,7 +20,12 @@
             :style="chatData.avatar ? `background-image: url(${secureUrl(chatData.avatar)})` : ''"
           >
             <div v-if="!chatData.avatar" class="initials">
-              {{ getInitials(chatData.name) }}
+              <template v-if="chatStore.isPrivateChat(chatData)">
+                {{ getInitials(getOtherParticipantName(chatData)) }}
+              </template>
+              <template v-else>
+                {{ getInitials(chatData.name) }}
+              </template>
             </div>
           </div>
           <div class="content__textblock">
