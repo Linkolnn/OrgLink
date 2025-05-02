@@ -5,6 +5,8 @@
       <div class="sidebar__actions">
         <h3 class="sidebar__title">Чаты</h3>
       </div>
+      <!-- Добавляем компонент поиска -->
+      <MessengerSideBarSearch />
     </header>
     <div class="sidebar__content">
       <div v-if="chatStore.loading && !chatStore.chats.length" class="sidebar__loading">
