@@ -1006,11 +1006,68 @@ export const useChatStore = defineStore('chat', {
       
       try {
         const config = useRuntimeConfig();
-        const response = await $fetch(`${config.public.backendUrl}/api/chats/${chatId}/messages`, {
-          method: 'POST',
-          body: { text, media_type: 'none' },
-          credentials: 'include'
-        });
+        
+        // Получаем токен из cookie
+        const tokenCookie = useCookie('token');
+        const clientTokenCookie = useCookie('client_token');
+        const token = tokenCookie.value || clientTokenCookie.value;
+        
+        // Определяем, используется ли Safari или iOS
+        const isSafari = typeof navigator !== 'undefined' && /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+        const isIOS = typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+        
+        console.log('[WebSocket] Отправка сообщения в чат:', chatId, { isSafari, isIOS, hasToken: !!token });
+        
+        // Используем safeFetch для совместимости с Safari/iOS
+        let response;
+        
+        if (isSafari || isIOS) {
+          // Для Safari/iOS используем специальный прокси для отправки сообщений
+          console.log('[WebSocket] Используем прокси для отправки сообщения на iOS');
+          
+          // Используем локальный прокси для обхода ограничений CORS и аутентификации
+          const proxyUrl = '/api/chat-message-proxy';
+          
+          response = await fetch(proxyUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ 
+              chatId, 
+              text, 
+              token 
+            })
+          }).then(res => res.json()).catch(err => {
+            console.error('[WebSocket] Ошибка при использовании прокси:', err);
+            
+            // Если прокси не сработал, пробуем прямой запрос с токеном в URL
+            let url = `${config.public.backendUrl}/api/chats/${chatId}/messages`;
+            if (token) {
+              url += `?token=${token}`;
+            }
+            
+            return fetch(url, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': token ? `Bearer ${token}` : undefined
+              },
+              body: JSON.stringify({ text, media_type: 'none' })
+            }).then(res => res.json());
+          });
+        } else {
+          // Для других браузеров используем safeFetch
+          response = await safeFetch(`${config.public.backendUrl}/api/chats/${chatId}/messages`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': token ? `Bearer ${token}` : undefined
+            },
+            body: JSON.stringify({ text, media_type: 'none' }),
+            credentials: 'include'
+          }).then(res => res.json());
+        }
         
         // Сообщение будет добавлено через WebSocket, но на случай если что-то пойдет не так,
         // добавляем его и здесь (WebSocket обработчик проигнорирует дубликат)
