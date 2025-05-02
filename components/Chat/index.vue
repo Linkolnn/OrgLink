@@ -24,8 +24,17 @@
             </div>
           </div>
           <div class="content__textblock">
-            <div class="text bold">{{ chatData.name }}</div>
-            <div class="text member">{{ chatData.participants?.length || 0 }} участник(ов)</div>
+            <!-- Для личных чатов показываем имя собеседника, а не название чата -->
+            <div class="text bold">
+              <template v-if="chatStore.isPrivateChat(chatData)">
+                {{ getOtherParticipantName(chatData) }}
+              </template>
+              <template v-else>
+                {{ chatData.name }}
+              </template>
+            </div>
+            <!-- Показываем количество участников только в групповых чатах -->
+            <div v-if="chatStore.isGroupChat(chatData)" class="text member">{{ chatData.participants?.length || 0 }} участник(ов)</div>
           </div>
         </div>
         
@@ -63,7 +72,7 @@
           <div v-for="message in group.messages" :key="message._id" class="message_wrap">
             <Message 
               :message="message" 
-              :is-group-chat="chatData.participants?.length > 2"
+              :is-group-chat="chatStore.isGroupChat(chatData)"
               :is-mobile="isMobile.value"
               @context-menu="showContextMenu"
               @click="handleMessageClick"
@@ -1055,6 +1064,27 @@ const openUserProfile = (userId) => {
   // Здесь будет код для открытия профиля пользователя
   // Например, переход на страницу профиля
   // navigateTo(`/profile/${userId}`);
+};
+
+// Проверяем, находимся ли в режиме предпросмотра
+const isPreviewMode = computed(() => {
+  return chatStore.isPreviewMode;
+});
+
+// Получение имени собеседника в личном чате
+const getOtherParticipantName = (chat) => {
+  if (!chat || !chat.participants || chat.participants.length === 0) {
+    return chat.name || 'Чат';
+  }
+  
+  // Получаем ID текущего пользователя
+  const currentUserId = authStore.user?._id;
+  
+  // Находим собеседника (не текущего пользователя)
+  const otherParticipant = chat.participants.find(p => p._id !== currentUserId);
+  
+  // Возвращаем имя собеседника или название чата, если собеседник не найден
+  return otherParticipant?.name || chat.name || 'Чат';
 };
 </script>
 

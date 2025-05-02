@@ -7,6 +7,7 @@ import {
   addChatParticipants,
   removeChatParticipant,
   leaveChat,
+  deleteChat,
   searchUsers
 } from '../controllers/chatController.js';
 import { 
@@ -27,6 +28,7 @@ router.post('/', protect, uploadChatAvatar, handleUploadError, createChat);
 router.get('/', protect, getUserChats);
 router.get('/:id', protect, getChatById);
 router.put('/:id', protect, uploadChatAvatar, handleUploadError, updateChat);
+router.delete('/:id', protect, deleteChat);
 
 // Маршруты для управления участниками
 router.put('/:id/participants', protect, addChatParticipants);

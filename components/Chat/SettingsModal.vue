@@ -3,24 +3,35 @@
     <div class="modal-content" @click.stop>
       <!-- Вкладки -->
       <div class="tabs">
+        <!-- Для личных чатов показываем имя собеседника -->
         <button 
-          class="tab-btn" 
-          :class="{ 'active': activeTab === 'edit' }" 
-          @click="activeTab = 'edit'"
+          v-if="chatStore.getChatType(chatData) === 'private'"
+          class="tab-btn active"
         >
-          Редактировать чат
+          {{ getOtherParticipantName(chatData) }}
         </button>
-        <button 
-          class="tab-btn" 
-          :class="{ 'active': activeTab === 'participants' }" 
-          @click="activeTab = 'participants'"
-        >
-          Участники
-        </button>
+        
+        <!-- Для групповых чатов показываем стандартные вкладки -->
+        <template v-else>
+          <button 
+            class="tab-btn" 
+            :class="{ 'active': activeTab === 'edit' }" 
+            @click="activeTab = 'edit'"
+          >
+            Редактировать чат
+          </button>
+          <button 
+            class="tab-btn" 
+            :class="{ 'active': activeTab === 'participants' }" 
+            @click="activeTab = 'participants'"
+          >
+            Участники
+          </button>
+        </template>
       </div>
       
       <!-- Вкладка редактирования чата -->
-      <div v-if="activeTab === 'edit'" class="tab-content">
+      <div v-if="activeTab === 'edit' && chatStore.getChatType(chatData) !== 'private'" class="tab-content">
         <form @submit.prevent="saveChat">
           <!-- Аватар чата -->
           <div class="avatar-upload">
@@ -29,7 +40,7 @@
               :style="{ backgroundImage: previewImage ? `url(${secureUrl(previewImage)})` : 'none' }"
               @click="$refs.fileInput.click()"
             >
-              <div v-if="!previewImage" class="avatar-placeholder">
+              <div class="avatar-placeholder" v-if="!previewImage">
                 <span v-if="chatFormData.name">{{ getInitials(chatFormData.name) }}</span>
                 <span v-else>+</span>
               </div>
@@ -81,7 +92,7 @@
       </div>
       
       <!-- Вкладка управления участниками -->
-      <div v-else-if="activeTab === 'participants'" class="tab-content">
+      <div v-else-if="activeTab === 'participants' && chatStore.getChatType(chatData) !== 'private'" class="tab-content">
         <!-- Поиск пользователей -->
         <div class="search-section">
           <div class="form-group">
@@ -166,9 +177,9 @@
             v-if="isCreator(authStore.user?._id)" 
             class="delete-btn" 
             @click="confirmDeleteChat" 
-            :disabled="loading"
+            :disabled="deletingChat"
           >
-            <span v-if="loading">Удаление...</span>
+            <span v-if="deletingChat">Удаление...</span>
             <span v-else>Удалить группу</span>
           </button>
         </div>
@@ -176,6 +187,56 @@
         <!-- Кнопки -->
         <div class="form-actions">
           <button type="button" class="close-btn" @click="closeModal">Закрыть</button>
+        </div>
+      </div>
+      
+      <!-- Содержимое для личных чатов -->
+      <div v-if="chatStore.getChatType(chatData) === 'private'" class="tab-content">
+        <!-- Аватар собеседника -->
+        <div class="avatar-upload">
+          <div 
+            class="avatar-preview" 
+            :style="{ backgroundImage: getOtherParticipantAvatar(chatData) ? `url(${getOtherParticipantAvatar(chatData)})` : 'none' }"
+          >
+            <div class="avatar-placeholder" v-if="!getOtherParticipantAvatar(chatData)">
+              <span>{{ getInitials(getOtherParticipantName(chatData)) }}</span>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Информация о собеседнике -->
+        <div class="user-info-section">
+          <div class="form-group">
+            <label>Имя</label>
+            <div class="info-field" @click="copyToClipboard(getOtherParticipantName(chatData))">
+              <span>{{ getOtherParticipantName(chatData) }}</span>
+              <button class="copy-btn">
+                <i class="fas fa-copy"></i>
+              </button>
+            </div>
+          </div>
+          
+          <div class="form-group">
+            <label>Email</label>
+            <div class="info-field" @click="copyToClipboard(getOtherParticipantEmail(chatData))">
+              <span>{{ getOtherParticipantEmail(chatData) }}</span>
+              <button class="copy-btn">
+                <i class="fas fa-copy"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Кнопка удаления чата -->
+        <div class="actions-section">
+          <button 
+            class="delete-btn" 
+            @click="confirmDeleteChat" 
+            :disabled="deletingChat"
+          >
+            <span v-if="deletingChat">Удаление...</span>
+            <span v-else>Удалить чат</span>
+          </button>
         </div>
       </div>
       
@@ -201,6 +262,9 @@ import { useAuthStore } from '~/stores/auth';
 import { useDebounce } from '@vueuse/core';
 import { secureUrl } from '~/utils/secureUrl';
 
+const chatStore = useChatStore();
+const authStore = useAuthStore();
+
 const props = defineProps({
   isOpen: {
     type: Boolean,
@@ -218,8 +282,6 @@ const props = defineProps({
 
 const emit = defineEmits(['close', 'saved']);
 
-const chatStore = useChatStore();
-const authStore = useAuthStore();
 const fileInput = ref(null);
 const loading = ref(false);
 const activeTab = ref('edit'); // 'edit' или 'participants' или 'settings'
@@ -228,6 +290,7 @@ const debouncedSearchQuery = useDebounce(searchQuery, 300);
 const searchResults = ref([]);
 const removingParticipant = ref(null);
 const leavingChat = ref(false);
+const deletingChat = ref(false); // Добавляем переменную deletingChat
 const showConfirmDialog = ref(false);
 const confirmMessage = ref('');
 const confirmAction = ref(null);
@@ -441,14 +504,14 @@ const confirmDeleteChat = () => {
 // Удаление чата
 const deleteChat = async () => {
   try {
-    loading.value = true;
+    deletingChat.value = true;
     await chatStore.deleteChat(props.chatData._id);
     closeModal();
     emit('saved');
   } catch (error) {
     console.error('Ошибка при удалении чата:', error);
   } finally {
-    loading.value = false;
+    deletingChat.value = false;
     showConfirmDialog.value = false;
   }
 };
@@ -509,6 +572,94 @@ const closeModal = () => {
 
 // Наблюдаем за изменением поискового запроса
 watch(debouncedSearchQuery, searchUsers);
+
+// Получение имени собеседника в личном чате
+const getOtherParticipantName = (chat) => {
+  if (!chat || !chat.participants || chat.participants.length === 0) {
+    return chat.name || 'Чат';
+  }
+  
+  // Получаем ID текущего пользователя
+  const currentUserId = authStore.user?._id;
+  
+  // Находим собеседника (не текущего пользователя)
+  const otherParticipant = chat.participants.find(p => p._id !== currentUserId);
+  
+  // Возвращаем имя собеседника или название чата, если собеседник не найден
+  return otherParticipant?.name || chat.name || 'Чат';
+};
+
+// Получение email собеседника в личном чате
+const getOtherParticipantEmail = (chat) => {
+  if (!chat || !chat.participants || chat.participants.length === 0) {
+    return '';
+  }
+  
+  // Получаем ID текущего пользователя
+  const currentUserId = authStore.user?._id;
+  
+  // Находим собеседника (не текущего пользователя)
+  const otherParticipant = chat.participants.find(p => p._id !== currentUserId);
+  
+  // Возвращаем email собеседника
+  return otherParticipant?.email || '';
+};
+
+// Получение аватара собеседника в личном чате
+const getOtherParticipantAvatar = (chat) => {
+  if (!chat || !chat.participants || chat.participants.length === 0) {
+    return null;
+  }
+  
+  // Получаем ID текущего пользователя
+  const currentUserId = authStore.user?._id;
+  
+  // Находим собеседника (не текущего пользователя)
+  const otherParticipant = chat.participants.find(p => p._id !== currentUserId);
+  
+  // Возвращаем аватар собеседника
+  return otherParticipant?.avatar || null;
+};
+
+// Копирование текста в буфер обмена
+const copyToClipboard = (text) => {
+  if (!text) return;
+  
+  navigator.clipboard.writeText(text)
+    .then(() => {
+      console.log('Текст скопирован в буфер обмена:', text);
+      showNotification('Скопировано в буфер обмена', 'info');
+    })
+    .catch(err => {
+      console.error('Не удалось скопировать текст: ', err);
+      showNotification('Не удалось скопировать текст', 'error');
+    });
+};
+
+// Функция для показа уведомлений
+const showNotification = (message, type = 'info') => {
+  // Здесь можно использовать любую библиотеку уведомлений
+  // или просто вывести в консоль для тестирования
+  console.log(`Уведомление (${type}): ${message}`);
+  
+  // Пример реализации простого уведомления
+  const notification = document.createElement('div');
+  notification.className = `notification notification--${type}`;
+  notification.textContent = message;
+  
+  document.body.appendChild(notification);
+  
+  setTimeout(() => {
+    notification.classList.add('notification--show');
+  }, 10);
+  
+  setTimeout(() => {
+    notification.classList.remove('notification--show');
+    setTimeout(() => {
+      document.body.removeChild(notification);
+    }, 300);
+  }, 3000);
+};
 </script>
 
 <style lang="sass" scoped>
@@ -565,7 +716,6 @@ watch(debouncedSearchQuery, searchUsers);
       display: flex
       flex-direction: column
       align-items: center
-      margin-bottom: 20px
       
       .avatar-preview
         width: 100px
@@ -578,7 +728,6 @@ watch(debouncedSearchQuery, searchUsers);
         display: flex
         align-items: center
         justify-content: center
-        margin-bottom: 10px
         border: 2px solid rgba(255, 255, 255, 0.2)
         
         .avatar-placeholder
@@ -588,9 +737,10 @@ watch(debouncedSearchQuery, searchUsers);
           align-items: center
           justify-content: center
           font-size: 36px
-          color: $white
           background-color: $purple
           border-radius: 50%
+          >*
+            color: $white
       
       .file-input
         display: none
@@ -743,7 +893,6 @@ watch(debouncedSearchQuery, searchUsers);
               padding: 5px 10px
               border-radius: 4px
               cursor: pointer
-              font-size: 12px
               
               &:hover
                 background-color: rgba(255, 59, 48, 0.3)
@@ -867,4 +1016,134 @@ watch(debouncedSearchQuery, searchUsers);
     opacity: 0
   to
     opacity: 1
+
+// Стили для личных чатов
+.user-info-section
+  border-radius: 8px
+  padding: 15px
+
+.info-section-title
+  margin-top: 0
+  margin-bottom: 15px
+  font-size: 16px
+  color: $white
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1)
+  padding-bottom: 10px
+
+.info-item
+  margin-bottom: 15px
+  
+  &:last-child
+    margin-bottom: 0
+
+.info-label
+  font-size: 12px
+  color: rgba(255, 255, 255, 0.7)
+  margin-bottom: 5px
+
+.info-field
+  display: flex
+  align-items: center
+  justify-content: space-between
+  padding: 8px 10px
+  background-color: rgba(255, 255, 255, 0.05)
+  border-radius: $radius
+  color: $white
+  transition: all 0.2s
+  border: 1px solid $primary-bg
+  cursor: pointer
+  
+  &:hover
+    border: 1px $purple solid
+  
+  &:active
+    border: 1px $purple solid
+
+.info-value
+  font-size: 14px
+  color: $white
+  word-break: break-word
+  
+  &.copyable
+    cursor: pointer
+    display: flex
+    align-items: center
+    justify-content: space-between
+    padding: 8px 10px
+    background-color: rgba(255, 255, 255, 0.05)
+    border-radius: 4px
+    transition: background-color 0.2s
+    
+    &:hover
+      background-color: rgba(255, 255, 255, 0.1)
+
+.copy-icon
+  font-size: 16px
+  color: rgba(255, 255, 255, 0.7)
+  margin-left: 5px
+
+.copy-btn
+  background-color: transparent
+  border: none
+  padding: 5px
+  cursor: pointer
+  color: $white
+  
+  &:hover
+    color: $purple
+
+.actions-section
+  display: flex
+  justify-content: center
+  gap: 10px
+  flex-wrap: wrap
+
+.delete-btn
+  background-color: rgba(255, 59, 48, 0.2)
+  color: rgba(255, 59, 48, 0.8)
+  border: none
+  padding: 8px 15px
+  border-radius: 4px
+  cursor: pointer
+  
+  &:hover
+    background-color: rgba(255, 59, 48, 0.3)
+    color: rgb(255, 59, 48)
+  
+  &:disabled
+    opacity: 0.5
+    cursor: not-allowed
+
+// Стили для уведомлений
+.notification
+  position: fixed
+  bottom: 20px
+  left: 50%
+  transform: translateX(-50%) translateY(100px)
+  padding: 12px 20px
+  border-radius: $radius
+  color: $white
+  font-size: 14px
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.2)
+  z-index: 2000
+  opacity: 0
+  transition: transform 0.3s, opacity 0.3s
+  text-align: center
+  min-width: 250px
+  
+  &--show
+    transform: translateX(-50%) translateY(0)
+    opacity: 1
+  
+  &--success
+    background-color: $green
+  
+  &--error
+    background-color: $red
+  
+  &--info
+    background-color: $purple
+  
+  &--warning
+    background-color: $orange
 </style>

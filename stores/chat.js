@@ -3,6 +3,7 @@ import { useRuntimeConfig } from '#imports';
 import { useNuxtApp } from '#app';
 import { safeFetch } from '~/utils/safeFetch';
 import { useCookie } from '#imports';
+import { useAuthStore } from '~/stores/auth';
 
 export const useChatStore = defineStore('chat', {
   state: () => ({
@@ -425,23 +426,37 @@ export const useChatStore = defineStore('chat', {
         
         console.log('ChatStore: Список чатов получен, количество:', response.length);
         
+        // Сохраняем превью-чаты перед обновлением списка
+        const previewChats = this.chats.filter(chat => chat.isPreview === true);
+        console.log('ChatStore: Сохранено превью-чатов:', previewChats.length);
+        
         // Если это первая загрузка, просто устанавливаем список чатов
         if (!this.initialLoadComplete) {
           this.chats = JSON.parse(JSON.stringify(response));
+          
+          // Добавляем сохраненные превью-чаты обратно в список
+          if (previewChats.length > 0) {
+            this.chats = [...previewChats, ...this.chats];
+            console.log('ChatStore: Превью-чаты добавлены обратно в список');
+          }
+          
           this.initialLoadComplete = true;
           console.log('ChatStore: Первая загрузка чатов завершена');
         } else {
           // Плавно обновляем список чатов
           const newChats = JSON.parse(JSON.stringify(response));
           
+          // Фильтруем текущие чаты, оставляя только не-превью
+          const currentChats = this.chats.filter(chat => !chat.isPreview);
+          
           // Для каждого чата из нового списка
           for (const newChat of newChats) {
             // Проверяем, есть ли чат в текущем списке
-            const existingChatIndex = this.chats.findIndex(chat => chat._id === newChat._id);
+            const existingChatIndex = currentChats.findIndex(chat => chat._id === newChat._id);
             
             if (existingChatIndex !== -1) {
               // Если чат уже есть, обновляем его данные, сохраняя счетчик непрочитанных сообщений
-              const existingChat = this.chats[existingChatIndex];
+              const existingChat = currentChats[existingChatIndex];
               
               // Сохраняем счетчик непрочитанных сообщений
               newChat.unread = existingChat.unread;
@@ -453,24 +468,24 @@ export const useChatStore = defineStore('chat', {
               // Если есть новое сообщение, перемещаем чат в начало списка
               if (hasNewMessage) {
                 // Удаляем чат из текущей позиции
-                this.chats.splice(existingChatIndex, 1);
+                currentChats.splice(existingChatIndex, 1);
                 // Добавляем чат в начало списка
-                this.chats.unshift(newChat);
+                currentChats.unshift(newChat);
                 console.log('ChatStore: Чат перемещен в начало списка:', newChat.name);
               } else {
                 // Просто обновляем данные чата на месте
-                this.chats[existingChatIndex] = { ...newChat };
+                currentChats[existingChatIndex] = { ...newChat };
               }
             } else {
               // Если это новый чат, добавляем его в начало списка
-              this.chats.unshift(newChat);
+              currentChats.unshift(newChat);
               console.log('ChatStore: Добавлен новый чат:', newChat.name);
             }
           }
           
-          // Проверяем, есть ли чаты, которые были удалены
-          const chatIdsToKeep = newChats.map(chat => chat._id);
-          this.chats = this.chats.filter(chat => chatIdsToKeep.includes(chat._id));
+          // Обновляем список чатов, добавляя превью-чаты в начало
+          this.chats = [...previewChats, ...currentChats];
+          console.log('ChatStore: Список чатов обновлен с сохранением превью-чатов');
         }
         
         // Инициализируем WebSocket слушатели
@@ -550,7 +565,18 @@ export const useChatStore = defineStore('chat', {
         const isSafari = typeof navigator !== 'undefined' && /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
         const isIOS = typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
         
-        console.log('ChatStore: Создание чата', { isSafari, isIOS, hasToken: !!token });
+        console.log('ChatStore: Создание чата', { isSafari, isIOS, hasToken: !!token, chatData });
+        
+        // Форматируем данные для API
+        const apiData = {
+          name: chatData.name || '',
+          type: chatData.type || 'group',
+          description: chatData.description || '',
+          participants: chatData.participants || [],
+          initialMessage: chatData.initialMessage || ''
+        };
+        
+        console.log('ChatStore: Отформатированные данные для API:', apiData);
         
         // Используем safeFetch для совместимости с Safari/iOS
         const response = await safeFetch(`${config.public.backendUrl}/api/chats`, {
@@ -559,24 +585,79 @@ export const useChatStore = defineStore('chat', {
             'Content-Type': 'application/json',
             'Authorization': token ? `Bearer ${token}` : undefined
           },
-          body: JSON.stringify(chatData),
+          body: JSON.stringify(apiData),
           credentials: 'include'
-        }).then(res => res.json()).catch(err => {
+        }).then(res => {
+          if (!res.ok) {
+            console.error('ChatStore: Ошибка при создании чата. Статус:', res.status);
+            return res.text().then(text => {
+              try {
+                return JSON.parse(text);
+              } catch (e) {
+                console.error('ChatStore: Ответ сервера не является JSON:', text);
+                throw new Error(`Ошибка при создании чата: ${res.status} ${text}`);
+              }
+            });
+          }
+          return res.json();
+        }).catch(err => {
           console.error('ChatStore: Ошибка при создании чата:', err);
+          
+          // Если получили 401, пробуем запрос с токеном в URL
+          if (err.status === 401 && token) {
+            console.log('ChatStore: Пробуем запрос с токеном в URL');
+            return fetch(`${config.public.backendUrl}/api/chats?token=${token}`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify(apiData)
+            }).then(res => {
+              if (!res.ok) {
+                console.error('ChatStore: Ошибка при создании чата (повторная попытка). Статус:', res.status);
+                return res.text().then(text => {
+                  try {
+                    return JSON.parse(text);
+                  } catch (e) {
+                    console.error('ChatStore: Ответ сервера не является JSON:', text);
+                    throw new Error(`Ошибка при создании чата: ${res.status} ${text}`);
+                  }
+                });
+              }
+              return res.json();
+            });
+          }
           throw err;
         });
         
-        // Добавляем новый чат в список и делаем его активным
+        if (response.error) {
+          console.error('ChatStore: Ошибка при создании чата:', response.error);
+          this.error = response.error;
+          this.loading = false;
+          throw new Error(response.error);
+        }
+        
+        console.log('ChatStore: Чат успешно создан:', response);
+        
+        // Добавляем новый чат в начало списка
         this.chats.unshift(response);
-        this.setActiveChat(response._id);
+        
+        // Устанавливаем новый чат как активный, если это требуется
+        if (chatData.setActive) {
+          this.activeChat = response;
+        }
+        
+        this.loading = false;
+        
+        // Применяем принудительное обновление списка чатов
+        this.triggerChatListUpdate();
         
         return response;
       } catch (error) {
-        console.error('Ошибка при создании чата:', error);
-        this.error = 'Не удалось создать чат';
-        throw error;
-      } finally {
+        console.error('ChatStore: Ошибка при создании чата:', error);
+        this.error = error.message || 'Ошибка при создании чата';
         this.loading = false;
+        throw error;
       }
     },
     
@@ -1058,7 +1139,132 @@ export const useChatStore = defineStore('chat', {
         
         console.log('[WebSocket] Отправка сообщения в чат:', chatId, { isSafari, isIOS, hasToken: !!token });
         
-        // Используем safeFetch для совместимости с Safari/iOS
+        // Проверяем, является ли чат превью-чатом
+        const isPreviewChat = chatId.startsWith('preview_');
+        
+        // Если это превью-чат, обрабатываем локально
+        if (isPreviewChat) {
+          console.log('[WebSocket] Обработка сообщения для превью-чата');
+          
+          // Находим превью-чат в списке чатов
+          const previewChat = this.chats.find(chat => chat._id === chatId);
+          
+          if (!previewChat) {
+            console.error('[WebSocket] Превью-чат не найден:', chatId);
+            console.log('[WebSocket] Список доступных чатов:', this.chats.map(c => ({ id: c._id, name: c.name, type: c.type })));
+            
+            // Если чат не найден в списке, но установлен как активный, используем его
+            if (this.activeChat && this.activeChat._id === chatId) {
+              console.log('[WebSocket] Используем активный чат как превью-чат');
+              
+              // Добавляем активный чат в список чатов, если его там нет
+              if (!this.chats.some(c => c._id === chatId)) {
+                console.log('[WebSocket] Добавляем активный чат в список чатов');
+                this.chats.unshift(this.activeChat);
+              }
+              
+              // Получаем authStore
+              const authStore = useAuthStore();
+              
+              if (!authStore || !authStore.user) {
+                console.error('[WebSocket] Ошибка: authStore или authStore.user не определены');
+                throw new Error('Ошибка аутентификации: пользователь не определен');
+              }
+              
+              // Используем активный чат как превью-чат
+              const newMessage = {
+                _id: 'temp_' + Date.now(),
+                text,
+                sender: { _id: authStore.user._id, name: authStore.user.name },
+                timestamp: new Date().toISOString(),
+                chat: chatId,
+                media_type: 'none',
+                isLocal: true
+              };
+              
+              // Добавляем сообщение в список сообщений
+              this.messages.push(newMessage);
+              
+              // Обновляем последнее сообщение в чате
+              this.activeChat.lastMessage = newMessage;
+              this.activeChat.updatedAt = new Date().toISOString();
+              
+              return newMessage;
+            }
+            
+            throw new Error('Превью-чат не найден');
+          }
+          
+          // Получаем authStore
+          const authStore = useAuthStore();
+          
+          if (!authStore || !authStore.user) {
+            console.error('[WebSocket] Ошибка: authStore или authStore.user не определены');
+            throw new Error('Ошибка аутентификации: пользователь не определен');
+          }
+          
+          // Создаем локальное сообщение
+          const newMessage = {
+            _id: 'temp_' + Date.now(),
+            text,
+            sender: { _id: authStore.user._id, name: authStore.user.name },
+            timestamp: new Date().toISOString(),
+            chat: chatId,
+            media_type: 'none',
+            isLocal: true
+          };
+          
+          // Добавляем сообщение в список сообщений
+          this.messages.push(newMessage);
+          
+          // Обновляем последнее сообщение в чате
+          previewChat.lastMessage = newMessage;
+          previewChat.updatedAt = new Date().toISOString();
+          
+          // Создаем реальный чат, если это первое сообщение
+          if (previewChat.messages.length === 0) {
+            console.log('[WebSocket] Создание реального чата из превью');
+            
+            // Получаем ID пользователя из превью-чата
+            const userId = previewChat.previewUserId;
+            
+            if (!userId) {
+              throw new Error('ID пользователя не найден в превью-чате');
+            }
+            
+            try {
+              // Создаем реальный чат с правильным форматом данных
+              console.log('[WebSocket] Отправка запроса на создание чата с пользователем:', userId);
+              
+              const realChat = await this.createChat({
+                name: previewChat.name, // Имя чата (имя пользователя)
+                type: 'private', // Явно указываем тип 'private'
+                participants: [userId], // ID пользователя, с которым создается чат
+                initialMessage: text, // Первое сообщение
+                description: '' // Пустое описание для приватного чата
+              });
+              
+              // Заменяем превью-чат на реальный в списке чатов
+              const chatIndex = this.chats.findIndex(chat => chat._id === chatId);
+              if (chatIndex !== -1) {
+                this.chats.splice(chatIndex, 1);
+              }
+              
+              // Устанавливаем новый чат как активный
+              this.setActiveChat(realChat._id);
+              
+              return realChat;
+            } catch (error) {
+              console.error('[WebSocket] Ошибка при создании реального чата:', error);
+              // Возвращаем локальное сообщение, если не удалось создать реальный чат
+              return newMessage;
+            }
+          }
+          
+          return newMessage;
+        }
+        
+        // Для обычных чатов используем стандартную логику
         let response;
         
         if (isSafari || isIOS) {
@@ -1258,6 +1464,41 @@ export const useChatStore = defineStore('chat', {
       } catch (error) {
         console.error('Ошибка при отметке сообщений как прочитанных:', error);
       }
+    },
+    
+    // Определение типа чата (для совместимости со старыми данными)
+    getChatType(chat) {
+      // Если чат не определен, возвращаем 'group' по умолчанию
+      if (!chat) return 'group';
+      
+      // Если есть поле type, используем его
+      if (chat.type) {
+        return chat.type;
+      }
+      
+      // Если есть поле isGroup, используем его
+      if (typeof chat.isGroup !== 'undefined') {
+        return chat.isGroup ? 'group' : 'private';
+      }
+      
+      // Если нет ни type, ни isGroup, определяем тип на основе количества участников
+      if (chat.participants && Array.isArray(chat.participants)) {
+        // Если в чате больше 2 участников, то это групповой чат
+        return chat.participants.length > 2 ? 'group' : 'private';
+      }
+      
+      // По умолчанию считаем чат групповым
+      return 'group';
+    },
+    
+    // Проверка, является ли чат приватным
+    isPrivateChat(chat) {
+      return this.getChatType(chat) === 'private';
+    },
+    
+    // Проверка, является ли чат групповым
+    isGroupChat(chat) {
+      return this.getChatType(chat) === 'group';
     },
     
     // Метод для плавного обновления списка чатов

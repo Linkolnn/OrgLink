@@ -1,13 +1,21 @@
 <template>
   <div class="user-profile">
     <div class="user-profile__header">
-      <h2 class="user-profile__title">Профиль пользователя</h2>
+      <h2 class="user-profile__title">{{ isOtherUser ? userData.name || 'Профиль пользователя' : 'Мой профиль' }}</h2>
       <button 
+        v-if="!isOtherUser"
         class="user-profile__edit-btn" 
         @click="toggleEditMode" 
         :class="{ 'user-profile__edit-btn--active': isEditing }"
       >
         {{ isEditing ? 'Сохранить' : 'Изменить' }}
+      </button>
+      <button 
+        v-else
+        class="user-profile__message-btn" 
+        @click="sendMessage"
+      >
+        Написать сообщение
       </button>
     </div>
     
@@ -104,15 +112,38 @@
 
 <script setup>
 import { useAuthStore } from '~/stores/auth';
+import { useChatStore } from '~/stores/chat';
+import { useNuxtApp } from '#app';
+
+const props = defineProps({
+  userData: {
+    type: Object,
+    default: () => ({})
+  },
+  isOtherUser: {
+    type: Boolean,
+    default: false
+  }
+});
+
+const emit = defineEmits(['send-message']);
 
 const authStore = useAuthStore();
 const isEditing = ref(false);
 const isSaving = ref(false);
-const userData = ref({
+const localUserData = ref({
   name: '',
   email: '',
   number: '',
   avatar: ''
+});
+
+// Используем данные из props, если они предоставлены, иначе используем локальные данные
+const userData = computed(() => {
+  if (props.isOtherUser && Object.keys(props.userData).length > 0) {
+    return props.userData;
+  }
+  return localUserData.value;
 });
 
 const formData = reactive({
@@ -141,70 +172,44 @@ const avatarStyle = computed(() => {
 
 // Загрузка данных пользователя при монтировании компонента
 onMounted(async () => {
-  await fetchUserData();
+  // Загружаем данные только если это профиль текущего пользователя
+  if (!props.isOtherUser) {
+    await fetchUserData();
+  }
 });
 
 // Получение данных пользователя с сервера
 async function fetchUserData() {
   try {
-    console.log('Получение данных пользователя:', authStore.user);
+    const config = useRuntimeConfig();
+    const response = await fetch(`${config.public.backendUrl}/api/auth/me`, {
+      method: 'GET',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
     
-    // Получаем данные из auth store
-    if (authStore.user) {
-      // Инициализируем данные пользователя
-      userData.value = {
-        _id: authStore.user._id || '',
-        name: authStore.user.name || '',
-        email: authStore.user.email || '',
-        number: authStore.user.number || '',
-        avatar: authStore.user.avatar || '',
-        role: authStore.user.role || 'user'
-      };
-      
-      console.log('Данные пользователя из auth store:', userData.value);
-      
-      // Если у пользователя есть аватар, устанавливаем URL
-      if (userData.value.avatar) {
-        avatarUrl.value = userData.value.avatar;
-      }
-      
-      // Пытаемся получить дополнительные данные с сервера
-      try {
-        const response = await $fetch('/api/auth/me', {
-          method: 'GET',
-          headers: {
-            'Authorization': `Bearer ${authStore.token}`
-          }
-        });
-        
-        console.log('Данные пользователя с сервера:', response);
-        
-        // Обновляем данные, если получили ответ
-        if (response) {
-          userData.value = {
-            ...userData.value,
-            ...response,
-            name: response.name || userData.value.name || ''
-          };
-          
-          // Обновляем аватар, если он есть
-          if (response.avatar) {
-            avatarUrl.value = response.avatar;
-          }
-          
-          // Обновляем данные в auth store
-          authStore.user = {
-            ...authStore.user,
-            name: response.name || authStore.user.name || '',
-            number: response.number || authStore.user.number || '',
-            avatar: response.avatar || authStore.user.avatar || ''
-          };
-        }
-      } catch (apiError) {
-        console.warn('Не удалось получить дополнительные данные пользователя:', apiError);
-        // Продолжаем с теми данными, которые уже есть
-      }
+    if (!response.ok) {
+      throw new Error(`Ошибка HTTP: ${response.status}`);
     }
+    
+    const data = await response.json();
+    localUserData.value = {
+      _id: data._id || '',
+      name: data.name || '',
+      email: data.email || '',
+      number: data.number || '',
+      avatar: data.avatar || ''
+    };
+    
+    // Обновляем данные пользователя
+    authStore.user = {
+      ...authStore.user,
+      name: data.name || authStore.user.name || '',
+      number: data.number || authStore.user.number || '',
+      avatar: data.avatar || authStore.user.avatar || ''
+    };
   } catch (error) {
     console.error('Ошибка при получении данных пользователя:', error);
     showNotification('Не удалось загрузить данные профиля', 'error');
@@ -213,11 +218,126 @@ async function fetchUserData() {
 
 // Переключение режима редактирования
 function toggleEditMode() {
+  if (props.isOtherUser) return; // Запрещаем редактирование профиля другого пользователя
+  
   if (isEditing.value) {
     saveProfile();
   } else {
     startEditing();
   }
+}
+
+// Отправка сообщения пользователю
+async function sendMessage() {
+  if (props.isOtherUser && userData.value._id) {
+    try {
+      const userId = userData.value._id;
+      const chatStore = useChatStore();
+      
+      console.log('UserProfile: Нажата кнопка Написать сообщение для пользователя:', userId);
+      console.log('UserProfile: Данные пользователя:', userData.value);
+      console.log('UserProfile: Текущие чаты:', chatStore.chats.length);
+      
+      // Проверяем, существует ли уже приватный чат с этим пользователем
+      // Ищем только среди чатов с типом 'private'
+      const existingChat = chatStore.chats.find(chat => {
+        // Проверяем, что тип чата действительно 'private'
+        if (chat.type !== 'private') return false;
+        
+        // Проверяем, что в чате есть нужный пользователь
+        const hasTargetUser = chat.participants.some(p => p._id === userId);
+        
+        // Проверяем, что в чате ровно 2 участника (текущий пользователь и целевой)
+        const hasTwoParticipants = chat.participants.length === 2;
+        
+        return hasTargetUser && hasTwoParticipants;
+      });
+      
+      console.log('UserProfile: Существующий чат:', existingChat);
+      
+      let chatId;
+      
+      if (existingChat) {
+        // Если чат существует, открываем его
+        chatId = existingChat._id;
+        console.log('UserProfile: Открываем существующий чат:', chatId);
+      } else {
+        // Создаем временный объект чата для предпросмотра
+        console.log('UserProfile: Создаем временный чат для предпросмотра');
+        
+        // Создаем временный чат для предпросмотра
+        const previewChat = {
+          _id: 'preview_' + userId, // временный ID
+          name: userData.value.name || 'Пользователь',
+          type: 'private',
+          isPreview: true, // флаг предпросмотра
+          participants: [{ _id: userId, name: userData.value.name, avatar: userData.value.avatar }],
+          messages: [],
+          avatar: userData.value.avatar,
+          unread: 0,
+          lastMessage: null,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          previewUserId: userId // сохраняем ID пользователя для создания реального чата
+        };
+        
+        // Добавляем превью-чат в массив чатов
+        chatStore.chats.unshift(previewChat);
+        
+        // Сбрасываем предыдущий активный чат и его сообщения
+        chatStore.messages = [];
+        
+        // Устанавливаем временный чат как активный
+        chatStore.activeChat = previewChat;
+        chatStore.isPreviewMode = true;
+        chatId = previewChat._id;
+        console.log('UserProfile: Установлен временный чат:', previewChat);
+      }
+      
+      // Открываем чат
+      openChat(chatId);
+      
+      // Также отправляем событие наверх для обратной совместимости
+      emit('send-message', userId);
+    } catch (error) {
+      console.error('Ошибка при создании приватного чата:', error);
+      showNotification('Не удалось создать чат', 'error');
+    }
+  }
+}
+
+// Открытие чата
+function openChat(chatId) {
+  const chatStore = useChatStore();
+  
+  // Устанавливаем активный чат
+  chatStore.setActiveChat(chatId);
+  
+  // Переходим на страницу чата
+  navigateTo('/messenger');
+  
+  // На мобильных устройствах переключаем на чат
+  setTimeout(() => {
+    if (window.innerWidth <= 859) {
+      // Скрываем боковую панель
+      const nuxtApp = useNuxtApp();
+      if (nuxtApp.$sidebarVisible) {
+        nuxtApp.$sidebarVisible.value = false;
+      }
+      
+      // Дополнительно скрываем сайдбар через CSS-класс
+      const sidebar = document.querySelector('.sidebar');
+      if (sidebar) {
+        sidebar.classList.remove('visible');
+      }
+      
+      // Показываем чат
+      const chatElement = document.querySelector('.chat');
+      if (chatElement) {
+        chatElement.classList.add('visible');
+      }
+    }
+  }, 150); // Задержка для гарантии завершения перехода
 }
 
 // Начало редактирования
@@ -269,11 +389,13 @@ async function saveProfile() {
       console.log('Ответ сервера:', response);
       
       // Обновляем данные пользователя
-      userData.value = {
-        ...userData.value,
-        name: formData.name,
-        email: formData.email,
-        number: formData.number
+      const data = await response.json();
+      localUserData.value = {
+        _id: data._id || '',
+        name: data.name || '',
+        email: data.email || '',
+        number: data.number || '',
+        avatar: data.avatar || ''
       };
       
       if (response && response.avatar) {
@@ -463,7 +585,7 @@ function showNotification(message, type = 'success') {
     font-weight: 600
     margin: 0
   
-  &__edit-btn
+  &__edit-btn, &__message-btn
     background-color: transparent
     color: $purple
     border: 1px solid $purple
@@ -482,6 +604,13 @@ function showNotification(message, type = 'success') {
       
       &:hover
         background-color: darken($purple, 10%)
+        
+  &__message-btn
+    background-color: $purple
+    color: $white
+    
+    &:hover
+      background-color: darken($purple, 10%)
   
   &__avatar-container
     display: flex

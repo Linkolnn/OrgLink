@@ -31,6 +31,11 @@ const chatSchema = new mongoose.Schema(
       type: Boolean,
       default: true
     },
+    type: {
+      type: String,
+      enum: ['private', 'group'],
+      default: 'group'
+    },
     avatar: {
       type: String,
       default: null

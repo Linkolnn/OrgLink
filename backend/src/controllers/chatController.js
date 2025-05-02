@@ -8,17 +8,12 @@ import { getFileUrl } from '../middleware/uploadMiddleware.js';
 // @access  Private
 const createChat = async (req, res) => {
   try {
-    const { name, participants, description } = req.body;
-    
-    if (!name) {
-      return res.status(400).json({ error: 'Название чата обязательно' });
-    }
-    
-    // Добавляем создателя чата в список участников
+    // Получаем данные из запроса
+    const { name, description, participants, type, initialMessage } = req.body;
     let participantIds = [];
     
-    // Если переданы участники, проверяем их существование
-    if (participants && participants.length > 0) {
+    // Проверяем, что массив участников передан и не пустой
+    if (participants && Array.isArray(participants)) {
       // Проверяем, существуют ли пользователи
       const existingUsers = await User.find({ _id: { $in: participants } });
       
@@ -39,7 +34,8 @@ const createChat = async (req, res) => {
       name,
       creator: req.user._id,
       participants: participantIds,
-      isGroup: participantIds.length > 2,
+      type,
+      isGroup: type === 'group',
       description: description || ''
     };
     
@@ -50,13 +46,24 @@ const createChat = async (req, res) => {
     
     const newChat = await Chat.create(chatData);
     
-    // Создаем сервисное сообщение о создании чата
-    await Message.create({
-      chat: newChat._id,
-      sender: req.user._id,
-      text: `${req.user.name} создал(а) чат "${name}"`,
-      type: 'service'
-    });
+    // Создаем сервисное сообщение о создании чата только для групповых чатов
+    // Для приватных чатов будем использовать initialMessage из запроса
+    if (type !== 'private') {
+      await Message.create({
+        chat: newChat._id,
+        sender: req.user._id,
+        text: `${req.user.name} создал(а) чат "${name}"`,
+        type: 'service'
+      });
+    } else if (initialMessage) {
+      // Для приватных чатов создаем первое сообщение из initialMessage
+      await Message.create({
+        chat: newChat._id,
+        sender: req.user._id,
+        text: initialMessage,
+        type: 'default'
+      });
+    }
     
     // Получаем полные данные чата с информацией об участниках
     const populatedChat = await Chat.findById(newChat._id)
@@ -449,6 +456,48 @@ const leaveChat = async (req, res) => {
   }
 };
 
+// @desc    Удаление чата
+// @route   DELETE /api/chats/:id
+// @access  Private
+const deleteChat = async (req, res) => {
+  try {
+    const chatId = req.params.id;
+    
+    // Находим чат
+    const chat = await Chat.findById(chatId);
+    
+    if (!chat) {
+      return res.status(404).json({ error: 'Чат не найден' });
+    }
+    
+    // Проверяем права на удаление:
+    // 1. Для приватных чатов - пользователь должен быть участником
+    // 2. Для групповых чатов - пользователь должен быть создателем
+    if (chat.type === 'private') {
+      // Для приватных чатов проверяем, что пользователь является участником
+      if (!chat.participants.includes(req.user._id)) {
+        return res.status(403).json({ error: 'Вы не являетесь участником этого чата' });
+      }
+    } else {
+      // Для групповых чатов проверяем, что пользователь является создателем
+      if (!chat.creator.equals(req.user._id)) {
+        return res.status(403).json({ error: 'Вы не являетесь создателем этого чата' });
+      }
+    }
+    
+    // Удаляем все сообщения чата
+    await Message.deleteMany({ chat: chatId });
+    
+    // Удаляем сам чат
+    await Chat.deleteOne({ _id: chatId });
+    
+    res.json({ message: 'Чат успешно удален' });
+  } catch (error) {
+    console.error('Ошибка при удалении чата:', error);
+    res.status(500).json({ error: 'Ошибка сервера при удалении чата' });
+  }
+};
+
 // @desc    Поиск пользователей для добавления в чат
 // @route   GET /api/chats/search-users
 // @access  Private
@@ -486,5 +535,6 @@ export {
   addChatParticipants,
   removeChatParticipant,
   leaveChat,
+  deleteChat,
   searchUsers
 };
