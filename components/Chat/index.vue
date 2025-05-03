@@ -145,7 +145,7 @@
   <ChatSettingsModal 
     v-if="showChatSettingsModal" 
     :is-open="showChatSettingsModal" 
-    :chat-data="chatData" 
+    v-model:chat-data="chatData" 
     :is-new-chat="false" 
     @close="showChatSettingsModal = false" 
     @saved="onChatUpdated" 
@@ -589,10 +589,18 @@ const toggleSidebar = (event) => {
     event.stopPropagation();
   }
   
+  // Используем новый плагин для управления боковой панелью
   const nuxtApp = useNuxtApp();
-  if (nuxtApp && nuxtApp.$sidebarVisible !== undefined) {
+  const { $toggleSidebar } = nuxtApp;
+  
+  if ($toggleSidebar) {
+    // Если плагин доступен, используем его
+    $toggleSidebar();
+  } else if (nuxtApp && nuxtApp.$sidebarVisible !== undefined) {
+    // Запасной вариант - используем старый метод
     nuxtApp.$sidebarVisible.value = !nuxtApp.$sidebarVisible.value;
   } else {
+    // Если ничего не доступно, используем прямое изменение DOM
     const app = document.querySelector('.app');
     if (app) {
       app.classList.toggle('sidebar-visible');
@@ -950,10 +958,34 @@ const setupWebSocketListeners = () => {
         return;
       }
       
-      console.log('[WebSocket] Добавление нового сообщения в хранилище, тип:', message.media_type);
+      console.log('[WebSocket] Добавление нового сообщения в хранилище, тип:', message.type || message.media_type);
       
+      // Проверяем, является ли сообщение служебным
+      if (message.type === 'service') {
+        console.log('[WebSocket] Обработка служебного сообщения');
+        
+        try {
+          // Важно: создаем новый массив для реактивности
+          const newMessages = [...chatStore.messages, {...message}];
+          console.log('[WebSocket] Обновление хранилища сообщений, количество:', newMessages.length);
+          chatStore.messages = newMessages;
+          
+          // Прокручиваем к новому сообщению, если пользователь находится внизу чата
+          if (isAtBottom.value) {
+            console.log('[WebSocket] Прокрутка вниз');
+            nextTick(() => {
+              scrollToBottom(true);
+            });
+          } else {
+            console.log('[WebSocket] Показ индикатора новых сообщений');
+            showNewMessageIndicator.value = true;
+          }
+        } catch (error) {
+          console.error('[WebSocket] Ошибка при обработке служебного сообщения:', error);
+        }
+      }
       // Обработка изображений
-      if (message.media_type === 'image' && message.file) {
+      else if (message.media_type === 'image' && message.file) {
         console.log('[WebSocket] Обработка изображения');
         
         // Устанавливаем флаг, что изображение еще не загружено
@@ -1267,16 +1299,7 @@ const getOtherParticipantName = (chat) => {
         border-radius: 10px
         font-size: 12px
     
-    .service_message
-      text-align: center
-      margin: 10px 0
-      color: rgba(255, 255, 255, 0.7)
-      font-size: 12px
-      
-      .time
-        margin-top: 5px
-        font-size: 10px
-        opacity: 0.7
+    // Стили для служебных сообщений перенесены в компонент Message.vue
     
     .message_wrap
       margin-bottom: 10px
@@ -1403,6 +1426,10 @@ const getOtherParticipantName = (chat) => {
   opacity: 0
   transform: translateY(20px)
 
+@include tablet
+  .input_area
+    padding: 5px 14px
+
 
 @include mobile
   .chat-page
@@ -1426,11 +1453,7 @@ const getOtherParticipantName = (chat) => {
       overflow-y: auto
       z-index: 1
       min-height: 0 // Предотвращает переполнение
-      
-    .input_area
-      padding: 5px 14px
 
-      
     .message_wrap
       .message
         max-width: 90%

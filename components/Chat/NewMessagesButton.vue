@@ -28,7 +28,10 @@ defineEmits(['click']);
   animation: fadeIn 0.5s ease-in-out
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3)
   transition: transform 0.3s ease, box-shadow 0.3s ease
-  
+
+  @media (display-mode: standalone), (display-mode: fullscreen)
+    bottom: 90px
+
   &:hover
     transform: translateX(-30%) scale(1.05)
     box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4)
@@ -47,4 +50,5 @@ defineEmits(['click']);
 @include mobile 
   .new-messages-indicator
     bottom: 170px
+
 </style>

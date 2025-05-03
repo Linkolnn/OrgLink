@@ -55,9 +55,6 @@ watch(() => authStore.isAuthenticated, async (isAuth) => {
   overflow: hidden
   position: relative
   
-  @include tablet
-    // В мобильной версии не меняем направление, чтобы сохранить анимацию сдвига
-
 .loading-container
   display: flex
   flex-direction: column

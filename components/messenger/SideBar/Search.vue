@@ -86,11 +86,8 @@
 
 <script setup>
 import { useChatStore } from '~/stores/chat';
-import { useAuthStore } from '~/stores/auth';
 
 const chatStore = useChatStore();
-const authStore = useAuthStore();
-const router = useRouter();
 
 const searchQuery = ref('');
 const searchResults = ref([]);
@@ -265,16 +262,12 @@ onBeforeUnmount(() => {
 });
 </script>
 
-<style lang="sass" scoped>
+<style lang="sass">
 @import '@variables'
 
 .search
-  margin-bottom: 10px
-  padding: 0 15px
-  
   &__input-wrapper
     position: relative
-    margin-bottom: 10px
   
   &__input
     width: 100%
@@ -283,11 +276,15 @@ onBeforeUnmount(() => {
     border: 1px solid rgba($white, 0.2)
     background-color: rgba($white, 0.1)
     color: $white
-    font-size: 14px
+    font-size: 16px
+    text-indent: 20px
     
     &:focus
       outline: none
       border-color: $purple
+
+    &::placeholder
+      text-indent: 20px
   
   &__icon
     position: absolute
@@ -298,13 +295,14 @@ onBeforeUnmount(() => {
   
   &__clear-btn
     position: absolute
-    right: 10px
+    right: 0px
     top: 50%
-    transform: translateY(-50%)
+    padding: 0px 10px
+    transform: translateY(-55%)
     background: none
     border: none
     color: rgba($white, 0.6)
-    font-size: 18px
+    font-size: 28px
     cursor: pointer
     
     &:hover

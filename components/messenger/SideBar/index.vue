@@ -1,8 +1,8 @@
 <template>
   <aside class="sidebar">
     <header class="sidebar__header">
-      <MessengerSideBarMenu />
       <div class="sidebar__actions">
+        <MessengerSideBarMenu />
         <h3 class="sidebar__title">Чаты</h3>
       </div>
       <!-- Добавляем компонент поиска -->
@@ -44,16 +44,9 @@
 </template>
 
 <script setup>
-import { useAuthStore } from '~/stores/auth';
 import { useChatStore } from '~/stores/chat';
 
 const chatStore = useChatStore();
-const authStore = useAuthStore();
-const router = useRouter();
-
-// Состояние для отображения/скрытия меню
-const isMenuOpen = ref(false);
-
 // Флаг для отслеживания состояния WebSocket соединения
 const isConnected = ref(false);
 
@@ -202,8 +195,48 @@ if ($socket) {
             // Обновляем текст сообщения
             const messageEl = chatItem.querySelector('.chat-item__message');
             if (messageEl) {
-              messageEl.textContent = displayText;
-              console.log(`SideBar: Обновлен текст сообщения в DOM:`, displayText);
+              // Проверяем, является ли сообщение служебным
+              const isServiceMessage = message.type === 'service' || (
+                message.text && [
+                  /создал групповой чат/i,
+                  /покинул чат/i,
+                  /удалил из чата/i,
+                  /добавил в чат/i,
+                  /был удален из чата/i,
+                  /был добавлен в чат/i,
+                  /добавил в чат пользователей/i,
+                  /добавил в чат пользователя/i
+                ].some(pattern => pattern.test(message.text))
+              );
+              
+              // Если это служебное сообщение, добавляем класс и обновляем содержимое
+              if (isServiceMessage) {
+                messageEl.classList.add('chat-item__message--service');
+                
+                // Проверяем, есть ли спан для служебного сообщения
+                let serviceSpan = messageEl.querySelector('span:first-child');
+                if (!serviceSpan) {
+                  // Если нет, создаем новую структуру
+                  messageEl.innerHTML = `<span>${message.text}</span>`;
+                } else {
+                  // Если есть, обновляем текст
+                  serviceSpan.textContent = message.text;
+                }
+              } else {
+                messageEl.classList.remove('chat-item__message--service');
+                
+                // Проверяем, есть ли спан для обычного сообщения
+                let normalSpan = messageEl.querySelector('span:last-child');
+                if (!normalSpan) {
+                  // Если нет, создаем новую структуру
+                  messageEl.innerHTML = `<span>${displayText}</span>`;
+                } else {
+                  // Если есть, обновляем текст
+                  normalSpan.textContent = displayText;
+                }
+              }
+              
+              console.log(`SideBar: Обновлен текст сообщения в DOM:`, isServiceMessage ? message.text : displayText);
             }
             
             // Обновляем время
@@ -602,7 +635,7 @@ if (date >= today) {
 };
 </script>
 
-<style lang="sass" scoped>
+<style lang="sass">
 @import '@variables'
 
 // Стили для адаптивного дизайна
@@ -635,6 +668,17 @@ if (date >= today) {
     flex-direction: column
     position: relative
     justify-content: space-between
+    gap: 10px
+
+    .search
+      flex: 1
+
+  &__actions
+    display: flex
+    flex-direction: row
+    gap: 20px
+    padding-left: 5px
+    
   
   &__content
     flex: 1

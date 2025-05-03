@@ -1,7 +1,7 @@
 <template>
   <div class="pattern-container">
-    <div class="app" :class="{ 'sidebar-visible': sidebarVisible && needsSidebar, 'mobile': isMobile && needsSidebar }">
-      <MessengerSideBar v-if="isAuthenticated" :class="{ 'visible': sidebarVisible }"/>
+    <div class="app" :class="{ 'sidebar-visible': sidebarVisibleState && needsSidebar, 'mobile': isMobile && needsSidebar }">
+      <MessengerSideBar v-if="isAuthenticated" :class="{ 'visible': sidebarVisibleState }"/>
       <main class="main container">
         <NuxtPage>
           <template #default="{ Component }">
@@ -12,6 +12,8 @@
         </NuxtPage>
       </main>
     </div>
+    <!-- Компонент для глобальных уведомлений -->
+    <UiNotification ref="notificationComponent" />
   </div>
 </template>
 
@@ -23,15 +25,18 @@ const authStore = useAuthStore();
 const { isAuthenticated } = storeToRefs(authStore);
 const route = useRoute();
 
+// Получаем доступ к плагину управления боковой панелью
+const nuxtApp = useNuxtApp();
+const { $sidebarVisible } = nuxtApp;
+
 // Проверяем, находимся ли мы на странице мессенджера или админа
 const isMessengerPage = computed(() => route.path === '/messenger');
 const isAdminPage = computed(() => route.path === '/admin');
 const needsSidebar = computed(() => isMessengerPage.value || isAdminPage.value);
 
 // Состояние видимости боковой панели
-// На мобильных устройствах первоначально показываем sidebar
+const sidebarVisibleState = computed(() => $sidebarVisible?.value || false);
 const isMobile = ref(false);
-const sidebarVisible = ref(false);
 
 // Проверяем ширину экрана при загрузке и при изменении размера окна
 const checkMobile = () => {
@@ -44,7 +49,9 @@ const checkMobile = () => {
   if (isMobile.value && needsSidebar.value && !wasMobile) {
     // Используем setTimeout, чтобы дать время на отрисовку компонентов
     setTimeout(() => {
-      sidebarVisible.value = true;
+      // Используем метод из плагина sidebar-manager.js
+      const { $showSidebar } = useNuxtApp();
+      if ($showSidebar) $showSidebar();
       console.log('[App] Показываем SideBar после проверки мобильного устройства');
     }, 0);
   }
@@ -52,29 +59,21 @@ const checkMobile = () => {
 
 // Следим за изменением маршрута и состоянием аутентификации
 watch(
-  [() => route?.path, () => isAuthenticated.value],
-  ([newPath, isAuth]) => {
-    console.log('[App] Изменение маршрута или состояния аутентификации:', { path: newPath, isAuth });
-    
-    // Если пользователь аутентифицирован и находится на странице мессенжера или админа
-    if (isAuth && (newPath === '/messenger' || newPath === '/admin')) {
-      // Проверяем ширину экрана
-      const isMobileNow = window.innerWidth <= 859;
-      isMobile.value = isMobileNow;
-      
-      // На мобильных устройствах показываем sidebar только при первом входе на страницу
-      // Проверяем, что мы перешли с другой страницы (не с /messenger или /admin)
-      const comingFromDifferentPage = !route.from || 
+  () => route.path,
+  (newPath, oldPath) => {
+    // Проверяем, что мы на странице мессенджера или админа
+    const isMobileNow = isMobile.value;
+    const comingFromDifferentPage = route.from && 
                                     (route.from.path !== '/messenger' && route.from.path !== '/admin');
-      
-      if (isMobileNow && comingFromDifferentPage) {
-        // Используем nextTick вместо setTimeout для гарантии отрисовки
-        nextTick(() => {
-          sidebarVisible.value = true;
-          console.log('[App] Показываем SideBar на мобильном устройстве при входе на страницу', 
+    
+    if (isMobileNow && comingFromDifferentPage) {
+      // Используем nextTick вместо setTimeout для гарантии отрисовки
+      nextTick(() => {
+        const { $showSidebar } = useNuxtApp();
+        if ($showSidebar) $showSidebar();
+        console.log('[App] Показываем SideBar на мобильном устройстве при входе на страницу', 
                      { path: newPath, isMobile: isMobileNow, from: route.from?.path });
-        });
-      }
+      });
     }
   },
   { immediate: true }
@@ -87,14 +86,7 @@ onMounted(() => {
   checkMobile();
   window.addEventListener('resize', checkMobile);
   
-  // Делаем состояние видимости боковой панели доступным глобально
-  const nuxtApp = useNuxtApp();
-  nuxtApp.$sidebarVisible = sidebarVisible;
-  
-  // Следим за изменениями глобального состояния
-  watch(() => nuxtApp.$sidebarVisible.value, (newValue) => {
-    sidebarVisible.value = newValue;
-  });
+  // Вся логика проверки активного чата и наблюдения за DOM реализована в плагине sidebar-manager.js
   
   // Если мы на странице мессенжера или админа и на мобильном устройстве,
   // показываем SideBar только при первой загрузке страницы
@@ -108,7 +100,9 @@ onMounted(() => {
       
       // Используем вложенные setTimeout для гарантии отрисовки
       setTimeout(() => {
-        sidebarVisible.value = true;
+        // Используем метод из плагина sidebar-manager.js
+        const { $showSidebar } = useNuxtApp();
+        if ($showSidebar) $showSidebar();
         console.log('[App] Показываем SideBar при первом монтировании', { path: route.path, isMobile: isMobile.value });
       }, 50);
     }
@@ -119,22 +113,24 @@ onUnmounted(() => {
   window.removeEventListener('resize', checkMobile);
 });
 
-// Создаем provide для доступа из других компонентов
-provide('sidebarVisible', sidebarVisible);
-provide('toggleSidebar', () => {
-  sidebarVisible.value = !sidebarVisible.value;
-});
+// Используем методы из плагина sidebar-manager.js
+// Все необходимые методы уже предоставлены через плагин
 
 // Предоставляем информацию о мобильном режиме
 provide('isMobile', isMobile);
+
+// Используем методы из плагина sidebar-manager.js для управления боковой панелью
 provide('showChat', () => {
   if (isMobile.value) {
-    sidebarVisible.value = false;
+    const { $hideSidebar } = useNuxtApp();
+    if ($hideSidebar) $hideSidebar();
   }
 });
+
 provide('showSidebar', () => {
   if (isMobile.value) {
-    sidebarVisible.value = true;
+    const { $showSidebar } = useNuxtApp();
+    if ($showSidebar) $showSidebar();
   }
 });
 </script>

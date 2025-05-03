@@ -1,9 +1,8 @@
 <template>
   <div>
     <!-- Service message -->
-    <div v-if="message.type === 'service'" class="service_message">
-      <div>{{ message.text }}</div>
-      <div class="time">{{ formatTime(message.createdAt || message.timestamp) }}</div>
+    <div v-if="isServiceMessage" class="service-message service">
+      <div class="service-message__text">{{ message.text }}</div>
     </div>
     
     <!-- Regular message -->
@@ -121,6 +120,29 @@ const isOwnMessage = computed(() => {
   return props.message.sender && authStore.user && props.message.sender._id === authStore.user._id;
 });
 
+// Проверка, является ли сообщение служебным
+const isServiceMessage = computed(() => {
+  // Проверяем тип сообщения
+  if (props.message.type === 'service') {
+    return true;
+  }
+  
+  // Проверяем содержимое сообщения на наличие ключевых фраз, характерных для служебных сообщений
+  const text = props.message.text || '';
+  const servicePatterns = [
+    /создал групповой чат/i,
+    /покинул чат/i,
+    /удалил из чата/i,
+    /добавил в чат/i,
+    /был удален из чата/i,
+    /был добавлен в чат/i,
+    /добавил в чат пользователей/i,
+    /добавил в чат пользователя/i
+  ];
+  
+  return servicePatterns.some(pattern => pattern.test(text));
+});
+
 // Форматирование времени сообщения
 const formatTime = (timestamp) => {
   if (!timestamp) return '';
@@ -144,15 +166,26 @@ const handleMessageClick = (event) => {
 <style lang="sass">
 @import '@variables'
 
-.service_message
-  text-align: center
-  margin: 10px 0
-  color: rgba(255, 255, 255, 0.7)
-  font-size: 14px
+.service-message
+  text-align: center;
+  margin: 5px auto;
+  padding: 5px;
+  max-width: 100%
+  width: max-content
+  border-radius: 12px;
+  background-color: darken($purple, 10%);
+  color: $white;
+  font-size: 14px;
+  display: flex
+  flex-direction: column;
+  align-items: center;
   
-  .time
+  &__text
+    font-weight: 500
+    margin-bottom: 4px
+  
+  &__time
     font-size: 12px
-    margin-top: 2px
     opacity: 0.7
 
 .message

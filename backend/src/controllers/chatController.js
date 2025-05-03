@@ -3,6 +3,29 @@ import Message from '../models/Message.js';
 import User from '../models/User.js';
 import { getFileUrl } from '../middleware/uploadMiddleware.js';
 
+// Вспомогательная функция для создания служебных сообщений
+const createServiceMessage = async (chatId, text, userId) => {
+  try {
+    // Создаем новое служебное сообщение
+    const serviceMessage = await Message.create({
+      chat: chatId,
+      sender: userId, // Отправитель - пользователь, который вызвал действие
+      text: text,
+      type: 'service',
+      media_type: 'none',
+      read_by: [userId] // По умолчанию считаем, что отправитель уже прочитал сообщение
+    });
+    
+    // Загружаем данные отправителя
+    await serviceMessage.populate('sender', 'name email avatar');
+    
+    return serviceMessage;
+  } catch (error) {
+    console.error('Ошибка при создании служебного сообщения:', error);
+    return null;
+  }
+};
+
 // @desc    Создание нового чата
 // @route   POST /api/chats
 // @access  Private
@@ -46,36 +69,41 @@ const createChat = async (req, res) => {
     
     const newChat = await Chat.create(chatData);
     
-    // Создаем сервисное сообщение о создании чата только для групповых чатов
-    // Для приватных чатов будем использовать initialMessage из запроса
-    if (type !== 'private') {
-      await Message.create({
-        chat: newChat._id,
-        sender: req.user._id,
-        text: `${req.user.name} создал(а) чат "${name}"`,
-        type: 'service'
-      });
-    } else if (initialMessage) {
-      // Для приватных чатов создаем первое сообщение из initialMessage
-      await Message.create({
-        chat: newChat._id,
-        sender: req.user._id,
-        text: initialMessage,
-        type: 'default'
-      });
-    }
-    
     // Получаем полные данные чата с информацией об участниках
     const populatedChat = await Chat.findById(newChat._id)
-      .populate('creator', 'name email')
-      .populate('participants', 'name email')
-      .populate({
-        path: 'lastMessage',
-        populate: {
-          path: 'sender',
-          select: 'name'
-        }
+      .populate('creator', 'name email avatar')
+      .populate('participants', 'name email avatar');
+    
+    // Создаем служебное сообщение о создании чата (только для групповых чатов)
+    let messages = [];
+    if (type === 'group') {
+      const serviceMessage = await createServiceMessage(
+        populatedChat._id, 
+        `${req.user.name} создал групповой чат "${populatedChat.name}"`, 
+        req.user._id
+      );
+      
+      if (serviceMessage) {
+        messages.push(serviceMessage);
+      }
+    }
+    
+    // Создаем первое сообщение, если оно было передано
+    if (initialMessage) {
+      const firstMessage = await Message.create({
+        chat: populatedChat._id,
+        sender: req.user._id,
+        text: initialMessage,
+        read_by: [req.user._id]
       });
+      
+      // Загружаем данные отправителя
+      await firstMessage.populate('sender', 'name email avatar');
+      messages.push(firstMessage);
+    }
+    
+    // Добавляем сообщения в ответ
+    populatedChat._doc.messages = messages;
     
     // Отправляем уведомление всем участникам чата через WebSocket
     populatedChat.participants.forEach(participant => {
@@ -294,12 +322,32 @@ const addChatParticipants = async (req, res) => {
     const newUsers = await User.find({ _id: { $in: newParticipants } });
     const userNames = newUsers.map(user => user.name).join(', ');
     
-    await Message.create({
-      chat: chatId,
-      sender: req.user._id,
-      text: `${req.user.name} добавил(а) пользователей: ${userNames}`,
-      type: 'service'
-    });
+    // Формируем текст сообщения в зависимости от количества добавленных пользователей
+    let messageText;
+    if (newUsers.length === 1) {
+      messageText = `${req.user.name} добавил в чат пользователя ${userNames}`;
+    } else {
+      messageText = `${req.user.name} добавил в чат пользователей: ${userNames}`;
+    }
+    
+    const serviceMessage = await createServiceMessage(
+      chatId,
+      messageText,
+      req.user._id
+    );
+    
+    // Отправляем уведомление о новом сообщении всем участникам чата через WebSocket
+    if (serviceMessage && req.app.locals.io) {
+      chat.participants.forEach(participantId => {
+        const socketId = req.app.locals.userSockets[participantId.toString()]?.id;
+        if (socketId) {
+          req.app.locals.io.to(socketId).emit('new-message', { 
+            message: serviceMessage, 
+            chatId: chatId 
+          });
+        }
+      });
+    }
     
     // Получаем обновленные данные чата
     const updatedChat = await Chat.findById(chatId)
@@ -332,47 +380,57 @@ const removeChatParticipant = async (req, res) => {
     const chat = await Chat.findOne({
       _id: chatId,
       creator: req.user._id
-    });
+    }).populate('participants', 'name email');
     
     if (!chat) {
       return res.status(404).json({ error: 'Чат не найден или вы не являетесь его создателем' });
     }
     
-    // Проверяем, является ли удаляемый пользователь участником чата
-    if (!chat.participants.some(p => p.toString() === userId)) {
+    // Проверяем, существует ли пользователь, которого нужно удалить
+    const userToRemove = await User.findById(userId);
+    
+    if (!userToRemove) {
+      return res.status(404).json({ error: 'Пользователь не найден' });
+    }
+    
+    // Проверяем, является ли пользователь участником чата
+    const participantExists = chat.participants.some(p => p._id.toString() === userId);
+    if (!participantExists) {
       return res.status(400).json({ error: 'Пользователь не является участником чата' });
     }
     
-    // Нельзя удалить создателя чата
-    if (chat.creator.toString() === userId) {
-      return res.status(400).json({ error: 'Нельзя удалить создателя чата' });
-    }
+    // Сохраняем информацию о чате для уведомления
+    const chatName = chat.name;
+    const chatType = chat.type;
+    const removedUserName = userToRemove.name;
+    const removedUserId = userToRemove._id.toString();
+    const removedByUserId = req.user._id.toString();
+    const removedByUserName = req.user.name;
+    
+    // Сохраняем список участников для отправки уведомлений
+    const participants = [...chat.participants];
     
     // Удаляем пользователя из списка участников
-    chat.participants = chat.participants.filter(p => p.toString() !== userId);
+    chat.participants = chat.participants.filter(p => !p._id.equals(userId));
     
-    // Если в чате остался только 1 участник, удаляем чат
-    if (chat.participants.length < 2) {
-      await Chat.findByIdAndDelete(chatId);
-      return res.json({ message: 'Чат удален, так как в нем остался только один участник' });
+    // Если в чате не осталось участников, удаляем его
+    if (chat.participants.length === 0) {
+      await Message.deleteMany({ chat: chatId });
+      await Chat.deleteOne({ _id: chatId });
+      return res.json({ message: 'Чат удален, так как в нем не осталось участников' });
     }
     
-    // Если в чате осталось 2 участника, это уже не групповой чат
-    if (chat.participants.length === 2) {
-      chat.isGroup = false;
-    }
+    // Сохраняем тип чата независимо от количества участников
+    // Групповой чат всегда остается групповым
     
     await chat.save();
     
-    // Создаем сервисное сообщение об удалении участника
-    const removedUser = await User.findById(userId);
-    
-    await Message.create({
-      chat: chatId,
-      sender: req.user._id,
-      text: `${req.user.name} удалил(а) пользователя ${removedUser ? removedUser.name : 'Unknown'}`,
-      type: 'service'
-    });
+    // Создаем служебное сообщение об удалении пользователя
+    const serviceMessage = await createServiceMessage(
+      chatId,
+      `${removedByUserName} удалил из чата пользователя ${removedUserName}`,
+      req.user._id
+    );
     
     // Получаем обновленные данные чата
     const updatedChat = await Chat.findById(chatId)
@@ -385,6 +443,32 @@ const removeChatParticipant = async (req, res) => {
           select: 'name'
         }
       });
+    
+    // Отправляем уведомление оставшимся участникам об обновлении чата
+    participants.forEach(participant => {
+      if (req.app.locals.userSockets[participant._id.toString()]) {
+        const socketId = req.app.locals.userSockets[participant._id.toString()].id;
+        req.app.locals.io.to(socketId).emit('chat-updated', updatedChat);
+        
+        // Отправляем служебное сообщение
+        if (serviceMessage) {
+          req.app.locals.io.to(socketId).emit('new-message', serviceMessage);
+        }
+      }
+    });
+    
+    // Отправляем уведомление удаленному пользователю
+    if (req.app.locals.userSockets[removedUserId]) {
+      const socketId = req.app.locals.userSockets[removedUserId].id;
+      req.app.locals.io.to(socketId).emit('participant-removed', {
+        chatId,
+        chatName,
+        removedBy: removedByUserId,
+        removedByName: removedByUserName,
+        removedUser: removedUserId,
+        removedUserName: removedUserName
+      });
+    }
     
     res.json(updatedChat);
   } catch (error) {
@@ -404,50 +488,100 @@ const leaveChat = async (req, res) => {
     const chat = await Chat.findOne({
       _id: chatId,
       participants: req.user._id
-    });
+    }).populate('participants', 'name email');
     
     if (!chat) {
       return res.status(404).json({ error: 'Чат не найден или вы не являетесь его участником' });
     }
     
-    // Если пользователь является создателем чата, нужно передать права другому участнику
-    if (chat.creator.toString() === req.user._id.toString()) {
-      // Находим другого участника, которому можно передать права
-      const newCreator = chat.participants.find(p => p.toString() !== req.user._id.toString());
+    // Сохраняем информацию о чате для уведомления
+    const chatName = chat.name;
+    const chatType = chat.type;
+    const leavingUserId = req.user._id.toString();
+    const leavingUserName = req.user.name;
+    
+    // Сохраняем список участников для отправки уведомлений
+    const participants = [...chat.participants];
+    
+    // Если это приватный чат, то удаляем его полностью
+    if (chat.type === 'private') {
+      await Message.deleteMany({ chat: chatId });
+      await Chat.deleteOne({ _id: chatId });
       
-      if (!newCreator) {
-        // Если других участников нет, удаляем чат
-        await Chat.findByIdAndDelete(chatId);
-        return res.json({ message: 'Чат удален, так как вы были единственным участником' });
-      }
+      // Отправляем уведомление всем участникам о удалении чата
+      participants.forEach(participant => {
+        if (req.app.locals.userSockets[participant._id.toString()]) {
+          const socketId = req.app.locals.userSockets[participant._id.toString()].id;
+          req.app.locals.io.to(socketId).emit('chat-deleted', {
+            chatId,
+            chatName,
+            chatType,
+            deletedBy: leavingUserId,
+            message: 'Личный чат был удален'
+          });
+        }
+      });
       
-      // Передаем права другому участнику
-      chat.creator = newCreator;
+      return res.json({ message: 'Чат успешно удален' });
     }
     
-    // Удаляем пользователя из списка участников
-    chat.participants = chat.participants.filter(p => p.toString() !== req.user._id.toString());
+    // Если это групповой чат, то удаляем пользователя из списка участников
+    chat.participants = chat.participants.filter(p => !p._id.equals(req.user._id));
     
-    // Если в чате остался только 1 участник, удаляем чат
-    if (chat.participants.length < 2) {
-      await Chat.findByIdAndDelete(chatId);
-      return res.json({ message: 'Чат удален, так как в нем остался только один участник' });
+    // Если пользователь был создателем чата, назначаем нового создателя
+    if (chat.creator.equals(req.user._id) && chat.participants.length > 0) {
+      chat.creator = chat.participants[0]._id;
     }
     
-    // Если в чате осталось 2 участника, это уже не групповой чат
-    if (chat.participants.length === 2) {
-      chat.isGroup = false;
+    // Если в чате не осталось участников, удаляем его
+    if (chat.participants.length === 0) {
+      await Message.deleteMany({ chat: chatId });
+      await Chat.deleteOne({ _id: chatId });
+      return res.json({ message: 'Чат успешно удален' });
     }
+    
+    // Сохраняем тип чата независимо от количества участников
+    // Групповой чат всегда остается групповым
     
     await chat.save();
     
-    // Создаем сервисное сообщение о выходе из чата
-    await Message.create({
-      chat: chatId,
-      sender: req.user._id,
-      text: `${req.user.name} покинул(а) чат`,
-      type: 'service'
+    // Создаем служебное сообщение о выходе из чата
+    const serviceMessage = await createServiceMessage(
+      chatId,
+      `${req.user.name} покинул чат`,
+      req.user._id
+    );
+    
+    // Получаем обновленные данные чата для отправки уведомления
+    const updatedChat = await Chat.findById(chatId)
+      .populate('creator', 'name email')
+      .populate('participants', 'name email')
+      .populate({
+        path: 'lastMessage',
+        populate: {
+          path: 'sender',
+          select: 'name'
+        }
+      });
+    
+    // Отправляем уведомление оставшимся участникам об обновлении чата
+    chat.participants.forEach(participant => {
+      if (req.app.locals.userSockets[participant._id.toString()]) {
+        const socketId = req.app.locals.userSockets[participant._id.toString()].id;
+        req.app.locals.io.to(socketId).emit('chat-updated', updatedChat);
+      }
     });
+    
+    // Отправляем уведомление покинувшему пользователю о выходе из чата
+    if (req.app.locals.userSockets[leavingUserId]) {
+      const socketId = req.app.locals.userSockets[leavingUserId].id;
+      req.app.locals.io.to(socketId).emit('participant-left', {
+        chatId,
+        userId: leavingUserId,
+        userName: leavingUserName,
+        message: `Вы покинули чат "${chatName}"`
+      });
+    }
     
     res.json({ message: 'Вы успешно покинули чат' });
   } catch (error) {
@@ -485,11 +619,37 @@ const deleteChat = async (req, res) => {
       }
     }
     
+    // Сохраняем информацию о чате и участниках перед удалением
+    const chatParticipants = [...chat.participants];
+    const chatName = chat.name;
+    const chatType = chat.type;
+    const deletedBy = req.user._id;
+    
     // Удаляем все сообщения чата
     await Message.deleteMany({ chat: chatId });
     
     // Удаляем сам чат
     await Chat.deleteOne({ _id: chatId });
+    
+    // Отправляем уведомление всем участникам чата через WebSocket
+    chatParticipants.forEach(participantId => {
+      // Проверяем, подключен ли пользователь через WebSocket
+      if (req.app.locals.userSockets && 
+          req.app.locals.userSockets[participantId.toString()]) {
+        
+        // Получаем ID сокета пользователя
+        const socketId = req.app.locals.userSockets[participantId.toString()].id;
+        
+        // Отправляем событие удаления чата
+        req.app.locals.io.to(socketId).emit('chat-deleted', {
+          chatId,
+          chatName,
+          chatType,
+          deletedBy: deletedBy.toString(),
+          message: chatType === 'private' ? 'Личный чат был удален' : `Групповой чат "${chatName}" был удален`
+        });
+      }
+    });
     
     res.json({ message: 'Чат успешно удален' });
   } catch (error) {

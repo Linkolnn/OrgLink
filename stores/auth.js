@@ -9,12 +9,20 @@ import { safeFetch } from '~/utils/safeFetch';
 export const useAuthStore = defineStore('auth', {
   state: () => {
     // Пытаемся восстановить токен из cookie при инициализации хранилища
-    const tokenCookie = useCookie('token');
+    const tokenCookie = useCookie('token', {
+      // Улучшенные настройки для серверной cookie
+      maxAge: 60 * 60 * 24 * 30, // 30 дней в секундах
+      path: '/',
+      secure: process.env.NODE_ENV === 'production', // Только в продакшене
+      sameSite: 'strict'
+    });
+    
     const clientTokenCookie = useCookie('client_token', {
-      // Настройки для локальной cookie
-      maxAge: 2592000, // 30 дней в секундах
+      // Улучшенные настройки для локальной cookie
+      maxAge: 60 * 60 * 24 * 30, // 30 дней в секундах
+      path: '/',
       sameSite: 'lax',
-      path: '/'
+      expires: new Date(Date.now() + 1000 * 60 * 60 * 24 * 30) // Явно устанавливаем дату истечения
     });
     
     let token = null;

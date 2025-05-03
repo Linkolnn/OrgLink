@@ -110,12 +110,19 @@
                   v-for="user in searchResults" 
                   :key="user._id" 
                   class="search-result-item"
-                  @click="addUserToChat(user)"
+                  :class="{ 'adding': user.adding }"
+                  @click="!user.adding && addUserToChat(user)"
                 >
-                  <div class="user-avatar">{{ getInitials(user.name) }}</div>
+                  <div class="user-avatar">
+                    <div v-if="user.avatar" class="avatar" :style="{ backgroundImage: `url(${secureUrl(user.avatar)})` }"></div>
+                    <div v-else class="avatar-placeholder">{{ getInitials(user.name) }}</div>
+                  </div>
                   <div class="user-info">
                     <div class="user-name">{{ user.name }}</div>
                     <div class="user-email">{{ user.email }}</div>
+                  </div>
+                  <div v-if="user.adding" class="adding-indicator">
+                    <div class="spinner"></div>
                   </div>
                 </div>
               </div>
@@ -128,40 +135,45 @@
         
         <!-- Список участников -->
         <div class="participants-section">
-          <h4>Участники ({{ participants.length }})</h4>
+          <h4>Участники ({{ localParticipants.length }})</h4>
           <div v-if="loading" class="loading">
             Загрузка...
           </div>
-          <div v-else-if="participants.length === 0" class="no-participants">
+          <div v-else-if="localParticipants.length === 0" class="no-participants">
             В чате нет участников
           </div>
           <div v-else class="participants-list">
-            <div 
-              v-for="participant in participants" 
-              :key="participant._id" 
-              class="participant-item"
-              :class="{ 'is-creator': isCreator(participant._id) }"
-            >
-              <div class="participant-avatar">{{ getInitials(participant.name) }}</div>
-              <div class="participant-info">
-                <div class="participant-name">
-                  {{ participant.name }}
-                  <span v-if="isCreator(participant._id)" class="creator-badge">Создатель</span>
+            <transition-group name="participant-list" tag="div">
+              <div 
+                v-for="participant in localParticipants" 
+                :key="participant._id" 
+                class="participant-item"
+                :class="{ 'is-creator': isCreator(participant._id) }"
+              >
+                <div class="participant-avatar">
+                  <div v-if="participant.avatar" class="avatar" :style="{ backgroundImage: `url(${secureUrl(participant.avatar)})` }"></div>
+                  <div v-else class="avatar-placeholder">{{ getInitials(participant.name) }}</div>
                 </div>
-                <div class="participant-email">{{ participant.email }}</div>
+                <div class="participant-info">
+                  <div class="participant-name">
+                    {{ participant.name }}
+                    <span v-if="isCreator(participant._id)" class="creator-badge">Создатель</span>
+                  </div>
+                  <div class="participant-email">{{ participant.email }}</div>
+                </div>
+                <div class="participant-actions">
+                  <button 
+                    v-if="canRemoveParticipant(participant._id)" 
+                    class="remove-btn" 
+                    @click="removeUserFromChat(participant._id)"
+                    :disabled="removingParticipant === participant._id"
+                  >
+                    <span v-if="removingParticipant === participant._id">...</span>
+                    <span v-else>Удалить</span>
+                  </button>
+                </div>
               </div>
-              <div class="participant-actions">
-                <button 
-                  v-if="canRemoveParticipant(participant._id)" 
-                  class="remove-btn" 
-                  @click="removeUserFromChat(participant._id)"
-                  :disabled="removingParticipant === participant._id"
-                >
-                  <span v-if="removingParticipant === participant._id">...</span>
-                  <span v-else>Удалить</span>
-                </button>
-              </div>
-            </div>
+            </transition-group>
           </div>
         </div>
         
@@ -280,7 +292,7 @@ const props = defineProps({
   }
 });
 
-const emit = defineEmits(['close', 'saved']);
+const emit = defineEmits(['close', 'saved', 'update:chatData']);
 
 const fileInput = ref(null);
 const loading = ref(false);
@@ -307,6 +319,41 @@ const chatFormData = ref({
 // Предварительный просмотр аватара
 const previewImage = ref('');
 
+// Проверка, является ли пользователь создателем чата
+const isCreator = (userId) => {
+  // Если нет ID пользователя или данных чата, возвращаем false
+  if (!userId || !props.chatData) return false;
+  
+  // Проверяем разные возможные форматы поля creator
+  if (props.chatData.creator) {
+    // Если creator - это объект с _id
+    if (typeof props.chatData.creator === 'object' && props.chatData.creator?._id) {
+      return props.chatData.creator._id === userId;
+    }
+    
+    // Если creator - это строка с ID
+    if (typeof props.chatData.creator === 'string') {
+      return props.chatData.creator === userId;
+    }
+  }
+  
+  // Проверяем альтернативное поле createdBy
+  if (props.chatData.createdBy) {
+    if (typeof props.chatData.createdBy === 'object' && props.chatData.createdBy?._id) {
+      return props.chatData.createdBy._id === userId;
+    }
+    
+    if (typeof props.chatData.createdBy === 'string') {
+      return props.chatData.createdBy === userId;
+    }
+  }
+  
+  return false;
+};
+
+// Локальный список участников для плавной анимации
+const localParticipants = ref([]);
+
 // Список участников чата
 const participants = computed(() => {
   if (!props.chatData || !props.chatData.participants) return [];
@@ -321,6 +368,12 @@ const participants = computed(() => {
     return 0;
   });
 });
+
+// Обновляем локальный список участников при изменении данных чата
+// Но только при открытии модального окна или при успешном добавлении/удалении участника
+const updateLocalParticipants = () => {
+  localParticipants.value = participants.value;
+};
 
 // Инициализация данных при открытии модального окна
 watch(() => props.isOpen, (isOpen) => {
@@ -340,6 +393,9 @@ watch(() => props.isOpen, (isOpen) => {
       } else {
         previewImage.value = '';
       }
+      
+      // Инициализируем локальный список участников
+      updateLocalParticipants();
     } else {
       // Если создаем новый чат
       chatFormData.value = {
@@ -349,9 +405,12 @@ watch(() => props.isOpen, (isOpen) => {
         theme: 'light',
         language: 'ru'
       };
+      
       previewImage.value = '';
+      localParticipants.value = [];
     }
     
+    // Сбрасываем поиск
     searchQuery.value = '';
     searchResults.value = [];
     activeTab.value = 'edit';
@@ -405,22 +464,19 @@ const getInitials = (name) => {
     .join('');
 };
 
-// Проверка, является ли пользователь создателем чата
-const isCreator = (userId) => {
-  // Проверяем разные возможные поля для определения создателя
-  return (
-    props.chatData?.creator === userId || 
-    props.chatData?.createdBy === userId ||
-    (props.chatData?.creator && props.chatData.creator._id === userId)
-  );
-};
+// Проверка может ли текущий пользователь удалить чат
 
 // Проверка, может ли текущий пользователь удалить участника
 const canRemoveParticipant = (userId) => {
   // Создатель может удалять всех, кроме себя
   // Обычный пользователь не может удалять никого
   const currentUserId = authStore.user?._id;
-  return isCreator(currentUserId) && userId !== currentUserId;
+  
+  // Проверяем, является ли текущий пользователь создателем чата
+  const isCurrentUserCreator = props.chatData?.creator?._id === currentUserId;
+  
+  // Создатель может удалять всех, кроме себя
+  return isCurrentUserCreator && userId !== currentUserId;
 };
 
 // Поиск пользователей
@@ -449,13 +505,46 @@ const searchUsers = async () => {
 // Добавление пользователя в чат
 const addUserToChat = async (user) => {
   try {
-    loading.value = true;
-    await chatStore.addChatParticipants(props.chatData._id, [user._id]);
-    searchQuery.value = '';
-    searchResults.value = [];
+    // Добавляем индикатор добавления для этого пользователя
+    user.adding = true;
+    
+    // Обновляем список результатов поиска, чтобы показать индикатор
+    searchResults.value = [...searchResults.value];
+    
+    // Добавляем пользователя в чат
+    const updatedChat = await chatStore.addChatParticipants(props.chatData._id, [user._id]);
+    
+    // Если операция успешна, обновляем данные чата и сбрасываем поиск
+    if (updatedChat) {
+      // Обновляем данные чата в пропсах
+      emit('update:chatData', updatedChat);
+      
+      // Сбрасываем поиск
+      searchQuery.value = '';
+      searchResults.value = [];
+      
+      // Плавно обновляем локальный список участников
+      setTimeout(() => {
+        updateLocalParticipants();
+      }, 300);
+      
+      // Показываем уведомление об успехе
+      if (window.$showNotification) {
+        window.$showNotification(`Пользователь ${user.name} добавлен в чат`, 'success');
+      }
+    }
   } catch (error) {
     console.error('Ошибка при добавлении пользователя:', error);
+    
+    // Показываем уведомление об ошибке
+    if (window.$showNotification) {
+      window.$showNotification('Не удалось добавить пользователя', 'error');
+    }
   } finally {
+    // Удаляем индикатор добавления
+    if (user.adding) {
+      user.adding = false;
+    }
     loading.value = false;
   }
 };
@@ -463,10 +552,36 @@ const addUserToChat = async (user) => {
 // Удаление пользователя из чата
 const removeUserFromChat = async (userId) => {
   try {
+    // Сохраняем информацию о пользователе до его удаления
+    const participant = localParticipants.value.find(p => p._id === userId);
+    const participantName = participant?.name || 'Участник';
+    
+    // Отмечаем, что пользователь удаляется
     removingParticipant.value = userId;
-    await chatStore.removeChatParticipant(props.chatData._id, userId);
+    
+    // Плавно удаляем пользователя из локального списка
+    localParticipants.value = localParticipants.value.filter(p => p._id !== userId);
+    
+    // Удаляем пользователя из чата на сервере
+    const updatedChat = await chatStore.removeChatParticipant(props.chatData._id, userId);
+    
+    // Обновляем данные чата в пропсах
+    if (updatedChat) {
+      emit('update:chatData', updatedChat);
+    }
+    
+    // Показываем уведомление об успешном удалении
+    if (window.$showNotification) {
+      window.$showNotification(`Пользователь ${participantName} удален из чата`, 'success');
+    }
   } catch (error) {
     console.error('Ошибка при удалении пользователя:', error);
+    if (window.$showNotification) {
+      window.$showNotification('Не удалось удалить пользователя', 'error');
+    }
+    
+    // В случае ошибки синхронизируем локальный список с сервером
+    updateLocalParticipants();
   } finally {
     removingParticipant.value = null;
   }
@@ -474,7 +589,13 @@ const removeUserFromChat = async (userId) => {
 
 // Подтверждение выхода из чата
 const confirmLeaveChat = () => {
-  confirmMessage.value = 'Вы уверены, что хотите покинуть этот чат?';
+  // Разные сообщения для группового и личного чата
+  if (chatStore.isGroupChat(props.chatData)) {
+    confirmMessage.value = 'Вы уверены, что хотите покинуть этот групповой чат? Вы больше не сможете видеть сообщения в этом чате.';
+  } else {
+    confirmMessage.value = 'Вы уверены, что хотите покинуть этот чат? Вся история сообщений будет удалена.';
+  }
+  
   confirmAction.value = leaveChat;
   showConfirmDialog.value = true;
 };
@@ -483,11 +604,28 @@ const confirmLeaveChat = () => {
 const leaveChat = async () => {
   try {
     leavingChat.value = true;
+    const chatName = props.chatData.name || 'Чат';
+    const isGroup = chatStore.isGroupChat(props.chatData);
+    
     await chatStore.leaveChat(props.chatData._id);
+    
+    // Показываем уведомление об успешном выходе из чата
+    if (window.$showNotification) {
+      const message = isGroup 
+        ? `Вы успешно покинули групповой чат "${chatName}"` 
+        : `Чат "${chatName}" был удален`;
+      window.$showNotification(message, 'success');
+    }
+    
     closeModal();
     emit('saved');
   } catch (error) {
     console.error('Ошибка при выходе из чата:', error);
+    
+    // Показываем уведомление об ошибке
+    if (window.$showNotification) {
+      window.$showNotification('Не удалось покинуть чат', 'error');
+    }
   } finally {
     leavingChat.value = false;
     showConfirmDialog.value = false;
@@ -496,7 +634,13 @@ const leaveChat = async () => {
 
 // Подтверждение удаления чата
 const confirmDeleteChat = () => {
-  confirmMessage.value = 'Вы уверены, что хотите удалить этот чат?';
+  // Разные сообщения для группового и личного чата
+  if (chatStore.isGroupChat(props.chatData)) {
+    confirmMessage.value = 'Вы уверены, что хотите удалить этот групповой чат? Чат будет удален для всех участников, и вся история сообщений будет утеряна.';
+  } else {
+    confirmMessage.value = 'Вы уверены, что хотите удалить этот чат? Вся история сообщений будет удалена.';
+  }
+  
   confirmAction.value = deleteChat;
   showConfirmDialog.value = true;
 };
@@ -505,11 +649,28 @@ const confirmDeleteChat = () => {
 const deleteChat = async () => {
   try {
     deletingChat.value = true;
+    const chatName = props.chatData.name || 'Чат';
+    const isGroup = chatStore.isGroupChat(props.chatData);
+    
     await chatStore.deleteChat(props.chatData._id);
+    
+    // Показываем уведомление об успешном удалении чата
+    if (window.$showNotification) {
+      const message = isGroup 
+        ? `Групповой чат "${chatName}" был удален` 
+        : `Чат "${chatName}" был удален`;
+      window.$showNotification(message, 'success');
+    }
+    
     closeModal();
     emit('saved');
   } catch (error) {
     console.error('Ошибка при удалении чата:', error);
+    
+    // Показываем уведомление об ошибке
+    if (window.$showNotification) {
+      window.$showNotification('Не удалось удалить чат', 'error');
+    }
   } finally {
     deletingChat.value = false;
     showConfirmDialog.value = false;
@@ -625,44 +786,21 @@ const getOtherParticipantAvatar = (chat) => {
 const copyToClipboard = (text) => {
   if (!text) return;
   
+  const { $notify } = useNuxtApp();
+  
   navigator.clipboard.writeText(text)
     .then(() => {
       console.log('Текст скопирован в буфер обмена:', text);
-      showNotification('Скопировано в буфер обмена', 'info');
+      $notify('Скопировано в буфер обмена', 'info');
     })
     .catch(err => {
       console.error('Не удалось скопировать текст: ', err);
-      showNotification('Не удалось скопировать текст', 'error');
+      $notify('Не удалось скопировать текст', 'error');
     });
-};
-
-// Функция для показа уведомлений
-const showNotification = (message, type = 'info') => {
-  // Здесь можно использовать любую библиотеку уведомлений
-  // или просто вывести в консоль для тестирования
-  console.log(`Уведомление (${type}): ${message}`);
-  
-  // Пример реализации простого уведомления
-  const notification = document.createElement('div');
-  notification.className = `notification notification--${type}`;
-  notification.textContent = message;
-  
-  document.body.appendChild(notification);
-  
-  setTimeout(() => {
-    notification.classList.add('notification--show');
-  }, 10);
-  
-  setTimeout(() => {
-    notification.classList.remove('notification--show');
-    setTimeout(() => {
-      document.body.removeChild(notification);
-    }, 300);
-  }, 3000);
 };
 </script>
 
-<style lang="sass" scoped>
+<style lang="sass">
 @import '~/assets/styles/variables'
 
 .modal-overlay
@@ -1077,6 +1215,39 @@ const showNotification = (message, type = 'info') => {
     &:hover
       background-color: rgba(255, 255, 255, 0.1)
 
+.search-result-item
+  display: flex
+  align-items: center
+  padding: 10px
+  border-radius: $radius
+  cursor: pointer
+  transition: background-color 0.2s, opacity 0.3s
+  margin-bottom: 5px
+  position: relative
+  
+  &:hover
+    background-color: rgba(255, 255, 255, 0.05)
+  
+  &.adding
+    pointer-events: none
+    opacity: 0.7
+    background-color: rgba(255, 255, 255, 0.05)
+  
+  .adding-indicator
+    position: absolute
+    right: 10px
+    display: flex
+    align-items: center
+    justify-content: center
+    
+    .spinner
+      width: 16px
+      height: 16px
+      border: 2px solid rgba(255, 255, 255, 0.3)
+      border-top-color: $purple
+      border-radius: 50%
+      animation: spin 1s linear infinite
+
 .copy-icon
   font-size: 16px
   color: rgba(255, 255, 255, 0.7)
@@ -1114,13 +1285,25 @@ const showNotification = (message, type = 'info') => {
     opacity: 0.5
     cursor: not-allowed
 
+// Стили для анимации списка участников
+.participant-list-enter-active, .participant-list-leave-active
+  transition: all 0.5s ease
+
+.participant-list-enter-from
+  opacity: 0
+  transform: translateY(-20px)
+
+.participant-list-leave-to
+  opacity: 0
+  transform: translateY(20px)
+
 // Стили для уведомлений
 .notification
   position: fixed
   bottom: 20px
   left: 50%
   transform: translateX(-50%) translateY(100px)
-  padding: 12px 20px
+  padding: 10px 
   border-radius: $radius
   color: $white
   font-size: 14px

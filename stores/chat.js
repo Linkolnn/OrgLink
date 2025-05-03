@@ -51,82 +51,174 @@ export const useChatStore = defineStore('chat', {
       
       // Удаляем существующие обработчики, чтобы избежать дублирования
       $socket.off('new-message');
-      $socket.off('messages-read');
+      $socket.off('message-updated');
+      $socket.off('message-deleted');
+      $socket.off('message-read');
       $socket.off('new-chat');
       $socket.off('chat-updated');
       $socket.off('chat-deleted');
+      $socket.off('participant-left');
+      $socket.off('participant-removed');
       
-      // Слушаем новые сообщения
-      $socket.on('new-message', ({ message, chatId }) => {
-        console.log('WebSocket: Получено новое сообщение:', message, 'для чата:', chatId);
+      // Добавляем обработчик нового сообщения
+      $socket.on('new-message', (message) => {
+        console.log('WebSocket: Получено новое сообщение:', message);
+        this.addNewMessage(message);
+      });
+      
+      // Добавляем обработчик обновления сообщения
+      $socket.on('message-updated', (updatedMessage) => {
+        console.log('WebSocket: Сообщение обновлено:', updatedMessage);
         
-        try {
-          // Создаем копию сообщения для добавления в список
-          const messageCopy = JSON.parse(JSON.stringify(message));
+        // Обновляем сообщение в списке
+        const messageIndex = this.messages.findIndex(msg => msg._id === updatedMessage._id);
+        if (messageIndex !== -1) {
+          this.messages.splice(messageIndex, 1, updatedMessage);
+        }
+        
+        // Обновляем lastMessage в чате, если это последнее сообщение
+        const chatIndex = this.chats.findIndex(chat => 
+          chat.lastMessage && chat.lastMessage._id === updatedMessage._id
+        );
+        
+        if (chatIndex !== -1) {
+          const updatedChat = { 
+            ...this.chats[chatIndex],
+            lastMessage: updatedMessage
+          };
+          this.chats.splice(chatIndex, 1, updatedChat);
           
-          // Добавляем сообщение в список
-          this.addNewMessage(messageCopy);
-        } catch (error) {
-          console.error('Ошибка при обработке нового сообщения:', error);
+          // Принудительно обновляем список чатов
+          this.triggerChatListUpdate();
         }
       });
       
-      // Слушаем прочтение сообщений
-      $socket.on('messages-read', ({ chatId, userId }) => {
-        console.log('WebSocket: Получено уведомление о прочтении сообщений в чате:', chatId);
-        try {
-          this.updateMessagesReadStatus(chatId, userId);
-        } catch (error) {
-          console.error('Ошибка при обработке прочтения сообщений:', error);
+      // Добавляем обработчик удаления сообщения
+      $socket.on('message-deleted', ({ messageId, chatId }) => {
+        console.log('WebSocket: Сообщение удалено:', { messageId, chatId });
+        
+        // Удаляем сообщение из списка
+        const messageIndex = this.messages.findIndex(msg => msg._id === messageId);
+        if (messageIndex !== -1) {
+          this.messages.splice(messageIndex, 1);
+        }
+        
+        // Обновляем lastMessage в чате, если это было последнее сообщение
+        const chatIndex = this.chats.findIndex(chat => 
+          chat.lastMessage && chat.lastMessage._id === messageId
+        );
+        
+        if (chatIndex !== -1) {
+          // Находим новое последнее сообщение
+          const newLastMessage = this.messages
+            .filter(msg => msg.chat === chatId)
+            .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0];
+          
+          const updatedChat = { 
+            ...this.chats[chatIndex],
+            lastMessage: newLastMessage || null
+          };
+          
+          this.chats.splice(chatIndex, 1, updatedChat);
+          
+          // Принудительно обновляем список чатов
+          this.triggerChatListUpdate();
         }
       });
       
-      // Слушаем создание новых чатов
+      // Добавляем обработчик прочтения сообщения
+      $socket.on('message-read', ({ chatId, userId }) => {
+        console.log('WebSocket: Сообщения прочитаны:', { chatId, userId });
+        this.updateMessagesReadStatus(chatId, userId);
+        
+        // Обновляем счетчик непрочитанных сообщений
+        const chatIndex = this.chats.findIndex(chat => chat._id === chatId);
+        if (chatIndex !== -1) {
+          // Если текущий пользователь прочитал сообщения, обнуляем счетчик
+          const authStore = useAuthStore();
+          if (authStore.user && authStore.user._id === userId) {
+            const updatedChat = { ...this.chats[chatIndex], unread: 0 };
+            this.chats.splice(chatIndex, 1, updatedChat);
+            
+            // Принудительно обновляем список чатов
+            this.triggerChatListUpdate();
+          }
+        }
+      });
+      
+      // Добавляем обработчик нового чата
       $socket.on('new-chat', (chat) => {
-        console.log('WebSocket: Получено уведомление о новом чате:', chat);
-        try {
-          // Создаем копию чата для добавления в список
-          const chatCopy = JSON.parse(JSON.stringify(chat));
-          this.addNewChat(chatCopy);
-          
-          // Принудительно обновляем список чатов
-          this.triggerChatListUpdate();
-        } catch (error) {
-          console.error('Ошибка при обработке нового чата:', error);
-        }
+        console.log('WebSocket: Получен новый чат:', chat);
+        this.addNewChat(chat);
       });
       
-      // Слушаем обновление чатов
+      // Добавляем обработчик обновления чата
       $socket.on('chat-updated', (updatedChat) => {
-        console.log('WebSocket: Получено уведомление об обновлении чата:', updatedChat);
-        try {
-          // Создаем копию чата для обновления в списке
-          const chatCopy = JSON.parse(JSON.stringify(updatedChat));
-          this.updateChatInList(chatCopy);
-          
-          // Принудительно обновляем список чатов
-          this.triggerChatListUpdate();
-        } catch (error) {
-          console.error('Ошибка при обработке обновления чата:', error);
+        console.log('WebSocket: Чат обновлен:', updatedChat);
+        this.updateChatInList(updatedChat);
+        
+        // Если это активный чат, обновляем его данные
+        if (this.activeChat && this.activeChat._id === updatedChat._id) {
+          this.activeChat = { ...this.activeChat, ...updatedChat };
         }
       });
       
-      // Слушаем удаление чатов
-      $socket.on('chat-deleted', (chatId) => {
-        console.log('WebSocket: Получено уведомление об удалении чата:', chatId);
-        try {
+      // Добавляем обработчик удаления чата
+      $socket.on('chat-deleted', ({ chatId, chatName, chatType, deletedBy, message }) => {
+        console.log('WebSocket: Чат удален:', { chatId, chatName, chatType, deletedBy, message });
+        
+        // Удаляем чат из списка
+        this.removeChatFromList(chatId);
+        
+        // Показываем уведомление
+        this.showChatDeletedNotification(message);
+      });
+      
+      // Добавляем обработчик события выхода пользователя из чата
+      $socket.on('participant-left', ({ chatId, userId, userName, message }) => {
+        console.log('WebSocket: Пользователь покинул чат:', { chatId, userId, userName, message });
+        
+        // Удаляем чат из списка для пользователя, который покинул чат
+        const authStore = useAuthStore();
+        if (authStore.user && authStore.user._id === userId) {
           this.removeChatFromList(chatId);
           
-          // Принудительно обновляем список чатов
-          this.triggerChatListUpdate();
-        } catch (error) {
-          console.error('Ошибка при обработке удаления чата:', error);
+          // Показываем уведомление
+          if (window.$showNotification) {
+            window.$showNotification(message, 'info');
+          }
         }
+      });
+      
+      // Добавляем обработчик события удаления пользователя из чата
+      $socket.on('participant-removed', ({ chatId, chatName, removedBy, removedByName, message }) => {
+        console.log('WebSocket: Пользователь удален из чата:', { chatId, chatName, removedBy, removedByName, message });
+        
+        // Сохраняем ссылку на $showSidebar до удаления чата
+        const { $showSidebar } = useNuxtApp();
+        
+        // Удаляем чат из списка для удаленного пользователя
+        // Это вызовет resetActiveChat(), который вызовет showSidebarOnMobile()
+        this.removeChatFromList(chatId);
+        
+        // Дополнительно пытаемся показать боковую панель напрямую
+        // Для случаев, когда showSidebarOnMobile() не сработал
+        if ($showSidebar) {
+          console.log('ChatStore: Дополнительно показываем SideBar напрямую через $showSidebar');
+          $showSidebar();
+        }
+        
+        // Показываем уведомление после показа боковой панели
+        setTimeout(() => {
+          if (window.$showNotification) {
+            window.$showNotification(message, 'info');
+          }
+        }, 100); // Добавляем небольшую задержку для гарантии показа боковой панели
       });
       
       // Добавляем обработчик события подключения
       $socket.on('connect', () => {
-        console.log('WebSocket: Успешное подключение к серверу');
+        console.log('WebSocket: Подключение к серверу установлено');
         this.socketConnected = true;
         
         // При подключении обновляем список чатов
@@ -336,10 +428,9 @@ export const useChatStore = defineStore('chat', {
           // Удаляем чат из списка
           this.chats.splice(chatIndex, 1);
           
-          // Если это был активный чат, сбрасываем активный чат
+          // Если это был активный чат, сбрасываем активный чат и все связанные данные
           if (this.activeChat && this.activeChat._id === chatId) {
-            this.activeChat = null;
-            this.messages = [];
+            this.resetActiveChat();
           }
           
           console.log('Чат удален из списка:', chatName);
@@ -1032,6 +1123,16 @@ export const useChatStore = defineStore('chat', {
       this.error = null;
       
       try {
+        // Проверяем, является ли удаляемый участник текущим пользователем
+        const authStore = useAuthStore();
+        const isCurrentUser = authStore.user && authStore.user._id === userId;
+        
+        // Если это текущий пользователь, используем метод leaveChat
+        if (isCurrentUser) {
+          return await this.leaveChat(chatId);
+        }
+        
+        // Иначе удаляем другого участника (только администратор может это сделать)
         const config = useRuntimeConfig();
         const response = await $fetch(`${config.public.backendUrl}/api/chats/${chatId}/participants/${userId}`, {
           method: 'DELETE',
@@ -1048,6 +1149,9 @@ export const useChatStore = defineStore('chat', {
         if (chatIndex !== -1) {
           this.chats.splice(chatIndex, 1, response);
         }
+        
+        // Применяем принудительное обновление списка чатов
+        this.triggerChatListUpdate();
         
         return response;
       } catch (error) {
@@ -1515,6 +1619,53 @@ export const useChatStore = defineStore('chat', {
       this.lastUpdated = new Date().getTime();
       
       console.log('ChatStore: Список чатов обновлен, количество:', this.chats.length);
+    },
+    
+    // Сброс активного чата и связанных данных
+    resetActiveChat() {
+      console.log('ChatStore: Сброс активного чата');
+      this.activeChat = null;
+      this.messages = [];
+      this.messagesLoading = false;
+      this.messagesError = null;
+      this.messagesPage = 1;
+      this.messagesHasMore = false;
+      
+      // Показываем SideBar на мобильных устройствах
+      this.showSidebarOnMobile();
+    },
+    
+    // Показываем SideBar на мобильных устройствах
+    showSidebarOnMobile() {
+      // Проверяем, что мы на мобильном устройстве (ширина экрана <= 859px)
+      const isMobile = window.innerWidth <= 859;
+      
+      if (isMobile) {
+        console.log('ChatStore: Показываем SideBar на мобильном устройстве');
+        
+        // Получаем доступ к глобальному состоянию SideBar
+        const { $sidebarVisible } = useNuxtApp();
+        
+        // Если доступно, показываем SideBar
+        if ($sidebarVisible) {
+          $sidebarVisible.value = true;
+        }
+      }
+    },
+    
+    // Показ уведомления об удалении чата
+    showChatDeletedNotification(message) {
+      console.log('ChatStore: Показ уведомления об удалении чата:', message);
+      
+      // Используем глобальный метод для показа уведомлений
+      if (window.$showNotification) {
+        window.$showNotification(message, 'info');
+      } else {
+        console.log('Глобальный метод $showNotification недоступен, используем запасной вариант');
+        
+        // Запасной вариант - просто выводим в консоль
+        console.log(`Уведомление: Чат удален - ${message}`);
+      }
     }
   }
 });

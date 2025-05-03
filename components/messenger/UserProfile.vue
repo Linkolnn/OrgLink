@@ -1,24 +1,11 @@
 <template>
   <div class="user-profile">
+    <!-- Заголовок с именем пользователя и фиолетовой рамкой снизу -->
     <div class="user-profile__header">
-      <h2 class="user-profile__title">{{ isOtherUser ? userData.name || 'Профиль пользователя' : 'Мой профиль' }}</h2>
-      <button 
-        v-if="!isOtherUser"
-        class="user-profile__edit-btn" 
-        @click="toggleEditMode" 
-        :class="{ 'user-profile__edit-btn--active': isEditing }"
-      >
-        {{ isEditing ? 'Сохранить' : 'Изменить' }}
-      </button>
-      <button 
-        v-else
-        class="user-profile__message-btn" 
-        @click="sendMessage"
-      >
-        Написать сообщение
-      </button>
+      <h2 class="user-profile__title">{{ userData.name || 'Профиль пользователя' }}</h2>
     </div>
     
+    <!-- Аватар и кнопки под ним -->
     <div class="user-profile__avatar-container">
       <div 
         class="user-profile__avatar" 
@@ -28,6 +15,8 @@
           {{ getInitials(userData.name || '') }}
         </div>
       </div>
+      
+      <!-- Кнопка изменения аватара (только в режиме редактирования) -->
       <label v-if="isEditing" class="user-profile__avatar-upload">
         <input 
           type="file" 
@@ -37,6 +26,25 @@
         >
         <span class="user-profile__avatar-upload-text">Изменить фото</span>
       </label>
+      
+      <!-- Кнопки действий (перемещены под аватар) -->
+      <div class="user-profile__actions">
+        <button 
+          v-if="!isOtherUser"
+          class="user-profile__edit-btn" 
+          @click="toggleEditMode" 
+          :class="{ 'user-profile__edit-btn--active': isEditing }"
+        >
+          {{ isEditing ? 'Сохранить' : 'Изменить' }}
+        </button>
+        <button 
+          v-else
+          class="user-profile__message-btn" 
+          @click="sendMessage"
+        >
+          Написать сообщение
+        </button>
+      </div>
     </div>
     
     <div class="user-profile__fields">
@@ -111,6 +119,7 @@
 </template>
 
 <script setup>
+import { onMounted } from 'vue';
 import { useAuthStore } from '~/stores/auth';
 import { useChatStore } from '~/stores/chat';
 import { useNuxtApp } from '#app';
@@ -120,13 +129,17 @@ const props = defineProps({
     type: Object,
     default: () => ({})
   },
+  userId: {
+    type: String,
+    default: ''
+  },
   isOtherUser: {
     type: Boolean,
     default: false
   }
 });
 
-const emit = defineEmits(['send-message']);
+const emit = defineEmits(['send-message', 'close']);
 
 const authStore = useAuthStore();
 const isEditing = ref(false);
@@ -138,10 +151,51 @@ const localUserData = ref({
   avatar: ''
 });
 
+// Данные пользователя
+const userDataFromServer = ref({});
+const isLoading = ref(false);
+const loadError = ref('');
+
+// Загрузка данных пользователя по ID
+const loadUserData = async () => {
+  // Если это профиль текущего пользователя, используем данные из авторизации
+  if (!props.userId && !props.isOtherUser) {
+    return;
+  }
+  
+  // Если данные уже предоставлены в props
+  if (props.userData && Object.keys(props.userData).length > 0) {
+    userDataFromServer.value = props.userData;
+    console.log('UserProfile: Используем данные из props:', props.userData);
+    return;
+  }
+  
+  // Здесь можно добавить загрузку данных с сервера, если будет создан соответствующий API на сервере
+  // Пока просто используем то, что есть
+  console.log('UserProfile: Нет данных пользователя в props, используем минимальные данные');
+  
+  // Создаем минимальный объект с данными пользователя
+  userDataFromServer.value = {
+    _id: props.userId,
+    name: 'Пользователь',
+    avatar: ''
+  };
+};
+
+// Загружаем данные пользователя при монтировании компонента
+onMounted(() => {
+  loadUserData();
+});
+
 // Используем данные из props, если они предоставлены, иначе используем локальные данные
 const userData = computed(() => {
-  if (props.isOtherUser && Object.keys(props.userData).length > 0) {
-    return props.userData;
+  if (props.isOtherUser) {
+    if (Object.keys(userDataFromServer.value).length > 0) {
+      return userDataFromServer.value;
+    }
+    if (Object.keys(props.userData).length > 0) {
+      return props.userData;
+    }
   }
   return localUserData.value;
 });
@@ -229,23 +283,26 @@ function toggleEditMode() {
 
 // Отправка сообщения пользователю
 async function sendMessage() {
-  if (props.isOtherUser && userData.value._id) {
+  if (props.isOtherUser) {
     try {
-      const userId = userData.value._id;
-      const chatStore = useChatStore();
+      const userId = props.userId || userData.value._id;
+      if (!userId) {
+        console.error('UserProfile: ID пользователя не найден');
+        return;
+      }
       
+      const chatStore = useChatStore();
       console.log('UserProfile: Нажата кнопка Написать сообщение для пользователя:', userId);
-      console.log('UserProfile: Данные пользователя:', userData.value);
-      console.log('UserProfile: Текущие чаты:', chatStore.chats.length);
       
       // Проверяем, существует ли уже приватный чат с этим пользователем
-      // Ищем только среди чатов с типом 'private'
       const existingChat = chatStore.chats.find(chat => {
         // Проверяем, что тип чата действительно 'private'
         if (chat.type !== 'private') return false;
         
         // Проверяем, что в чате есть нужный пользователь
-        const hasTargetUser = chat.participants.some(p => p._id === userId);
+        const hasTargetUser = chat.participants.some(p => {
+          return typeof p === 'object' ? p._id === userId : p === userId;
+        });
         
         // Проверяем, что в чате ровно 2 участника (текущий пользователь и целевой)
         const hasTwoParticipants = chat.participants.length === 2;
@@ -253,54 +310,23 @@ async function sendMessage() {
         return hasTargetUser && hasTwoParticipants;
       });
       
-      console.log('UserProfile: Существующий чат:', existingChat);
-      
-      let chatId;
-      
+      // Если чат существует, открываем его
       if (existingChat) {
-        // Если чат существует, открываем его
-        chatId = existingChat._id;
-        console.log('UserProfile: Открываем существующий чат:', chatId);
+        await chatStore.setActiveChat(existingChat._id);
+        navigateTo('/messenger');
       } else {
-        // Создаем временный объект чата для предпросмотра
-        console.log('UserProfile: Создаем временный чат для предпросмотра');
-        
-        // Создаем временный чат для предпросмотра
-        const previewChat = {
-          _id: 'preview_' + userId, // временный ID
-          name: userData.value.name || 'Пользователь',
-          type: 'private',
-          isPreview: true, // флаг предпросмотра
-          participants: [{ _id: userId, name: userData.value.name, avatar: userData.value.avatar }],
-          messages: [],
-          avatar: userData.value.avatar,
-          unread: 0,
-          lastMessage: null,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          previewUserId: userId // сохраняем ID пользователя для создания реального чата
-        };
-        
-        // Добавляем превью-чат в массив чатов
-        chatStore.chats.unshift(previewChat);
-        
-        // Сбрасываем предыдущий активный чат и его сообщения
-        chatStore.messages = [];
-        
-        // Устанавливаем временный чат как активный
-        chatStore.activeChat = previewChat;
-        chatStore.isPreviewMode = true;
-        chatId = previewChat._id;
-        console.log('UserProfile: Установлен временный чат:', previewChat);
+        // Иначе создаем новый чат
+        await chatStore.createChat({
+          participants: [userId],
+          type: 'private'
+        });
+        navigateTo('/messenger');
       }
       
-      // Открываем чат
-      openChat(chatId);
-      
-      // Также отправляем событие наверх для обратной совместимости
-      emit('send-message', userId);
+      // Закрываем модальное окно
+      emit('close');
     } catch (error) {
-      console.error('Ошибка при создании приватного чата:', error);
+      console.error('UserProfile: Ошибка при отправке сообщения:', error);
       showNotification('Не удалось создать чат', 'error');
     }
   }
@@ -576,9 +602,12 @@ function showNotification(message, type = 'success') {
   
   &__header
     display: flex
-    justify-content: space-between
+    justify-content: center
     align-items: center
     margin-bottom: 20px
+    padding-bottom: 15px
+    border-bottom: 2px solid $purple
+    position: relative
   
   &__title
     font-size: 20px
@@ -616,7 +645,6 @@ function showNotification(message, type = 'success') {
     display: flex
     flex-direction: column
     align-items: center
-    margin-bottom: 20px
   
   &__avatar
     width: 100px
@@ -642,6 +670,17 @@ function showNotification(message, type = 'success') {
     
     &:hover
       text-decoration: underline
+      
+  &__avatar-upload-text
+    color: $purple
+    font-size: 14px
+    margin-top: 5px
+  
+  &__actions
+    display: flex
+    justify-content: center
+    margin-top: 15px
+    gap: 10px
   
   &__avatar-input
     display: none
@@ -677,12 +716,14 @@ function showNotification(message, type = 'success') {
   &__text
     padding: 10px
     background-color: rgba($white, 0.05)
-    border-radius: $scrollbar-radius
+    border-radius: $radius
     cursor: pointer
+    border: 1px solid $primary-bg
     transition: background-color $transition-speed $transition-function
     
     &:hover
       background-color: rgba($white, 0.1)
+      border: 1px solid $purple
   
   &__actions
     display: flex

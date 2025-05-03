@@ -27,8 +27,9 @@
           {{ chat.name }}
         </template>
       </div>
-      <div :id="`chat-message-${chat._id}`" class="chat-item__message">
-        {{ chat.lastMessageText }}
+      <div :id="`chat-message-${chat._id}`" class="chat-item__message" :class="{ 'chat-item__message--service': isServiceMessage }">
+        <span v-if="isServiceMessage && chat.lastMessage">{{ chat.lastMessage.text }}</span>
+        <span v-else>{{ formattedLastMessage }}</span>
       </div>
     </div>
     <div class="chat-item__meta">
@@ -44,6 +45,7 @@
 import { secureUrl } from '~/utils/secureUrl';
 import { useChatStore } from '~/stores/chat';
 import { useAuthStore } from '~/stores/auth';
+import { computed } from 'vue';
 
 const chatStore = useChatStore();
 const authStore = useAuthStore();
@@ -60,6 +62,43 @@ const props = defineProps({
 });
 
 defineEmits(['select']);
+
+// Проверяем, является ли последнее сообщение служебным
+const isServiceMessage = computed(() => {
+  const lastMessage = props.chat.lastMessage;
+  if (!lastMessage) return false;
+  
+  // Проверяем тип сообщения
+  if (lastMessage.type === 'service') {
+    return true;
+  }
+  
+  // Проверяем содержимое сообщения на наличие ключевых фраз, характерных для служебных сообщений
+  const text = lastMessage.text || '';
+  const servicePatterns = [
+    /создал групповой чат/i,
+    /покинул чат/i,
+    /удалил из чата/i,
+    /добавил в чат/i,
+    /был удален из чата/i,
+    /был добавлен в чат/i,
+    /добавил в чат пользователей/i,
+    /добавил в чат пользователя/i
+  ];
+  
+  return servicePatterns.some(pattern => pattern.test(text));
+});
+
+// Форматируем текст последнего сообщения
+const formattedLastMessage = computed(() => {
+  // Если есть lastMessage, используем его текст
+  if (props.chat.lastMessage && props.chat.lastMessage.text) {
+    return props.chat.lastMessage.text;
+  }
+  
+  // Иначе используем lastMessageText, если он есть
+  return props.chat.lastMessageText || '';
+});
 
 // Получение инициалов из имени
 function getInitials(name) {
@@ -106,20 +145,20 @@ function getOtherParticipantName(chat) {
 .chat-item
   display: flex
   align-items: center
-  padding: 12px
+  padding: 10px 15px
   border-radius: $scrollbar-radius
   cursor: pointer
   transition: background-color $transition-speed $transition-function
   
   &:hover
-    background-color: rgba($white, 0.05)
+    background-color: rgba($white, 0.01)
   
   &--active
-    background-color: rgba($white, 0.1)
+    background-color: rgba($white, 0.01)
   
   &__avatar
-    width: 42px
-    height: 42px
+    width: 55px
+    height: 55px
     border-radius: 50%
     background-color: $purple
     display: flex
@@ -154,6 +193,11 @@ function getOtherParticipantName(chat) {
     white-space: nowrap
     overflow: hidden
     text-overflow: ellipsis
+    
+    &--service
+      color: $purple
+      font-style: italic
+      font-weight: 500
   
   &__meta
     display: flex
