@@ -719,7 +719,7 @@ if (date >= today) {
 
     // Специальные стили для режима PWA
     @media (display-mode: standalone), (display-mode: fullscreen)
-      padding-bottom: 5px
+      padding-bottom: 15px
       // max-height: calc(100vh - 60px) // В режиме PWA нет адресной строки
 
     &__button

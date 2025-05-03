@@ -10,19 +10,29 @@ export const useChatStore = defineStore('chat', {
     chats: [],
     activeChat: null,
     messages: [],
+    messagesPage: 1,
+    messagesHasMore: false,
+    messagesLoading: false,
+    messagesError: null,
     loading: false,
-    loadingMore: false,
     error: null,
+    chatListUpdateTrigger: 0,
+    searchResults: [],
+    searchLoading: false,
+    searchError: null,
+    // Состояние для предпросмотра приватного чата
+    previewChat: null,
+    isPreviewMode: false,
+    socketConnected: false,
+    socketListenersInitialized: false,
+    initialLoadComplete: false, // Флаг для отслеживания первоначальной загрузки
+    lastUpdated: Date.now(), // Временная метка последнего обновления для отслеживания изменений
     pagination: {
       limit: 15, // Уменьшаем начальный лимит для более быстрой загрузки
       total: 0,
       hasMore: false,
       nextCursor: null
     },
-    socketConnected: false,
-    socketListenersInitialized: false,
-    initialLoadComplete: false, // Флаг для отслеживания первоначальной загрузки
-    lastUpdated: Date.now(), // Временная метка последнего обновления для отслеживания изменений
   }),
   
   getters: {
@@ -33,6 +43,156 @@ export const useChatStore = defineStore('chat', {
   },
   
   actions: {
+    // Создание предпросмотра приватного чата
+    setPreviewChat(userData) {
+      console.log('ChatStore: Создание предпросмотра приватного чата', userData);
+      
+      // Сбрасываем текущий активный чат, но не показываем сайдбар
+      this.activeChat = null;
+      this.messages = [];
+      
+      // Создаем временный объект чата для предпросмотра
+      const authStore = useAuthStore();
+      
+      this.previewChat = {
+        _id: 'preview_' + Date.now(),
+        name: userData.name,
+        type: 'private',
+        participants: [
+          { ...authStore.user },
+          { ...userData }
+        ],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        isPreview: true // Метка, что это предпросмотр
+      };
+      
+      // Устанавливаем режим предпросмотра
+      this.isPreviewMode = true;
+      
+      // Устанавливаем предпросмотр как активный чат
+      this.activeChat = this.previewChat;
+      
+      return this.previewChat;
+    },
+    
+    // Отправка сообщения в режиме предпросмотра (создает реальный чат)
+    async sendMessageInPreviewMode(text) {
+      if (!this.isPreviewMode || !this.previewChat) {
+        console.error('ChatStore: Попытка отправить сообщение в предпросмотре, но режим предпросмотра не активен');
+        return;
+      }
+      
+      try {
+        // Получаем ID пользователя, с которым создаем чат
+        const otherUser = this.previewChat.participants.find(p => {
+          const authStore = useAuthStore();
+          return p._id !== authStore.user._id;
+        });
+        
+        if (!otherUser) {
+          console.error('ChatStore: Не удалось найти второго участника в предпросмотре');
+          return;
+        }
+        
+        const authStore = useAuthStore();
+        const currentUser = authStore.user;
+        
+        // Создаем временное сообщение для мгновенного отображения
+        const tempMessage = {
+          _id: `temp_${Date.now()}`,
+          text: text,
+          sender: {
+            _id: currentUser._id,
+            name: currentUser.name,
+            avatar: currentUser.avatar
+          },
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        };
+        
+        // Создаем реальный чат без initialMessage
+        const chatData = {
+          name: otherUser.name,
+          participants: [otherUser._id],
+          type: 'private',
+          // Не указываем initialMessage, чтобы отправить его позже как обычное сообщение
+          setActive: true
+        };
+        
+        console.log('ChatStore: Создаем чат из режима предпросмотра');
+        
+        // Сбрасываем режим предпросмотра
+        this.isPreviewMode = false;
+        this.previewChat = null;
+        
+        // Создаем реальный чат
+        const newChat = await this.createChat(chatData);
+        
+        // Проверяем, что чат был успешно создан
+        if (newChat) {
+          console.log('ChatStore: Чат создан, обновляем данные для корректного отображения', newChat);
+          
+          // Создаем глубокую копию чата, чтобы избежать проблем с реактивностью
+          const chatCopy = JSON.parse(JSON.stringify(newChat));
+          
+          // Инициализируем массив сообщений, если он не существует
+          if (!chatCopy.messages) {
+            chatCopy.messages = [];
+          }
+          
+          // Если сообщений нет или массив пуст, добавляем временное сообщение
+          if (chatCopy.messages.length === 0) {
+            console.log('ChatStore: Добавляем временное сообщение в чат');
+            chatCopy.messages.push({...tempMessage, chat: chatCopy._id});
+          }
+          
+          // Обновляем последнее сообщение для корректного отображения в боковой панели
+          if (!chatCopy.lastMessage) {
+            chatCopy.lastMessage = {
+              text: text,
+              sender: {
+                _id: currentUser._id,
+                name: currentUser.name
+              },
+              createdAt: new Date().toISOString()
+            };
+          }
+          
+          // Обновляем чат в списке чатов
+          const chatIndex = this.chats.findIndex(c => c._id === chatCopy._id);
+          if (chatIndex !== -1) {
+            // Удаляем чат из текущей позиции
+            this.chats.splice(chatIndex, 1);
+          }
+          
+          // Добавляем чат в начало списка
+          this.chats.unshift(chatCopy);
+          
+          // Обновляем активный чат
+          this.activeChat = chatCopy;
+          
+          // Отправляем сообщение через стандартный метод sendMessage
+          console.log('ChatStore: Отправляем сообщение через стандартный метод sendMessage после создания чата');
+          await this.sendMessage({
+            chatId: chatCopy._id,
+            text: text,
+            media_type: 'none'
+          });
+          
+          // Принудительно обновляем список чатов
+          this.triggerChatListUpdate();
+          
+          return chatCopy;
+        }
+        
+        return newChat;
+      } catch (error) {
+        console.error('ChatStore: Ошибка при отправке сообщения в режиме предпросмотра:', error);
+        throw error;
+      }
+    },
+    
     // Инициализация WebSocket слушателей
     initSocketListeners() {
       if (this.socketListenersInitialized) {
@@ -729,6 +889,32 @@ export const useChatStore = defineStore('chat', {
         }
         
         console.log('ChatStore: Чат успешно создан:', response);
+        
+        // Проверяем, есть ли сообщения в ответе от сервера
+        if (response.messages && response.messages.length > 0) {
+          console.log('ChatStore: В ответе от сервера есть сообщения:', response.messages.length);
+          
+          // Сохраняем сообщения в чате
+          response.messages = response.messages.map(msg => ({
+            ...msg,
+            // Преобразуем sender из строки в объект, если это необходимо
+            sender: typeof msg.sender === 'string' ? { _id: msg.sender } : msg.sender
+          }));
+          
+          // Устанавливаем последнее сообщение, если его нет
+          if (!response.lastMessage && response.messages.length > 0) {
+            const lastMsg = response.messages[response.messages.length - 1];
+            response.lastMessage = {
+              text: lastMsg.text,
+              sender: lastMsg.sender,
+              createdAt: lastMsg.createdAt
+            };
+            console.log('ChatStore: Установлено последнее сообщение из массива сообщений');
+          }
+        } else {
+          // Инициализируем массив сообщений, если его нет
+          response.messages = [];
+        }
         
         // Добавляем новый чат в начало списка
         this.chats.unshift(response);
@@ -1609,6 +1795,24 @@ export const useChatStore = defineStore('chat', {
     triggerChatListUpdate() {
       console.log('ChatStore: Плавное обновление списка чатов');
       
+      // Проверяем все чаты на наличие последнего сообщения
+      this.chats.forEach(chat => {
+        // Если есть сообщения, но нет последнего сообщения
+        if (chat.messages && chat.messages.length > 0 && !chat.lastMessage) {
+          // Берем последнее сообщение из массива
+          const lastMsg = chat.messages[chat.messages.length - 1];
+          
+          // Создаем объект последнего сообщения
+          chat.lastMessage = {
+            text: lastMsg.text,
+            sender: lastMsg.sender,
+            createdAt: lastMsg.createdAt
+          };
+          
+          console.log(`ChatStore: Добавлено последнее сообщение для чата ${chat._id}`);
+        }
+      });
+      
       // Отправляем событие обновления списка чатов
       const { $socket } = useNuxtApp();
       if ($socket) {
@@ -1618,22 +1822,30 @@ export const useChatStore = defineStore('chat', {
       // Добавляем специальное поле для отслеживания изменений
       this.lastUpdated = new Date().getTime();
       
+      // Сортируем чаты по дате последнего сообщения (новые сверху)
+      this.chats.sort((a, b) => {
+        const aTime = a.lastMessage?.createdAt ? new Date(a.lastMessage.createdAt).getTime() : 0;
+        const bTime = b.lastMessage?.createdAt ? new Date(b.lastMessage.createdAt).getTime() : 0;
+        return bTime - aTime;
+      });
+      
       console.log('ChatStore: Список чатов обновлен, количество:', this.chats.length);
     },
     
     // Сброс активного чата и связанных данных
-    resetActiveChat() {
-      console.log('ChatStore: Сброс активного чата');
-      this.activeChat = null;
-      this.messages = [];
-      this.messagesLoading = false;
-      this.messagesError = null;
-      this.messagesPage = 1;
-      this.messagesHasMore = false;
-      
-      // Показываем SideBar на мобильных устройствах
-      this.showSidebarOnMobile();
-    },
+  resetActiveChat() {
+    console.log('ChatStore: Сброс активного чата');
+    this.activeChat = null;
+    this.messages = [];
+    this.messagesLoading = false;
+    this.messagesError = null;
+    this.messagesPage = 1;
+    this.messagesHasMore = false;
+    
+    // Сбрасываем также режим предпросмотра, если он был активен
+    this.isPreviewMode = false;
+    this.previewChat = null;
+  },
     
     // Показываем SideBar на мобильных устройствах
     showSidebarOnMobile() {
@@ -1657,15 +1869,21 @@ export const useChatStore = defineStore('chat', {
     showChatDeletedNotification(message) {
       console.log('ChatStore: Показ уведомления об удалении чата:', message);
       
+      // Сначала показываем боковую панель, чтобы она появилась сразу
+      this.showSidebarOnMobile();
+      
+      // Затем показываем уведомление
       // Используем глобальный метод для показа уведомлений
-      if (window.$showNotification) {
-        window.$showNotification(message, 'info');
-      } else {
-        console.log('Глобальный метод $showNotification недоступен, используем запасной вариант');
-        
-        // Запасной вариант - просто выводим в консоль
-        console.log(`Уведомление: Чат удален - ${message}`);
-      }
+      setTimeout(() => {
+        if (window.$showNotification) {
+          window.$showNotification(message, 'info');
+        } else {
+          console.log('Глобальный метод $showNotification недоступен, используем запасной вариант');
+          
+          // Запасной вариант - просто выводим в консоль
+          console.log(`Уведомление: Чат удален - ${message}`);
+        }
+      }, 50); // Небольшая задержка, чтобы боковая панель успела появиться
     }
   }
 });

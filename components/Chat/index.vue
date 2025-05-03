@@ -31,6 +31,7 @@
           <div class="content__textblock">
             <!-- Для личных чатов показываем имя собеседника, а не название чата -->
             <div class="text bold">
+              <!-- Показываем индикатор предпросмотра, если мы в этом режиме -->
               <template v-if="chatStore.isPrivateChat(chatData)">
                 {{ getOtherParticipantName(chatData) }}
               </template>
@@ -48,7 +49,8 @@
       </div>
       
       <!-- Контейнер сообщений -->
-      <div class="messages_container" ref="messagesContainer" @scroll="checkIfAtBottom">        
+      <div class="messages_container" ref="messagesContainer" @scroll="checkIfAtBottom">
+        
         <!-- Индикатор загрузки дополнительных сообщений -->
         <div v-if="chatStore.loadingMore" class="loading-indicator loading-more">
           <div class="spinner"></div>
@@ -355,6 +357,56 @@ const sendMessage = async () => {
     return;
   }
   
+  // Проверяем, находимся ли мы в режиме предпросмотра приватного чата
+  if (chatStore.isPreviewMode && chatData.value?.isPreview) {
+    console.log('[Chat] Отправка сообщения в режиме предпросмотра');
+    
+    try {
+      // Сохраняем текст сообщения перед очисткой
+      const messageContent = messageText.value;
+      messageText.value = '';
+      adjustTextareaHeight();
+      
+      // Прокручиваем вниз для отображения нового сообщения
+      nextTick(() => {
+        scrollToBottom(true);
+      });
+      
+      // Создаем реальный чат и отправляем сообщение
+      console.log('[Chat] Создаем реальный чат из предпросмотра с сообщением:', messageContent);
+      
+      try {
+        // Вызываем метод sendMessageInPreviewMode, который создает чат и отправляет сообщение
+        const newChat = await chatStore.sendMessageInPreviewMode(messageContent);
+        console.log('[Chat] Чат создан и сообщение отправлено:', newChat);
+        
+        
+        // Обновляем данные чата в компоненте через хранилище
+        if (newChat) {
+          // Вместо прямого присваивания используем метод setActiveChat
+          chatStore.setActiveChat(newChat._id);
+          
+          // Прокручиваем вниз для отображения нового сообщения
+          nextTick(() => {
+            scrollToBottom(true);
+          });
+        }
+      } catch (error) {
+        console.error('[Chat] Ошибка при создании чата из предпросмотра:', error);
+      }
+      
+      nextTick(() => {
+        console.log('[Chat] Прокрутка вниз после создания чата');
+        scrollToBottom(true);
+      });
+      
+      return;
+    } catch (error) {
+      console.error('[Chat] Ошибка при создании чата из предпросмотра:', error);
+    }
+  }
+  
+  // Обычная отправка сообщения в существующий чат
   console.log('[WebSocket] Отправка сообщения в чат:', chatData.value._id);
   
   try {
@@ -1126,16 +1178,23 @@ const getOtherParticipantName = (chat) => {
 </script>
 
 <style lang="sass">
-@import '@variables'
+@import '~/assets/styles/variables.sass';
 
-.chat-page
-  height: 100vh
-  width: 100%
+.chat-page 
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  position: relative;
+  overflow: hidden;
+  // background-color: $chat-bg;
+
   display: flex
-  flex-direction: column
-  position: relative
+  align-items: center
+  justify-content: space-between
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1)
   
-  .page_header
+  .page_header 
     padding: 10px 
     background-color: $header-bg
     display: flex

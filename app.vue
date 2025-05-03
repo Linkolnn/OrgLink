@@ -1,6 +1,6 @@
 <template>
   <div class="pattern-container">
-    <div class="app" :class="{ 'sidebar-visible': sidebarVisibleState && needsSidebar, 'mobile': isMobile && needsSidebar }">
+    <div class="app" :class="{ 'sidebar-visible': sidebarVisibleState && needsSidebar, 'mobile': isMobile && needsSidebar, 'initial-load': isInitialLoad }">
       <MessengerSideBar v-if="isAuthenticated" :class="{ 'visible': sidebarVisibleState }"/>
       <main class="main container">
         <NuxtPage>
@@ -28,6 +28,9 @@ const route = useRoute();
 // Получаем доступ к плагину управления боковой панелью
 const nuxtApp = useNuxtApp();
 const { $sidebarVisible } = nuxtApp;
+
+// Флаг для отслеживания первой загрузки страницы
+const isInitialLoad = ref(true);
 
 // Проверяем, находимся ли мы на странице мессенджера или админа
 const isMessengerPage = computed(() => route.path === '/messenger');
@@ -104,9 +107,15 @@ onMounted(() => {
         const { $showSidebar } = useNuxtApp();
         if ($showSidebar) $showSidebar();
         console.log('[App] Показываем SideBar при первом монтировании', { path: route.path, isMobile: isMobile.value });
-      }, 50);
+      }, 0);
     }
   }
+  
+  // Сбрасываем флаг isInitialLoad после небольшой задержки
+  setTimeout(() => {
+    isInitialLoad.value = false;
+    console.log('[App] Сброс флага isInitialLoad');
+  }, 500); // Достаточное время для загрузки без анимации
 });
 
 onUnmounted(() => {
@@ -190,6 +199,11 @@ provide('showSidebar', () => {
   
   // Адаптивный дизайн для мобильных устройств
   &.mobile
+    // Отключаем анимацию при первой загрузке
+    &.initial-load
+      .main, .sidebar
+        transition: none !important
+      
     &.sidebar-visible
       .main
         transform: translateX(100%)

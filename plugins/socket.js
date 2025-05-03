@@ -24,9 +24,6 @@ export default defineNuxtPlugin((nuxtApp) => {
     return null;
   };
   
-  // Получаем токен для инициализации
-  const token = getToken();
-  
   // Инициализация WebSocket соединения
   
   // Определяем, находимся ли мы в production окружении (Vercel)
@@ -63,7 +60,15 @@ export default defineNuxtPlugin((nuxtApp) => {
   
   console.log('Browser detection:', { isSafari, isIOS, connectionTimeout });
   
-  const socket = io(backendUrl, {
+  // Получаем токен для WebSocket соединения
+  const token = getToken();
+  console.log('Socket.IO: Токен для WebSocket:', token ? 'Установлен' : 'Отсутствует');
+  
+  // Добавляем токен в URL для лучшей совместимости
+  const socketUrl = token ? `${backendUrl}?token=${token}` : backendUrl;
+  console.log('Socket.IO: Используем URL с токеном:', socketUrl);
+  
+  const socket = io(socketUrl, {
     autoConnect: false, // Не подключаемся автоматически
     withCredentials: true,
     reconnection: true,        // Включаем автоматическое переподключение
@@ -74,11 +79,12 @@ export default defineNuxtPlugin((nuxtApp) => {
     path: socketPath,          // Используем путь в зависимости от окружения
     forceNew: true,            // Создаем новое соединение
     auth: {
-      token: getToken() // Инициализируем с токеном
+      token: token // Инициализируем с токеном
     },
-    // Не используем extraHeaders с Origin, так как Safari запрещает это
+    // Добавляем заголовки для лучшей совместимости
     extraHeaders: {
-      "X-Client-Info": "iOS-Safari-Compatible"
+      "X-Client-Info": "iOS-Safari-Compatible",
+      "Authorization": token ? `Bearer ${token}` : undefined
     }
   });
   

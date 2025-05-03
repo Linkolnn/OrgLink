@@ -310,16 +310,17 @@ async function sendMessage() {
         return hasTargetUser && hasTwoParticipants;
       });
       
+      // Сбрасываем текущее состояние чата, чтобы избежать визуальных багов
+      chatStore.resetActiveChat();
+      
       // Если чат существует, открываем его
       if (existingChat) {
         await chatStore.setActiveChat(existingChat._id);
         navigateTo('/messenger');
       } else {
-        // Иначе создаем новый чат
-        await chatStore.createChat({
-          participants: [userId],
-          type: 'private'
-        });
+        // Иначе создаем предпросмотр приватного чата
+        // Чат будет создан только после отправки первого сообщения
+        chatStore.setPreviewChat(userData.value);
         navigateTo('/messenger');
       }
       
@@ -588,7 +589,7 @@ function showNotification(message, type = 'success') {
 }
 </script>
 
-<style lang="sass" scoped>
+<style lang="sass">
 @import '~/assets/styles/variables'
 
 .user-profile
@@ -759,6 +760,7 @@ function showNotification(message, type = 'success') {
       cursor: not-allowed
   
   &__notification
+    height: max-content
     position: fixed
     bottom: 20px
     right: 20px
@@ -768,6 +770,13 @@ function showNotification(message, type = 'success') {
     font-size: 14px
     z-index: 100
     animation: fadeIn 0.3s, fadeOut 0.3s 2.7s
+    
+    // Стили для мобильных устройств
+    @include tablet
+      bottom: auto
+      top: 20px
+      right: 20px
+      transform: translateX(-50%) translateY(-100px)
     
     &.success
       background-color: #4caf50

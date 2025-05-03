@@ -91,6 +91,11 @@ const isServiceMessage = computed(() => {
 
 // Форматируем текст последнего сообщения
 const formattedLastMessage = computed(() => {
+  // Если чат в режиме предпросмотра
+  if (props.chat.isPreview) {
+    return 'Напишите сообщение, чтобы создать чат';
+  }
+  
   // Если есть lastMessage, используем его текст
   if (props.chat.lastMessage && props.chat.lastMessage.text) {
     return props.chat.lastMessage.text;

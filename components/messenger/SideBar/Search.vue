@@ -79,6 +79,7 @@
         :user-data="selectedUser" 
         :is-other-user="true"
         @send-message="createPrivateChat"
+        @close="closeUserProfile"
       />
     </div>
   </div>
@@ -204,6 +205,7 @@ const formatLastMessage = (lastMessage) => {
 const showUserProfile = (user) => {
   selectedUser.value = user;
   isProfileModalOpen.value = true;
+  clearSearch(); // Очищаем поле поиска при выборе пользователя
 };
 
 // Закрыть профиль пользователя

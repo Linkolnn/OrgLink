@@ -66,6 +66,7 @@ onMounted(() => {
 
 // Стили для уведомлений
 .notification
+  height: max-content
   position: fixed
   bottom: 20px
   left: 50%
@@ -75,11 +76,18 @@ onMounted(() => {
   color: $white
   font-size: 14px
   box-shadow: 0 3px 10px rgba(0, 0, 0, 0.2)
-  z-index: 2000
+  z-index: 20
   opacity: 0
   transition: transform 0.3s, opacity 0.3s
   text-align: center
   min-width: 250px
+  
+  // Стили для мобильных устройств
+  @include tablet
+    bottom: auto
+    top: 20px
+    right: 20px
+    transform: translateX(-50%) translateY(-100px)
   
   &--show
     transform: translateX(-50%) translateY(0)

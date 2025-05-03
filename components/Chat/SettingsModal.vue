@@ -1299,6 +1299,7 @@ const copyToClipboard = (text) => {
 
 // Стили для уведомлений
 .notification
+  height: max-content
   position: fixed
   bottom: 20px
   left: 50%
@@ -1313,6 +1314,12 @@ const copyToClipboard = (text) => {
   transition: transform 0.3s, opacity 0.3s
   text-align: center
   min-width: 250px
+
+  @include tablet
+    bootom: auto
+    top: 20px
+    right: 20px
+    transform: translateX(-50%) translateY(-100px)
   
   &--show
     transform: translateX(-50%) translateY(0)
