@@ -53,10 +53,28 @@ const sendMessage = async (req, res) => {
     
     console.log(`Отправка сообщения через WebSocket в чат: ${chatId}`);
     
+    // Получаем обновленный чат с информацией о последнем сообщении
+    const updatedChat = await Chat.findById(chatId)
+      .populate('participants', 'name email avatar')
+      .populate('lastMessage.sender', 'name email avatar');
+    
     // Отправляем сообщение через WebSocket всем подключенным к этому чату
     io.to(`chat:${chatId}`).emit('new-message', {
       message: populatedMessage,
-      chatId
+      chatId,
+      chat: updatedChat,
+      sender: req.user._id
+    });
+    
+    // Отправляем уведомление о новом сообщении всем пользователям
+    // Это поможет обновить список чатов у всех пользователей
+    io.emit('chat-updated', {
+      chatId,
+      lastMessage: {
+        text: text || 'Медиа-сообщение',
+        sender: req.user._id,
+        timestamp: new Date()
+      }
     });
     
     return res.status(201).json(populatedMessage);

@@ -197,7 +197,7 @@ const handleMessageClick = (event) => {
   
   &__avatar
     margin-right: 8px  // Отступ между аватаркой и сообщением
-    align-self: flex-start  // Выравниваем аватарку по верхнему краю сообщения
+    align-self: flex-end  // Выравниваем аватарку по верхнему краю сообщения
     margin-top: 4px
     
   &__content-wrapper

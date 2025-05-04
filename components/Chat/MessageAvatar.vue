@@ -103,6 +103,7 @@ const getInitials = (name) => {
   max-width: 90%
   max-height: 90vh
   overflow-y: auto
+  max-width: 500px;
   border-radius: $scrollbar-radius
   
 .profile-modal-close
@@ -121,8 +122,7 @@ const getInitials = (name) => {
   align-items: center
   justify-content: center
   border-radius: 50%
-  background-color: rgba($purple, 0.5)
-  
+
   &:hover
     background-color: $purple
 </style>
