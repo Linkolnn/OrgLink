@@ -79,6 +79,12 @@ chatStore.lastUpdated = new Date().getTime();
 onMounted(() => {
 console.log('SideBar: Компонент монтирован');
 
+// Запрашиваем разрешение на отправку уведомлений
+const { $notifications } = useNuxtApp();
+if ($notifications && $notifications.supported) {
+  $notifications.requestPermission();
+}
+
 // Инициализируем слушатели WebSocket
 chatStore.initSocketListeners();
 
@@ -174,7 +180,7 @@ if ($socket) {
         const isActiveChat = chatStore.activeChat && chatStore.activeChat._id === chatId;
     
         // Если сообщение не от текущего пользователя и чат не активен
-        const { $auth } = useNuxtApp();
+        const { $auth, $notifications } = useNuxtApp();
         const currentUserId = $auth?.user?._id;
         const senderIsCurrentUser = (
           (message.sender && typeof message.sender === 'object' && message.sender._id === currentUserId) ||
@@ -184,6 +190,30 @@ if ($socket) {
         // Если сообщение не от текущего пользователя и чат не активен
         if (!senderIsCurrentUser && !isActiveChat) {
           unreadCount++;
+          
+          // Отправляем системное уведомление, если сообщение не от текущего пользователя
+          if ($notifications && $notifications.supported) {
+            try {
+              console.log('SideBar: Проверяем возможность отправки уведомления');
+              
+              // Проверяем текущее разрешение
+              if ($notifications.permission.value !== 'granted') {
+                console.log('SideBar: Разрешение на уведомления не предоставлено, запрашиваем...');
+                $notifications.requestPermission().then(granted => {
+                  if (granted) {
+                    sendChatNotification(message, chat, currentUserId);
+                  } else {
+                    console.warn('SideBar: Разрешение на уведомления не получено');
+                  }
+                });
+              } else {
+                // Разрешение уже предоставлено, отправляем уведомление
+                sendChatNotification(message, chat, currentUserId);
+              }
+            } catch (error) {
+              console.error('SideBar: Ошибка при отправке уведомления:', error);
+            }
+          }
         }
     
         // Создаем объект последнего сообщения
@@ -433,6 +463,39 @@ if (date >= today) {
   // Другие дни - показываем дату
   return date.toLocaleDateString([], { day: 'numeric', month: 'numeric' });
 }
+};
+
+// Функция для отправки уведомления о новом сообщении
+const sendChatNotification = (message, chat, currentUserId) => {
+  const { $notifications } = useNuxtApp();
+  
+  // Получаем имя отправителя
+  let senderName = '';
+  if (message.sender) {
+    if (typeof message.sender === 'object') {
+      senderName = message.sender.name || message.sender.username || '';
+    }
+  }
+  
+  // Получаем название чата
+  let chatName = '';
+  if (chat.type === 'private') {
+    // Для приватных чатов используем имя собеседника
+    const otherParticipant = chat.participants?.find(p => p._id !== currentUserId);
+    chatName = otherParticipant?.name || 'Личный чат';
+  } else {
+    // Для групповых чатов используем название группы
+    chatName = chat.name || 'Групповой чат';
+  }
+  
+  // Отправляем уведомление
+  $notifications.sendMessageNotification({
+    chatName,
+    senderName,
+    message: message.text || 'Медиа-сообщение',
+    chatId,
+    chatAvatar: chat.avatar
+  });
 };
 </script>
 

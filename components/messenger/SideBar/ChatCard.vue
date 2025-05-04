@@ -215,7 +215,7 @@ function getOtherParticipantName(chat) {
   &__badge
     background-color: $purple
     color: $white
-    border-radius: 50%
+    border-radius: 50px
     min-width: 20px
     height: 20px
     display: flex
