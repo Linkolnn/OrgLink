@@ -1,6 +1,9 @@
 import { useChatStore } from '~/stores/chat';
 
 export default defineNuxtPlugin((nuxtApp) => {
+  // Проверяем, является ли устройство мобильным
+  const isMobileDevice = process.client ? /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) : false;
+  
   // Проверяем поддержку уведомлений в браузере
   const notificationsSupported = typeof window !== 'undefined' && 'Notification' in window && window.isSecureContext;
   
@@ -17,10 +20,57 @@ export default defineNuxtPlugin((nuxtApp) => {
     window.location.hostname.includes('orglink')
   ) : false;
   
-  // Логируем текущий домен
+  // Логируем текущий домен и информацию об устройстве
   if (process.client) {
-    console.log('[Notifications] Текущий домен:', window.location.hostname, 'Разрешен:', isAllowedDomain);
+    console.log('[Notifications] Информация об устройстве:', { 
+      domain: window.location.hostname, 
+      isAllowedDomain,
+      isMobileDevice,
+      userAgent: navigator.userAgent,
+      browser: getBrowserInfo()
+    });
   }
+  
+  // Функция для определения браузера
+  function getBrowserInfo() {
+    if (!process.client) return 'server';
+    
+    const ua = navigator.userAgent;
+    let browserName = 'Unknown';
+    let version = '';
+    
+    // Проверяем Firefox первым, так как он имеет особенности в работе с уведомлениями
+    if (ua.indexOf('Firefox') > -1) {
+      browserName = 'Firefox';
+      const match = ua.match(/Firefox\/(\d+\.\d+)/);
+      if (match) version = match[1];
+    }
+    else if (ua.indexOf('Chrome') > -1 && ua.indexOf('Edg') === -1 && ua.indexOf('OPR') === -1) {
+      browserName = 'Chrome';
+      const match = ua.match(/Chrome\/(\d+\.\d+)/);
+      if (match) version = match[1];
+    }
+    else if (ua.indexOf('Safari') > -1 && ua.indexOf('Chrome') === -1) {
+      browserName = 'Safari';
+      const match = ua.match(/Version\/(\d+\.\d+)/);
+      if (match) version = match[1];
+    }
+    else if (ua.indexOf('Edg') > -1) {
+      browserName = 'Edge';
+      const match = ua.match(/Edg\/(\d+\.\d+)/);
+      if (match) version = match[1];
+    }
+    else if (ua.indexOf('OPR') > -1 || ua.indexOf('Opera') > -1) {
+      browserName = 'Opera';
+      const match = ua.match(/(?:OPR|Opera)\/(\d+\.\d+)/);
+      if (match) version = match[1];
+    }
+    
+    return { name: browserName, version };
+  }
+  
+  // Проверяем, является ли браузер Firefox
+  const isFirefox = process.client ? navigator.userAgent.indexOf('Firefox') > -1 : false;
   
   // Состояние разрешения на уведомления
   const notificationPermission = ref(
@@ -76,40 +126,62 @@ export default defineNuxtPlugin((nuxtApp) => {
     }
     
     // Если разрешение уже получено, возвращаем true
-    if (notificationPermission.value === 'granted') {
+    if (Notification.permission === 'granted') {
       console.log('[Notifications] Разрешение на уведомления уже получено');
+      notificationPermission.value = 'granted';
       return true;
     }
     
-    // Если разрешение уже запрещено, возвращаем false
-    if (notificationPermission.value === 'denied') {
-      console.warn('[Notifications] Разрешение на уведомления было отклонено пользователем');
-      return false;
-    }
-    
     try {
-      console.log('[Notifications] Запрашиваем разрешение на уведомления...');
+      // Запрашиваем разрешение на отправку уведомлений
+      console.log('[Notifications] Запрашиваем разрешение на уведомления...', { isFirefox, browser: getBrowserInfo() });
       
-      // В Firefox Notification.requestPermission может не возвращать Promise
-      // Поэтому используем обертку, которая работает в обоих случаях
-      const permission = await new Promise((resolve) => {
+      // Специальная обработка для Firefox
+      if (isFirefox) {
+        console.log('[Notifications] Используем специальную обработку для Firefox');
+        
+        // Firefox использует только Promise API
         try {
-          const permissionResult = Notification.requestPermission((result) => {
-            // Обработка для старого API (callback)
-            console.log('[Notifications] Получен результат через callback:', result);
-            resolve(result);
-          });
+          const permission = await Notification.requestPermission();
+          console.log('[Notifications] Firefox: результат запроса разрешения:', permission);
+          notificationPermission.value = permission;
           
-          // Если возвращается Promise (современные браузеры)
-          if (permissionResult instanceof Promise) {
-            permissionResult.then((result) => {
-              console.log('[Notifications] Получен результат через Promise:', result);
-              resolve(result);
-            });
+          // Для Firefox дополнительно проверяем, что уведомления работают
+          if (permission === 'granted') {
+            // Отправляем тестовое уведомление для проверки
+            try {
+              const testNotification = new Notification('OrgLink', {
+                body: 'Уведомления активированы',
+                icon: window.location.origin + '/favicon.ico',
+                tag: 'test-notification'
+              });
+              
+              // Закрываем тестовое уведомление через 2 секунды
+              setTimeout(() => {
+                testNotification.close();
+              }, 2000);
+            } catch (e) {
+              console.warn('[Notifications] Firefox: не удалось отправить тестовое уведомление:', e);
+            }
           }
-        } catch (innerError) {
-          console.error('[Notifications] Ошибка при запросе разрешения:', innerError);
-          resolve('denied');
+          
+          return permission === 'granted';
+        } catch (firefoxError) {
+          console.error('[Notifications] Firefox: ошибка при запросе разрешения:', firefoxError);
+          return false;
+        }
+      }
+      
+      // Для других браузеров используем стандартный подход
+      // Используем Promise для обработки разных реализаций API
+      const permission = await new Promise((resolve) => {
+        const permissionResult = Notification.requestPermission((result) => {
+          resolve(result);
+        });
+        
+        // Для браузеров, использующих Promise API
+        if (permissionResult) {
+          permissionResult.then(resolve);
         }
       });
       
@@ -162,6 +234,8 @@ export default defineNuxtPlugin((nuxtApp) => {
         isAllowedDomain,
         isSecureContext,
         notificationsSupported,
+        isMobileDevice,
+        browser: getBrowserInfo(),
         permission: notificationPermission.value
       });
       
@@ -175,6 +249,31 @@ export default defineNuxtPlugin((nuxtApp) => {
         console.log('[Notifications] Используем абсолютный URL для иконки:', iconUrl);
       }
       
+      // Если это мобильное устройство, добавляем специальную обработку
+      if (isMobileDevice) {
+        console.log('[Notifications] Обнаружено мобильное устройство, применяем специальную обработку');
+        
+        // На мобильных устройствах может не работать стандартный механизм уведомлений
+        // Добавляем визуальное уведомление в интерфейсе
+        if (window.$showNotification) {
+          window.$showNotification(
+            `${title}: ${body}`,
+            'info',
+            5000 // Показываем уведомление на 5 секунд
+          );
+        }
+        
+        // Также можно добавить вибрацию, если браузер поддерживает
+        if ('vibrate' in navigator) {
+          try {
+            navigator.vibrate([200, 100, 200]); // Вибрация: 200мс вкл, 100мс выкл, 200мс вкл
+            console.log('[Notifications] Вибрация активирована');
+          } catch (e) {
+            console.warn('[Notifications] Не удалось активировать вибрацию:', e);
+          }
+        }
+      }
+      
       // Создаем объект с параметрами уведомления
       const notificationOptions = {
         body,
@@ -184,6 +283,13 @@ export default defineNuxtPlugin((nuxtApp) => {
         requireInteraction: true, // Уведомление не исчезнет автоматически
         silent: false // Включаем звук
       };
+      
+      // Специальная обработка для Firefox
+      if (isFirefox) {
+        console.log('[Notifications] Используем специальные настройки для Firefox');
+        // Firefox может игнорировать некоторые параметры
+        notificationOptions.requireInteraction = false; // В Firefox этот параметр может работать некорректно
+      }
       
       // Добавляем данные в объект, если браузер поддерживает
       if (data) {
@@ -203,7 +309,45 @@ export default defineNuxtPlugin((nuxtApp) => {
       console.log('[Notifications] Создание уведомления с параметрами:', notificationOptions);
       
       // Создаем уведомление
-      const notification = new Notification(title, notificationOptions);
+      let notification;
+      
+      // Специальная обработка для Firefox
+      if (isFirefox) {
+        try {
+          // В Firefox могут быть проблемы с некоторыми параметрами, поэтому упрощаем объект
+          const firefoxOptions = {
+            body: notificationOptions.body,
+            icon: notificationOptions.icon,
+            tag: notificationOptions.tag
+          };
+          
+          console.log('[Notifications] Firefox: создаем уведомление с упрощенными параметрами');
+          notification = new Notification(title, firefoxOptions);
+        } catch (firefoxError) {
+          console.error('[Notifications] Firefox: ошибка при создании уведомления:', firefoxError);
+          
+          // Пробуем создать с минимальными параметрами
+          try {
+            notification = new Notification(title, { body: notificationOptions.body });
+          } catch (e) {
+            console.error('[Notifications] Firefox: не удалось создать уведомление даже с минимальными параметрами:', e);
+            
+            // Используем визуальное уведомление в интерфейсе
+            if (window.$showNotification) {
+              window.$showNotification(
+                `${title}: ${body}`,
+                'info',
+                5000
+              );
+            }
+            
+            return null;
+          }
+        }
+      } else {
+        // Для других браузеров используем стандартный подход
+        notification = new Notification(title, notificationOptions);
+      }
       
       // Обработка клика по уведомлению
       notification.onclick = (event) => {
