@@ -22,7 +22,7 @@ const showNotification = (message, type = 'info', duration = 3000) => {
   let title = 'Информация';
   if (type === 'success') title = 'Успешно';
   if (type === 'error') title = 'Ошибка';
-  if (type === 'warning') title = 'Внимание';
+  if (type === 'warning') title = 'Уведомления';
   
   // Устанавливаем содержимое уведомления
   notification.innerHTML = `

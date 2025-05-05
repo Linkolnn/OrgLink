@@ -45,6 +45,7 @@
         </div>
         
         <div class="chat-actions">
+          <UiNotificationControl v-if="chatData && chatData._id" :chatId="chatData._id" />
         </div>
       </div>
       
@@ -77,7 +78,7 @@
           
           <!-- Сообщения группы -->
           <div v-for="message in group.messages" :key="message._id" class="message_wrap">
-            <Message 
+            <ChatMessage 
               :message="message" 
               :is-group-chat="chatStore.isGroupChat(chatData)"
               :is-mobile="isMobile.value"
@@ -166,8 +167,6 @@
 <script setup>
 import { useChatStore } from '~/stores/chat';
 import { useAuthStore } from '~/stores/auth';
-import { useNuxtApp } from '#app';
-import Message from './Message.vue';
 import { secureUrl } from '~/utils/secureUrl';
 
 // Хранилища
@@ -640,24 +639,28 @@ const toggleSidebar = (event) => {
   if (event) {
     event.stopPropagation();
   }
-  
-  // Используем новый плагин для управления боковой панелью
+    
+  // Показываем боковую панель
   const nuxtApp = useNuxtApp();
   const { $toggleSidebar } = nuxtApp;
   
   if ($toggleSidebar) {
     // Если плагин доступен, используем его
-    $toggleSidebar();
+    $toggleSidebar(true); // Явно указываем, что нужно показать боковую панель
   } else if (nuxtApp && nuxtApp.$sidebarVisible !== undefined) {
     // Запасной вариант - используем старый метод
-    nuxtApp.$sidebarVisible.value = !nuxtApp.$sidebarVisible.value;
+    nuxtApp.$sidebarVisible.value = true; // Явно устанавливаем в true
   } else {
     // Если ничего не доступно, используем прямое изменение DOM
     const app = document.querySelector('.app');
     if (app) {
-      app.classList.toggle('sidebar-visible');
+      app.classList.add('sidebar-visible'); // Используем add вместо toggle
     }
   }
+
+  setTimeout(() => {
+    chatStore.resetActiveChatSoft();
+  }, 190);
 };
 
 // Предотвращаем появление SideBar при фокусе на поле ввода
@@ -799,6 +802,8 @@ const setupDisplayModeListener = () => {
   };
 };
 
+
+
 // Жизненный цикл компонента
 onMounted(() => {
   console.log('[Chat] Монтирование компонента');
@@ -884,6 +889,8 @@ watch(() => chatStore.activeChat, (newChat, oldChat) => {
     $socketJoinChat(newChat._id);
     console.log('[WebSocket] Переустановка слушателей для нового чата');
     setupWebSocketListeners();
+    
+
     setTimeout(() => {
       adjustContainerHeight();
     }, 100);

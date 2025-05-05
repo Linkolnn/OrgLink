@@ -29,7 +29,13 @@
       </div>
       <div :id="`chat-message-${chat._id}`" class="chat-item__message" :class="{ 'chat-item__message--service': isServiceMessage }">
         <span v-if="isServiceMessage && chat.lastMessage">{{ chat.lastMessage.text }}</span>
-        <span v-else>{{ formattedLastMessage }}</span>
+        <span v-else>
+          <!-- Для групповых чатов показываем имя отправителя -->
+          <template v-if="!isPrivateChat(chat) && chat.lastMessage && chat.lastMessage.sender && !isSelfMessage && senderName">
+            <span class="chat-item__sender">{{ senderName }}:</span> 
+          </template>
+          {{ formattedLastMessage }}
+        </span>
       </div>
     </div>
     <div class="chat-item__meta">
@@ -141,10 +147,67 @@ function getOtherParticipantName(chat) {
   // Возвращаем имя собеседника или название чата, если собеседник не найден
   return otherParticipant?.name || chat.name || 'Чат';
 }
+
+// Получение имени отправителя
+function getSenderName(sender) {
+  // Если отправитель - объект с полем name
+  if (sender && typeof sender === 'object' && sender.name) {
+    return sender.name;
+  }
+  
+  // Если отправитель - ID пользователя
+  if (sender && typeof sender === 'string') {
+    // Проверяем, есть ли этот пользователь в списке участников чата
+    const participant = props.chat.participants?.find(p => p._id === sender);
+    if (participant && participant.name) {
+      return participant.name;
+    }
+    return 'Пользователь';
+  }
+  
+  return 'Пользователь';
+}
+
+// Проверка, является ли сообщение отправлено текущим пользователем
+const isSelfMessage = computed(() => {
+  if (!props.chat.lastMessage || !props.chat.lastMessage.sender) return false;
+  
+  // Проверяем, является ли отправитель текущим пользователем
+  if (typeof props.chat.lastMessage.sender === 'object') {
+    return props.chat.lastMessage.sender._id === authStore.user?._id;
+  } else if (typeof props.chat.lastMessage.sender === 'string') {
+    return props.chat.lastMessage.sender === authStore.user?._id;
+  }
+  
+  return false;
+});
+
+// Вычисляемое свойство для имени отправителя
+const senderName = computed(() => {
+  if (!props.chat.lastMessage || !props.chat.lastMessage.sender) return '';
+  
+  const sender = props.chat.lastMessage.sender;
+  
+  // Если отправитель - объект с полем name
+  if (typeof sender === 'object' && sender.name) {
+    return sender.name;
+  }
+  
+  // Если отправитель - ID пользователя
+  if (typeof sender === 'string') {
+    // Проверяем, есть ли этот пользователь в списке участников чата
+    const participant = props.chat.participants?.find(p => p._id === sender);
+    if (participant && participant.name) {
+      return participant.name;
+    }
+  }
+  
+  return 'Пользователь';
+});
 </script>
 
-<style lang="sass" scoped>
-@import '~/assets/styles/variables'
+<style lang="sass">
+@import '@variables'
 
 // Элемент чата
 .chat-item
@@ -204,6 +267,10 @@ function getOtherParticipantName(chat) {
       font-style: italic
       font-weight: 500
   
+  &__sender
+    font-weight: 600
+    margin-right: 4px
+  
   &__meta
     display: flex
     flex-direction: column
@@ -215,7 +282,7 @@ function getOtherParticipantName(chat) {
   &__badge
     background-color: $purple
     color: $white
-    border-radius: 50px
+    border-radius: 50%
     min-width: 20px
     height: 20px
     display: flex

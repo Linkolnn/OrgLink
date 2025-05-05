@@ -91,7 +91,7 @@ onMounted(() => {
   
   // Вся логика проверки активного чата и наблюдения за DOM реализована в плагине sidebar-manager.js
   
-  // Если мы на странице мессенжера или админа и на мобильном устройстве,
+  // Если мы на странице мессенджера или админа и на мобильном устройстве,
   // показываем SideBar только при первой загрузке страницы
   if (isAuthenticated.value && (route.path === '/messenger' || route.path === '/admin') && isMobile.value) {
     // Проверяем, что это первая загрузка страницы, а не возврат из чата
@@ -236,4 +236,26 @@ provide('showSidebar', () => {
     top: 0
     height: 100%
     z-index: 10
+
+.page-transition-enter-active
+  transition: opacity 0.2s ease-in
+
+.page-transition-leave-active
+  transition: opacity 0.2s ease-out
+
+.page-transition-enter-from,
+.page-transition-leave-to
+  opacity: 0
+
+// Стили для контейнера управления уведомлениями
+.notification-control-container
+  position: fixed
+  bottom: 20px
+  right: 20px
+  z-index: 1000
+  
+  // На мобильных устройствах размещаем в другом месте
+  @media (max-width: 859px)
+    bottom: 70px
+    right: 15px
 </style>

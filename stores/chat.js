@@ -27,6 +27,7 @@ export const useChatStore = defineStore('chat', {
     socketListenersInitialized: false,
     initialLoadComplete: false, // Флаг для отслеживания первоначальной загрузки
     lastUpdated: Date.now(), // Временная метка последнего обновления для отслеживания изменений
+    mutedChats: [], // Список ID чатов, для которых отключены уведомления
     pagination: {
       limit: 15, // Уменьшаем начальный лимит для более быстрой загрузки
       total: 0,
@@ -195,8 +196,14 @@ export const useChatStore = defineStore('chat', {
     
     // Инициализация WebSocket слушателей
     initSocketListeners() {
+      console.log('ChatStore: Инициализация WebSocket слушателей');
+      
+      // Загружаем список отключенных чатов
+      this.loadMutedChats();
+      
+      // Проверяем, были ли уже инициализированы слушатели
       if (this.socketListenersInitialized) {
-        console.log('WebSocket слушатели уже инициализированы');
+        console.log('ChatStore: WebSocket слушатели уже инициализированы');
         return;
       }
       
@@ -607,11 +614,18 @@ export const useChatStore = defineStore('chat', {
     updateLastMessage(chatId, message) {
       if (!chatId || !message) return;
       
+      console.log('ChatStore: Обновление последнего сообщения для чата:', chatId, message);
+      
+      // Сохраняем полную информацию об отправителе
+      const senderInfo = message.sender && typeof message.sender === 'object' 
+        ? { ...message.sender } // Копируем объект отправителя
+        : message.sender; // Или просто ID, если это строка
+      
       // Обновляем lastMessage в активном чате, если это тот же чат
       if (this.activeChat && this.activeChat._id === chatId) {
         this.activeChat.lastMessage = {
           text: message.text || 'Медиа-сообщение',
-          sender: message.sender._id,
+          sender: senderInfo, // Сохраняем полную информацию
           timestamp: message.createdAt || new Date()
         };
       }
@@ -623,7 +637,7 @@ export const useChatStore = defineStore('chat', {
         const updatedChat = { ...this.chats[chatIndex] };
         updatedChat.lastMessage = {
           text: message.text || 'Медиа-сообщение',
-          sender: message.sender._id,
+          sender: senderInfo, // Сохраняем полную информацию
           timestamp: message.createdAt || new Date()
         };
         
@@ -650,12 +664,12 @@ export const useChatStore = defineStore('chat', {
         const isSafari = typeof navigator !== 'undefined' && /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
         const isIOS = typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
         
+        console.log('ChatStore: Загрузка чатов', { isSafari, isIOS });
+        
         // Получаем токен из cookie
         const tokenCookie = useCookie('token');
         const clientTokenCookie = useCookie('client_token');
         const token = tokenCookie.value || clientTokenCookie.value;
-        
-        console.log('ChatStore: Загрузка чатов', { isSafari, isIOS, hasToken: !!token });
         
         // Используем safeFetch для совместимости с Safari/iOS
         const response = await safeFetch(`${config.public.backendUrl}/api/chats`, {
@@ -1793,59 +1807,126 @@ export const useChatStore = defineStore('chat', {
     
     // Метод для плавного обновления списка чатов
     triggerChatListUpdate() {
-      console.log('ChatStore: Плавное обновление списка чатов');
+      // Сортируем чаты по времени последнего сообщения
+      this.sortChatsByLastMessage();
       
-      // Проверяем все чаты на наличие последнего сообщения
-      this.chats.forEach(chat => {
-        // Если есть сообщения, но нет последнего сообщения
-        if (chat.messages && chat.messages.length > 0 && !chat.lastMessage) {
-          // Берем последнее сообщение из массива
-          const lastMsg = chat.messages[chat.messages.length - 1];
-          
-          // Создаем объект последнего сообщения
-          chat.lastMessage = {
-            text: lastMsg.text,
-            sender: lastMsg.sender,
-            createdAt: lastMsg.createdAt
-          };
-          
-          console.log(`ChatStore: Добавлено последнее сообщение для чата ${chat._id}`);
-        }
-      });
-      
-      // Отправляем событие обновления списка чатов
-      const { $socket } = useNuxtApp();
-      if ($socket) {
-        $socket.emit('client-chat-list-updated');
-      }
+      // Обновляем триггер для перерисовки списка
+      this.chatListUpdateTrigger++;
       
       // Добавляем специальное поле для отслеживания изменений
-      this.lastUpdated = new Date().getTime();
+      this.lastUpdated = Date.now();
+    },
+    
+    // Метод для отключения уведомлений для конкретного чата
+    muteChat(chatId) {
+      if (!chatId) return;
       
-      // Сортируем чаты по дате последнего сообщения (новые сверху)
+      // Проверяем, что чат еще не в списке отключенных
+      if (!this.mutedChats.includes(chatId)) {
+        this.mutedChats.push(chatId);
+        
+        // Сохраняем список в localStorage
+        if (process.client) {
+          localStorage.setItem('mutedChats', JSON.stringify(this.mutedChats));
+        }
+      }
+    },
+    
+    // Метод для включения уведомлений для конкретного чата
+    unmuteChat(chatId) {
+      if (!chatId) return;
+      
+      // Удаляем чат из списка отключенных
+      this.mutedChats = this.mutedChats.filter(id => id !== chatId);
+      
+      // Сохраняем список в localStorage
+      if (process.client) {
+        localStorage.setItem('mutedChats', JSON.stringify(this.mutedChats));
+      }
+    },
+    
+    // Метод для загрузки списка отключенных чатов из localStorage
+    loadMutedChats() {
+      if (process.client) {
+        const savedMutedChats = localStorage.getItem('mutedChats');
+        if (savedMutedChats) {
+          try {
+            this.mutedChats = JSON.parse(savedMutedChats);
+          } catch (error) {
+            console.error('Ошибка при загрузке списка отключенных чатов:', error);
+            this.mutedChats = [];
+          }
+        }
+      }
+    },
+    
+    // Метод для проверки, отключены ли уведомления для чата
+    isChatMuted(chatId) {
+      return this.mutedChats.includes(chatId);
+    },
+    
+    // Сортировка чатов по времени последнего сообщения
+    sortChatsByLastMessage() {
+      console.log('ChatStore: Сортировка чатов по времени последнего сообщения');
+      
+      // Сортируем чаты по времени последнего сообщения (от новых к старым)
       this.chats.sort((a, b) => {
-        const aTime = a.lastMessage?.createdAt ? new Date(a.lastMessage.createdAt).getTime() : 0;
-        const bTime = b.lastMessage?.createdAt ? new Date(b.lastMessage.createdAt).getTime() : 0;
-        return bTime - aTime;
+        // Получаем временные метки последних сообщений
+        const timestampA = a.lastMessage?.timestamp ? new Date(a.lastMessage.timestamp).getTime() : 0;
+        const timestampB = b.lastMessage?.timestamp ? new Date(b.lastMessage.timestamp).getTime() : 0;
+        
+        // Сортируем по убыванию (от новых к старым)
+        return timestampB - timestampA;
       });
       
-      console.log('ChatStore: Список чатов обновлен, количество:', this.chats.length);
+      // Обновляем триггер для перерисовки списка
+      this.chatListUpdateTrigger++;
     },
     
     // Сброс активного чата и связанных данных
-  resetActiveChat() {
-    console.log('ChatStore: Сброс активного чата');
-    this.activeChat = null;
-    this.messages = [];
-    this.messagesLoading = false;
-    this.messagesError = null;
-    this.messagesPage = 1;
-    this.messagesHasMore = false;
+    resetActiveChat() {
+      console.log('ChatStore: Сброс активного чата');
+      this.activeChat = null;
+      this.messages = [];
+      this.messagesLoading = false;
+      this.messagesError = null;
+      this.messagesPage = 1;
+      this.messagesHasMore = false;
+      
+      // Сбрасываем также режим предпросмотра, если он был активен
+      this.isPreviewMode = false;
+      this.previewChat = null;
+      
+      // Сбрасываем поле неактивного чата
+      this.inactiveChatId = null;
+    },
     
-    // Сбрасываем также режим предпросмотра, если он был активен
-    this.isPreviewMode = false;
-    this.previewChat = null;
-  },
+    // Сброс активного чата без влияния на UI
+    resetActiveChatSoft() {
+      console.log('ChatStore: Сброс активного чата');
+      this.activeChat = null;
+      this.messages = [];
+      this.messagesLoading = false;
+      this.messagesError = null;
+      this.messagesPage = 1;
+      this.messagesHasMore = false;
+      
+      // Сбрасываем также режим предпросмотра, если он был активен
+      this.isPreviewMode = false;
+      this.previewChat = null;
+      
+      // Сбрасываем поле неактивного чата
+      this.inactiveChatId = null;
+    },
+    
+    // Отметить чат как неактивный для уведомлений, но не сбрасывать полностью
+    markChatAsInactive() {
+      if (this.activeChat) {
+        console.log('ChatStore: Отметка чата как неактивного для уведомлений:', this.activeChat._id);
+        // Сохраняем ID чата в специальном поле, чтобы знать, что он неактивен для уведомлений
+        this.inactiveChatId = this.activeChat._id;
+      }
+    },
     
     // Показываем SideBar на мобильных устройствах
     showSidebarOnMobile() {

@@ -153,8 +153,148 @@ if ($socket) {
     forceUpdate.value++;
   });
 
+  // Обработка события обновления чата (новое сообщение)
+  $socket.on('chat-updated', ({ chatId, lastMessage }) => {
+    console.log('SideBar: Получено обновление чата:', chatId, lastMessage);
+    
+    if (!chatId) {
+      console.error('SideBar: Отсутствует ID чата в обновлении');
+      return;
+    }
+    
+    try {
+      // Получаем информацию о текущем пользователе
+      const { $auth, $notifications } = useNuxtApp();
+      const currentUserId = $auth?.user?._id;
+      
+      // Проверяем, от текущего ли пользователя сообщение
+      const senderIsCurrentUser = (
+        (lastMessage.sender && typeof lastMessage.sender === 'object' && lastMessage.sender._id === currentUserId) ||
+        (lastMessage.sender && typeof lastMessage.sender === 'string' && lastMessage.sender === currentUserId)
+      );
+      
+      // Находим чат в списке
+      const chatIndex = chatStore.chats.findIndex(c => c._id === chatId);
+      
+      if (chatIndex !== -1) {
+        const currentChat = { ...chatStore.chats[chatIndex] };
+        
+        // Определяем, активен ли чат
+        const isActiveChat = chatStore.activeChat && chatStore.activeChat._id === chatId;
+        
+        // Определяем, нужно ли увеличивать счетчик непрочитанных сообщений
+        let unreadCount = currentChat.unread || 0;
+        
+        // Если сообщение не от текущего пользователя и чат не активен
+        if (!senderIsCurrentUser && !isActiveChat) {
+          unreadCount++;
+          
+          // Получаем имя отправителя (если доступно)
+          let senderName = '';
+          if (lastMessage.sender) {
+            if (typeof lastMessage.sender === 'object') {
+              senderName = lastMessage.sender.name || lastMessage.sender.username || '';
+              
+              // Если имя все еще не найдено, попробуем получить его из email
+              if (!senderName && lastMessage.sender.email) {
+                senderName = lastMessage.sender.email.split('@')[0];
+              }
+            } else if (typeof lastMessage.sender === 'string') {
+              // Если sender - это строка (ID), попробуем найти пользователя в участниках чата
+              const sender = currentChat.participants?.find(p => p._id === lastMessage.sender);
+              if (sender) {
+                senderName = sender.name || sender.username || '';
+                
+                // Если имя все еще не найдено, попробуем получить его из email
+                if (!senderName && sender.email) {
+                  senderName = sender.email.split('@')[0];
+                }
+              }
+            }
+          }
+          
+          // Получаем информацию о чате для уведомления
+          let chatName = '';
+          let otherParticipantName = '';
+          
+          if (currentChat.type === 'private') {
+            // Для приватных чатов используем имя отправителя
+            const otherParticipant = currentChat.participants?.find(p => p._id !== currentUserId);
+            otherParticipantName = otherParticipant?.name || otherParticipant?.username || '';
+            
+            // Для приватных чатов в качестве названия чата используем имя отправителя
+            chatName = senderName || otherParticipantName || 'Личный чат';
+          } else {
+            // Для групповых чатов используем название группы
+            chatName = currentChat.name || 'Групповой чат';
+          }
+          
+          // Текст сообщения
+          const messageText = lastMessage.text || 'Новое сообщение';
+          
+          console.log('SideBar: Отправка уведомления о новом сообщении (chat-updated):', {
+            chatName,
+            senderName,
+            messageText,
+            chatId,
+            isActiveChat
+          });
+          
+          // Отправляем уведомление только если:
+          // 1. Чат не активен (пользователь не просматривает его)
+          // 2. Окно не в фокусе или документ не видим
+          const windowNotFocused = !$notifications?.isWindowFocused?.value;
+          const documentNotVisible = !$notifications?.isDocumentVisible?.value;
+          
+          if ($notifications && $notifications.supported && $notifications.permission.value === 'granted' && 
+              (windowNotFocused || documentNotVisible)) {
+            try {
+              $notifications.sendMessageNotification({
+                chatName,
+                senderName,
+                message: messageText,
+                chatId,
+                chatAvatar: currentChat.avatar,
+                forceShow: false // Не показываем принудительно, только если окно не активно
+              });
+            } catch (error) {
+              console.error('SideBar: Ошибка при отправке уведомления (chat-updated):', error);
+            }
+          }
+        }
+        
+        // Обновляем чат в списке
+        chatStore.chats[chatIndex] = {
+          ...currentChat,
+          lastMessage: {
+            text: lastMessage.text || 'Медиа-сообщение',
+            sender: lastMessage.sender,
+            timestamp: lastMessage.timestamp || new Date().toISOString()
+          },
+          unread: unreadCount
+        };
+        
+        // Перемещаем чат вверх списка, если есть новое сообщение
+        if (lastMessage) {
+          moveToTop(chatId);
+        }
+        
+        // Обновляем список чатов (включает в себя обновление UI)
+        chatStore.triggerChatListUpdate();
+        
+        // Принудительно обновляем компонент
+        forceUpdate.value++;
+      } else {
+        // Если чат не найден в списке, обновляем список чатов
+        chatStore.fetchChats();
+      }
+    } catch (error) {
+      console.error('SideBar: Ошибка при обработке обновления чата:', error);
+    }
+  });
+
   // Обработчик события нового сообщения
-  $socket.on('new-message', ({ message, chatId }) => {
+  $socket.on('new-message', ({ message, chatId, chat }) => {
     console.log('SideBar: Получено новое сообщение через WebSocket:', message, 'для чата:', chatId);
     
     // Если chatId не передан, используем chat из сообщения
@@ -168,138 +308,167 @@ if ($socket) {
     }
     
     try {
-      // Находим чат в списке
-      const chatIndex = chatStore.chats.findIndex(chat => chat._id === chatId);
-    
+      // Получаем информацию о текущем пользователе
+      const { $auth, $notifications } = useNuxtApp();
+      const currentUserId = $auth?.user?._id;
+      
+      // Проверяем, от текущего ли пользователя сообщение
+      const senderIsCurrentUser = (
+        (message.sender && typeof message.sender === 'object' && message.sender._id === currentUserId) ||
+        (message.sender && typeof message.sender === 'string' && message.sender === currentUserId)
+      );
+      
+      // Находим чат в списке или используем переданный чат
+      let currentChat = null;
+      const chatIndex = chatStore.chats.findIndex(c => c._id === chatId);
+      
       if (chatIndex !== -1) {
-        // Получаем текущий чат
-        const chat = { ...chatStore.chats[chatIndex] };
-    
-        // Определяем, нужно ли увеличивать счетчик непрочитанных сообщений
-        let unreadCount = chat.unread || 0;
-        const isActiveChat = chatStore.activeChat && chatStore.activeChat._id === chatId;
-    
-        // Если сообщение не от текущего пользователя и чат не активен
-        const { $auth, $notifications } = useNuxtApp();
-        const currentUserId = $auth?.user?._id;
-        const senderIsCurrentUser = (
-          (message.sender && typeof message.sender === 'object' && message.sender._id === currentUserId) ||
-          (message.sender && typeof message.sender === 'string' && message.sender === currentUserId)
-        );
-    
-        // Если сообщение не от текущего пользователя и чат не активен
-        if (!senderIsCurrentUser && !isActiveChat) {
-          unreadCount++;
-          
-          // Отправляем системное уведомление, если сообщение не от текущего пользователя
-          if ($notifications && $notifications.supported) {
-            try {
-              console.log('SideBar: Проверяем возможность отправки уведомления');
+        currentChat = { ...chatStore.chats[chatIndex] };
+      } else if (chat) {
+        currentChat = chat;
+      } else {
+        console.error('SideBar: Не удалось найти чат:', chatId);
+        return;
+      }
+      
+      // Определяем, активен ли чат
+      const isActiveChat = chatStore.activeChat && chatStore.activeChat._id === chatId;
+      
+      // Определяем, нужно ли увеличивать счетчик непрочитанных сообщений
+      let unreadCount = currentChat.unread || 0;
+      
+      // Если сообщение не от текущего пользователя и чат не активен
+      if (!senderIsCurrentUser && !isActiveChat) {
+        unreadCount++;
+        
+        // Получаем имя отправителя
+        let senderName = '';
+        if (message.sender) {
+          if (typeof message.sender === 'object') {
+            senderName = message.sender.name || message.sender.username || '';
+            
+            // Если имя все еще не найдено, попробуем получить его из email
+            if (!senderName && message.sender.email) {
+              senderName = message.sender.email.split('@')[0];
+            }
+          } else if (typeof message.sender === 'string') {
+            // Если sender - это строка (ID), попробуем найти пользователя в участниках чата
+            const sender = currentChat.participants?.find(p => p._id === message.sender);
+            if (sender) {
+              senderName = sender.name || sender.username || '';
               
-              // Проверяем текущее разрешение
-              if ($notifications.permission.value !== 'granted') {
-                console.log('SideBar: Разрешение на уведомления не предоставлено, запрашиваем...');
-                $notifications.requestPermission().then(granted => {
-                  if (granted) {
-                    sendChatNotification(message, chat, currentUserId);
-                  } else {
-                    console.warn('SideBar: Разрешение на уведомления не получено');
-                  }
-                });
-              } else {
-                // Разрешение уже предоставлено, отправляем уведомление
-                sendChatNotification(message, chat, currentUserId);
+              // Если имя все еще не найдено, попробуем получить его из email
+              if (!senderName && sender.email) {
+                senderName = sender.email.split('@')[0];
               }
-            } catch (error) {
-              console.error('SideBar: Ошибка при отправке уведомления:', error);
             }
           }
         }
-    
-        // Создаем объект последнего сообщения
-        const lastMessage = {
-          ...message,
-          text: message.text || 'Медиа-сообщение',
-          timestamp: message.createdAt || new Date().toISOString()
-        };
-    
-        // Обновляем существующий чат
+        
+        // Получаем название чата и имя собеседника
+        let chatName = '';
+        let otherParticipantName = '';
+        if (currentChat.type === 'private') {
+          // Для приватных чатов используем имя собеседника
+          const otherParticipant = currentChat.participants?.find(p => p._id !== currentUserId);
+          otherParticipantName = otherParticipant?.name || otherParticipant?.username || '';
+          
+          // Для приватных чатов в качестве названия чата используем имя отправителя
+          chatName = senderName || otherParticipantName || 'Личный чат';
+          
+          console.log('Имя отправителя для уведомления в приватном чате:', senderName);
+        } else {
+          // Для групповых чатов используем название группы
+          chatName = currentChat.name || 'Групповой чат';
+        }
+        
+        // Текст сообщения
+        const messageText = message.text || 'Медиа-сообщение';
+        
+        // Отправляем уведомление
+        if ($notifications && $notifications.supported) {
+          console.log('Проверка возможности отправки уведомления:', {
+            permission: $notifications.permission.value,
+            supported: $notifications.supported,
+            isDocumentVisible: $notifications.isDocumentVisible?.value,
+            isWindowFocused: $notifications.isWindowFocused?.value
+          });
+          
+          if ($notifications.permission.value === 'granted') {
+            console.log('SideBar: Отправка уведомления о новом сообщении:', {
+              chatName,
+              senderName,
+              messageText,
+              chatId,
+              isActiveChat
+            });
+            
+            // Отправляем уведомление только если:
+            // 1. Чат не активен (пользователь не просматривает его)
+            // 2. Окно не в фокусе или документ не видим
+            const windowNotFocused = !$notifications?.isWindowFocused?.value;
+            const documentNotVisible = !$notifications?.isDocumentVisible?.value;
+            
+            if (windowNotFocused || documentNotVisible) {
+              try {
+                $notifications.sendMessageNotification({
+                  chatName,
+                  senderName,
+                  message: messageText,
+                  chatId,
+                  chatAvatar: currentChat.avatar,
+                  forceShow: false // Не показываем принудительно, только если окно не активно
+                });
+              } catch (error) {
+                console.error('SideBar: Ошибка при отправке уведомления:', error);
+              }
+            } else {
+              console.log('SideBar: Уведомление не отправлено, т.к. окно активно и документ видим');
+            }
+          } else {
+            console.warn('Нет разрешения на отправку уведомлений:', $notifications.permission.value);
+          }
+        }
+      }
+      
+      // Создаем объект последнего сообщения
+      const lastMessage = {
+        ...message,
+        text: message.text || 'Медиа-сообщение',
+        timestamp: message.createdAt || new Date().toISOString()
+      };
+      
+      // Обновляем чат в списке
+      if (chatIndex !== -1) {
+        // Если чат уже есть в списке, обновляем его
         chatStore.chats[chatIndex] = {
-          ...chat,
+          ...currentChat,
           lastMessage,
           unread: unreadCount
         };
-    
-        // Обновляем активный чат, если это тот же чат
-        if (isActiveChat) {
-          chatStore.activeChat = { ...chatStore.activeChat, lastMessage };
-          // Отмечаем сообщения как прочитанные, если чат активен
-          chatStore.readMessages(chatId);
-        }
         
-        // Перемещаем чат в начало списка
+        // Перемещаем чат вверх списка
         moveToTop(chatId);
-        
-        // Обновляем временную метку
-        chatStore.lastUpdated = Date.now();
-      } else {
-        // Если чат не найден, обновляем список чатов
-        chatStore.fetchChats();
+      } else if (chat) {
+        // Если чата нет в списке, но он передан в событии, добавляем его
+        chatStore.chats.unshift({
+          ...chat,
+          lastMessage,
+          unread: unreadCount
+        });
       }
+      
+      // Обновляем список чатов (включает в себя обновление UI)
+      chatStore.triggerChatListUpdate();
+      
+      // Принудительно обновляем компонент
+      forceUpdate.value++;
     } catch (error) {
       console.error('SideBar: Ошибка при обработке нового сообщения:', error);
-      chatStore.fetchChats();
     }
   });
 
-  // Обработчик события обновления чата
-  $socket.on('chat-updated', ({ chatId, lastMessage }) => {
-    console.log('SideBar: Получено событие обновления чата:', chatId, lastMessage);
-    
-    // Находим чат в списке
-    const chatIndex = chatStore.chats.findIndex(chat => chat._id === chatId);
-    
-    if (chatIndex !== -1) {
-      // Получаем текущий чат
-      const chat = { ...chatStore.chats[chatIndex] };
-      
-      // Определяем, нужно ли увеличивать счетчик непрочитанных сообщений
-      let unreadCount = chat.unread || 0;
-      const isActiveChat = chatStore.activeChat && chatStore.activeChat._id === chatId;
-      
-      // Если сообщение не от текущего пользователя и чат не активен
-      const { $auth } = useNuxtApp();
-      const currentUserId = $auth?.user?._id;
-      const senderIsCurrentUser = (
-        (lastMessage.sender && typeof lastMessage.sender === 'object' && lastMessage.sender._id === currentUserId) ||
-        (lastMessage.sender && typeof lastMessage.sender === 'string' && lastMessage.sender === currentUserId)
-      );
-      
-      if (!senderIsCurrentUser && !isActiveChat) {
-        unreadCount++;
-      }
-      
-      // Форматируем время
-      const formattedTime = formatTime(new Date(lastMessage.timestamp));
-      
-      // Обновляем существующий чат
-      chatStore.chats[chatIndex] = {
-        ...chat,
-        lastMessage,
-        unread: unreadCount,
-        formattedTime
-      };
-      
-      // Перемещаем чат в начало списка
-      moveToTop(chatId);
-      
-      // Обновляем временную метку
-      chatStore.lastUpdated = Date.now();
-    } else {
-      // Если чат не найден, обновляем список чатов
-      chatStore.fetchChats();
-    }
-  });
+  // Обработчик события обновления чата уже реализован выше
   
   // Проверяем текущее состояние соединения
   isConnected.value = $socket.connected;
@@ -351,12 +520,6 @@ const chats = computed(() => {
     if (chat.lastMessage?.sender) {
       if (typeof chat.lastMessage.sender === 'object') {
         senderName = chat.lastMessage.sender.name || chat.lastMessage.sender.username || '';
-      } else if (chat.members) {
-        // Если отправитель указан как ID, пытаемся найти его в списке участников
-        const member = chat.members.find(m => m._id === chat.lastMessage.sender);
-        if (member) {
-          senderName = member.name || member.username || '';
-        }
       }
     }
     
@@ -463,39 +626,6 @@ if (date >= today) {
   // Другие дни - показываем дату
   return date.toLocaleDateString([], { day: 'numeric', month: 'numeric' });
 }
-};
-
-// Функция для отправки уведомления о новом сообщении
-const sendChatNotification = (message, chat, currentUserId) => {
-  const { $notifications } = useNuxtApp();
-  
-  // Получаем имя отправителя
-  let senderName = '';
-  if (message.sender) {
-    if (typeof message.sender === 'object') {
-      senderName = message.sender.name || message.sender.username || '';
-    }
-  }
-  
-  // Получаем название чата
-  let chatName = '';
-  if (chat.type === 'private') {
-    // Для приватных чатов используем имя собеседника
-    const otherParticipant = chat.participants?.find(p => p._id !== currentUserId);
-    chatName = otherParticipant?.name || 'Личный чат';
-  } else {
-    // Для групповых чатов используем название группы
-    chatName = chat.name || 'Групповой чат';
-  }
-  
-  // Отправляем уведомление
-  $notifications.sendMessageNotification({
-    chatName,
-    senderName,
-    message: message.text || 'Медиа-сообщение',
-    chatId,
-    chatAvatar: chat.avatar
-  });
 };
 </script>
 
