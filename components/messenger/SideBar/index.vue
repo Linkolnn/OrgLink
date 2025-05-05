@@ -570,12 +570,17 @@ forceUpdate.value++;
 
 // Выбор чата
 const selectChat = (chatId) => {
+  console.log('[SideBar] Выбран чат:', chatId);
   chatStore.setActiveChat(chatId);
   navigateTo('/messenger');
 
   // На мобильных устройствах переключаем на чат
+  // Проверяем ширину экрана напрямую, чтобы избежать проблем с реактивностью
   setTimeout(() => {
-    if (isMobile.value) {
+    const isMobileWidth = window.innerWidth <= 859;
+    console.log('[SideBar] Ширина экрана:', window.innerWidth, 'Мобильная версия:', isMobileWidth);
+    
+    if (isMobileWidth) {
       showChat();
     }
   }, 150);
@@ -599,27 +604,44 @@ const showChat = () => {
   // Скрываем сайдбар на мобильных устройствах
   isMobile.value = false;
   
-  // Также удаляем класс visible у элемента .sidebar
+  // Напрямую манипулируем DOM для гарантированного скрытия сайдбара
   setTimeout(() => {
-    const sidebar = document.querySelector('.sidebar');
-    if (sidebar) {
-      sidebar.classList.remove('visible');
-      console.log('[SideBar] Удален класс visible у .sidebar');
-    }
-    
-    // Удаляем класс sidebar-visible у приложения
-    const app = document.querySelector('.app');
-    if (app) {
-      app.classList.remove('sidebar-visible');
-      console.log('[SideBar] Удален класс sidebar-visible у .app');
+    try {
+      // Удаляем класс visible у элемента .sidebar
+      const sidebar = document.querySelector('.sidebar');
+      if (sidebar) {
+        sidebar.classList.remove('visible');
+        sidebar.style.transform = 'translateX(-100%)';
+        console.log('[SideBar] Удален класс visible у .sidebar и добавлен translateX(-100%)');
+      }
+      
+      // Удаляем класс sidebar-visible у приложения
+      const app = document.querySelector('.app');
+      if (app) {
+        app.classList.remove('sidebar-visible');
+        console.log('[SideBar] Удален класс sidebar-visible у .app');
+      }
+      
+      // Добавляем класс chat-visible к элементу .chat, если он есть
+      const chat = document.querySelector('.chat');
+      if (chat) {
+        chat.classList.add('chat-visible');
+        console.log('[SideBar] Добавлен класс chat-visible к .chat');
+      }
+    } catch (error) {
+      console.error('[SideBar] Ошибка при манипуляции DOM:', error);
     }
   }, 50);
   
   // Используем плагин sidebar-manager, если он доступен
-  const nuxtApp = useNuxtApp();
-  if (nuxtApp.$toggleSidebar) {
-    nuxtApp.$toggleSidebar(false);
-    console.log('[SideBar] Вызван $toggleSidebar(false)');
+  try {
+    const nuxtApp = useNuxtApp();
+    if (nuxtApp.$toggleSidebar) {
+      nuxtApp.$toggleSidebar(false);
+      console.log('[SideBar] Вызван $toggleSidebar(false)');
+    }
+  } catch (error) {
+    console.error('[SideBar] Ошибка при вызове $toggleSidebar:', error);
   }
 };
 
