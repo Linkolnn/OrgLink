@@ -101,15 +101,48 @@ const buttonTitle = computed(() => {
 
 // Метод для запроса разрешения на уведомления
 const requestNotificationPermission = async () => {
-  if (!$notifications || !notificationsSupported.value) return false;
-  
-  if (notificationPermission.value !== 'granted') {
-    const granted = await $notifications.requestPermission();
-    notificationPermission.value = $notifications.permission.value;
-    return granted;
+  if (!$notifications || !notificationsSupported.value) {
+    console.warn('[NotificationControl] Уведомления не поддерживаются в этом браузере');
+    return false;
   }
   
-  return true;
+  // Проверяем, работает ли сайт по HTTPS
+  if (process.client && !window.isSecureContext) {
+    console.warn('[NotificationControl] Уведомления требуют защищенного контекста (HTTPS)');
+    return false;
+  }
+  
+  // Проверяем, работает ли сайт на разрешенном домене
+  if (process.client) {
+    const isAllowedDomain = (
+      window.location.hostname === 'localhost' || 
+      window.location.hostname === '127.0.0.1' ||
+      window.location.hostname.includes('vercel.app') ||
+      window.location.hostname.includes('railway.app')
+    );
+    
+    if (!isAllowedDomain) {
+      console.warn('[NotificationControl] Уведомления не работают на этом домене');
+      return false;
+    }
+  }
+  
+  // Если разрешение уже получено, возвращаем true
+  if (notificationPermission.value === 'granted') {
+    console.log('[NotificationControl] Разрешение на уведомления уже получено');
+    return true;
+  }
+  
+  try {
+    console.log('[NotificationControl] Запрашиваем разрешение на уведомления...');
+    const granted = await $notifications.requestPermission();
+    notificationPermission.value = $notifications.permission.value;
+    console.log('[NotificationControl] Результат запроса разрешения:', granted);
+    return granted;
+  } catch (error) {
+    console.error('[NotificationControl] Ошибка при запросе разрешения на уведомления:', error);
+    return false;
+  }
 };
 
 // Метод для проверки разрешения на уведомления

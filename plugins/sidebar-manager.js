@@ -1,44 +1,83 @@
 // Плагин для управления состоянием боковой панели
 import { ref, watch } from 'vue';
+import { useChatStore } from '~/stores/chat';
+
+// Создаем глобальное состояние для сайдбара
+const globalSidebarVisible = ref(true);
 
 export default defineNuxtPlugin((nuxtApp) => {
-  // Состояние видимости боковой панели
-  const sidebarVisible = ref(false);
+  // Используем глобальное состояние видимости боковой панели
+  // На мобильных устройствах сразу показываем боковую панель
+  const sidebarVisible = globalSidebarVisible;
+  
+  // Флаг для игнорирования активного чата при определении видимости боковой панели
+  const ignoreActiveChatForSidebar = ref(false);
   
   // Функция для проверки, является ли устройство мобильным
   const isMobileDevice = () => {
-    return window.innerWidth <= 859;
+    return process.client && window.innerWidth <= 859;
   };
   
   // Функция для показа боковой панели
   const showSidebar = () => {
     sidebarVisible.value = true;
     console.log('[SidebarManager] Показываем боковую панель');
+    updateDOMClasses();
   };
   
   // Функция для скрытия боковой панели
   const hideSidebar = () => {
     sidebarVisible.value = false;
     console.log('[SidebarManager] Скрываем боковую панель');
+    updateDOMClasses();
+  };
+  
+  // Функция для обновления классов в DOM
+  const updateDOMClasses = () => {
+    if (!process.client) return;
+    
+    setTimeout(() => {
+      const sidebar = document.querySelector('.sidebar');
+      if (sidebar) {
+        if (sidebarVisible.value) {
+          sidebar.classList.add('visible');
+          console.log('[SidebarManager] Добавлен класс visible к .sidebar');
+        } else {
+          sidebar.classList.remove('visible');
+          console.log('[SidebarManager] Удален класс visible у .sidebar');
+        }
+      }
+      
+      // Обновляем класс sidebar-visible у приложения
+      const app = document.querySelector('.app');
+      if (app) {
+        if (sidebarVisible.value) {
+          app.classList.add('sidebar-visible');
+          console.log('[SidebarManager] Добавлен класс sidebar-visible к .app');
+        } else {
+          app.classList.remove('sidebar-visible');
+          console.log('[SidebarManager] Удален класс sidebar-visible у .app');
+        }
+      }
+    }, 50);
   };
   
   // Функция для переключения состояния боковой панели
-  const toggleSidebar = (forceState = null) => {
-    // Если передано явное состояние, используем его
-    if (forceState !== null) {
-      sidebarVisible.value = forceState;
-      console.log('[SidebarManager] Явно устанавливаем боковую панель в:', forceState);
+  const toggleSidebar = (value) => {
+    if (value !== undefined) {
+      sidebarVisible.value = value;
     } else {
-      // Иначе переключаем состояние
       sidebarVisible.value = !sidebarVisible.value;
-      console.log('[SidebarManager] Переключаем боковую панель:', sidebarVisible.value);
     }
+    
+    console.log('[SidebarManager] Переключаем боковую панель:', sidebarVisible.value);
+    updateDOMClasses();
   };
   
   // Функция для проверки наличия активного чата и показа боковой панели при необходимости
   const checkActiveChatAndShowSidebar = () => {
     // Получаем ссылку на хранилище чата
-    const chatStore = nuxtApp.$chatStore;
+    const chatStore = useChatStore();
     
     if (!chatStore) {
       console.warn('[SidebarManager] Хранилище чата недоступно');
@@ -105,6 +144,58 @@ export default defineNuxtPlugin((nuxtApp) => {
     }
   };
   
+  // Инициализация боковой панели на мобильных устройствах
+  const initMobileSidebar = () => {
+    if (process.client) {
+      // Принудительно устанавливаем боковую панель видимой
+      sidebarVisible.value = true;
+      console.log('[SidebarManager] Принудительно устанавливаем боковую панель видимой');
+      
+      // Добавляем классы видимости напрямую к элементам DOM
+      // Используем несколько задержек для гарантии применения стилей
+      setTimeout(() => {
+        // Первая попытка
+        const sideBar = document.querySelector('.messenger-sidebar');
+        if (sideBar) {
+          sideBar.classList.add('visible');
+          console.log('[SidebarManager] Добавлен класс visible к .messenger-sidebar');
+        }
+        
+        const app = document.querySelector('.app');
+        if (app) {
+          app.classList.add('sidebar-visible');
+          console.log('[SidebarManager] Добавлен класс sidebar-visible к .app');
+        }
+        
+        // Вторая попытка с большей задержкой
+        setTimeout(() => {
+          const sideBar = document.querySelector('.messenger-sidebar');
+          if (sideBar) {
+            sideBar.classList.add('visible');
+          }
+          
+          const app = document.querySelector('.app');
+          if (app) {
+            app.classList.add('sidebar-visible');
+          }
+        }, 500);
+        
+        // Третья попытка с еще большей задержкой
+        setTimeout(() => {
+          const sideBar = document.querySelector('.messenger-sidebar');
+          if (sideBar) {
+            sideBar.classList.add('visible');
+          }
+          
+          const app = document.querySelector('.app');
+          if (app) {
+            app.classList.add('sidebar-visible');
+          }
+        }, 1000);
+      }, 100);
+    }
+  };
+  
   // Функция для инициализации наблюдателей
   const initWatchers = (chatStore) => {
     // Следим за изменениями активного чата
@@ -132,25 +223,35 @@ export default defineNuxtPlugin((nuxtApp) => {
     }
   };
   
-  // Инициализируем наблюдатели при монтировании приложения
-  nuxtApp.hook('app:mounted', () => {
-    console.log('[SidebarManager] Приложение смонтировано, инициализируем менеджер боковой панели');
+  // Инициализируем слушателей и наблюдателей
+  if (process.client) {
+    // Инициализируем боковую панель на мобильных устройствах
+    initMobileSidebar();
     
-    // Получаем хранилище чата
-    const chatStore = useChatStore();
-    
-    // Сохраняем ссылку на хранилище чата в глобальном контексте
-    nuxtApp.$chatStore = chatStore;
-    
-    // Инициализируем наблюдатели
-    initWatchers(chatStore);
-    
-    // Выполняем первичную проверку
-    setTimeout(() => {
-      checkActiveChatAndShowSidebar();
-      checkChatElementAndShowSidebar();
-    }, 500);
-  });
+    nuxtApp.hook('app:mounted', () => {
+      console.log('[SidebarManager] Приложение смонтировано, инициализируем слушателей');
+      
+      try {
+        // Получаем хранилище чата с помощью useChatStore
+        const chatStore = useChatStore();
+        
+        if (chatStore) {
+          console.log('[SidebarManager] Хранилище чата успешно получено');
+          initWatchers(chatStore);
+        } else {
+          console.warn('[SidebarManager] Хранилище чата недоступно при инициализации');
+        }
+      } catch (error) {
+        console.error('[SidebarManager] Ошибка при получении хранилища чата:', error);
+      }
+      
+      // Выполняем первичную проверку
+      setTimeout(() => {
+        checkActiveChatAndShowSidebar();
+        checkChatElementAndShowSidebar();
+      }, 500);
+    });
+  }
   
   // Возвращаем объект с методами и состоянием для глобального доступа
   return {
@@ -162,4 +263,45 @@ export default defineNuxtPlugin((nuxtApp) => {
       checkActiveChatAndShowSidebar
     }
   };
+}, {
+  // Делаем функцию toggleSidebar доступной глобально через nuxtApp.$toggleSidebar
+  provide: {
+    toggleSidebar: (value) => {
+      console.log('[SidebarManager] Вызвана глобальная функция toggleSidebar:', value);
+      const sidebarVisible = ref(true);
+      if (value !== undefined) {
+        sidebarVisible.value = value;
+      } else {
+        sidebarVisible.value = !sidebarVisible.value;
+      }
+      
+      // Обновляем классы в DOM
+      setTimeout(() => {
+        const sidebar = document.querySelector('.sidebar');
+        if (sidebar) {
+          if (sidebarVisible.value) {
+            sidebar.classList.add('visible');
+            console.log('[SidebarManager] Добавлен класс visible к .sidebar');
+          } else {
+            sidebar.classList.remove('visible');
+            console.log('[SidebarManager] Удален класс visible у .sidebar');
+          }
+        }
+        
+        // Обновляем класс sidebar-visible у приложения
+        const app = document.querySelector('.app');
+        if (app) {
+          if (sidebarVisible.value) {
+            app.classList.add('sidebar-visible');
+            console.log('[SidebarManager] Добавлен класс sidebar-visible к .app');
+          } else {
+            app.classList.remove('sidebar-visible');
+            console.log('[SidebarManager] Удален класс sidebar-visible у .app');
+          }
+        }
+      }, 50);
+      
+      return sidebarVisible.value;
+    }
+  }  
 });

@@ -2,14 +2,34 @@ import { useChatStore } from '~/stores/chat';
 
 export default defineNuxtPlugin((nuxtApp) => {
   // Проверяем поддержку уведомлений в браузере
-  const notificationsSupported = typeof window !== 'undefined' && 'Notification' in window;
+  const notificationsSupported = typeof window !== 'undefined' && 'Notification' in window && window.isSecureContext;
+  
+  // Проверяем, работает ли сайт по HTTPS
+  const isSecureContext = process.client ? window.isSecureContext : false;
+  
+  // Проверяем, работает ли сайт на локальном хосте или на разрешенном домене
+  const isAllowedDomain = process.client ? (
+    window.location.hostname === 'localhost' || 
+    window.location.hostname === '127.0.0.1' ||
+    window.location.hostname.includes('vercel.app') ||
+    window.location.hostname.includes('railway.app')
+  ) : false;
   
   // Состояние разрешения на уведомления
   const notificationPermission = ref(
-    notificationsSupported 
+    (notificationsSupported && isSecureContext)
       ? Notification.permission 
       : 'denied'
   );
+  
+  // Логируем состояние уведомлений
+  if (process.client) {
+    console.log('[Notifications] Состояние уведомлений:', { 
+      notificationsSupported, 
+      isSecureContext, 
+      permission: notificationPermission.value 
+    });
+  }
   
   // Состояние видимости документа и активности окна
   const isDocumentVisible = ref(
@@ -36,92 +56,135 @@ export default defineNuxtPlugin((nuxtApp) => {
   
   // Запрос разрешения на отправку уведомлений
   const requestPermission = async () => {
+    // Проверяем поддержку уведомлений
     if (!notificationsSupported) {
+      console.warn('[Notifications] Уведомления не поддерживаются в этом браузере');
+      return false;
+    }
+    
+    // Проверяем, работает ли сайт по HTTPS
+    if (!isSecureContext) {
+      console.warn('[Notifications] Уведомления требуют защищенного контекста (HTTPS)');
       return false;
     }
     
     // Если разрешение уже получено, возвращаем true
     if (notificationPermission.value === 'granted') {
+      console.log('[Notifications] Разрешение на уведомления уже получено');
       return true;
     }
     
     // Если разрешение уже запрещено, возвращаем false
     if (notificationPermission.value === 'denied') {
+      console.warn('[Notifications] Разрешение на уведомления было отклонено пользователем');
       return false;
     }
     
     try {
+      console.log('[Notifications] Запрашиваем разрешение на уведомления...');
+      
       // В Firefox Notification.requestPermission может не возвращать Promise
       // Поэтому используем обертку, которая работает в обоих случаях
       const permission = await new Promise((resolve) => {
-        const permissionResult = Notification.requestPermission((result) => {
-          // Обработка для старого API (callback)
-          resolve(result);
-        });
-        
-        // Если возвращается Promise (современные браузеры)
-        if (permissionResult instanceof Promise) {
-          permissionResult.then(resolve);
+        try {
+          const permissionResult = Notification.requestPermission((result) => {
+            // Обработка для старого API (callback)
+            console.log('[Notifications] Получен результат через callback:', result);
+            resolve(result);
+          });
+          
+          // Если возвращается Promise (современные браузеры)
+          if (permissionResult instanceof Promise) {
+            permissionResult.then((result) => {
+              console.log('[Notifications] Получен результат через Promise:', result);
+              resolve(result);
+            });
+          }
+        } catch (innerError) {
+          console.error('[Notifications] Ошибка при запросе разрешения:', innerError);
+          resolve('denied');
         }
       });
       
+      console.log('[Notifications] Получено разрешение:', permission);
       notificationPermission.value = permission;
       return permission === 'granted';
     } catch (error) {
-      console.error('Ошибка при запросе разрешения на уведомления:', error);
+      console.error('[Notifications] Ошибка при запросе разрешения на уведомления:', error);
       return false;
     }
   };
   
   // Функция для отправки уведомления
   const sendNotification = ({ title, body, icon, data = {}, forceShow = false }) => {
+    // Проверяем поддержку уведомлений
     if (!notificationsSupported) {
+      console.warn('[Notifications] Не удалось отправить уведомление: уведомления не поддерживаются');
       return null;
     }
     
+    // Проверяем, работает ли сайт по HTTPS
+    if (!isSecureContext) {
+      console.warn('[Notifications] Не удалось отправить уведомление: требуется защищенный контекст (HTTPS)');
+      return null;
+    }
+    
+    // Проверяем, работает ли сайт на разрешенном домене
+    if (!isAllowedDomain) {
+      console.warn('[Notifications] Не удалось отправить уведомление: домен не разрешен');
+      return null;
+    }
+    
+    // Проверяем разрешение на отправку уведомлений
     if (notificationPermission.value !== 'granted') {
+      console.warn('[Notifications] Не удалось отправить уведомление: нет разрешения');
       return null;
     }
     
     // Проверяем, нужно ли показывать уведомление
     if (!forceShow && isDocumentVisible.value && isWindowFocused.value) {
+      console.log('[Notifications] Уведомление не отправлено: окно активно');
       return null;
     }
     
     try {
-      // Создаем уведомление с обработкой ошибок для разных браузеров
-      let notification;
+      console.log('[Notifications] Отправка уведомления:', { title, body });
       
-      try {
-        notification = new Notification(title, {
-          body,
-          icon: icon || '/favicon.ico',
-          tag: 'message-' + Date.now(), // Уникальный тег для каждого уведомления
-          requireInteraction: true, // Уведомление не будет автоматически закрываться
-          data
-        });
-      } catch (error) {
-        // Пробуем создать уведомление без дополнительных опций
-        notification = new Notification(title, {
-          body,
-          icon: icon || '/favicon.ico'
-        });
+      // Добавляем абсолютный URL для иконки
+      let iconUrl = icon || '/favicon.ico';
+      
+      // Если иконка начинается с '/', добавляем текущий домен
+      if (iconUrl.startsWith('/') && typeof window !== 'undefined') {
+        const origin = window.location.origin;
+        iconUrl = `${origin}${iconUrl}`;
       }
       
-      // Обработчик клика по уведомлению
+      // Создаем уведомление
+      const notification = new Notification(title, {
+        body,
+        icon: iconUrl,
+        badge: iconUrl,
+        tag: data.chatId || 'orglink-notification', // Используем тег для группировки уведомлений
+        data,
+        requireInteraction: true, // Уведомление не исчезнет автоматически
+        silent: false // Включаем звук
+      });
+      
+      // Обработка клика по уведомлению
       notification.onclick = (event) => {
-        event.preventDefault();
+        console.log('[Notifications] Клик по уведомлению:', data);
         
-        // Фокусируем окно
+        if (event) event.preventDefault();
+        
+        // Фокусируемся на окне при клике на уведомление
         window.focus();
-        
-        // Если есть данные о чате, открываем его
-        if (data && data.chatId) {
-          nuxtApp.$router.push(`/messenger?chat=${data.chatId}`);
-        }
-        
-        // Закрываем уведомление
         notification.close();
+        
+        // Если есть данные о чате, переходим к нему
+        if (data.chatId) {
+          const chatStore = useChatStore();
+          chatStore.setActiveChat(data.chatId);
+        }
       };
       
       return notification;

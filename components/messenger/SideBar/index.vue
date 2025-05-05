@@ -1,5 +1,5 @@
 <template>
-  <aside class="sidebar">
+  <aside class="sidebar" :class="{ 'visible': isMobile }">
     <header class="sidebar__header">
       <div class="sidebar__actions">
         <MessengerSideBarMenu />
@@ -51,14 +51,35 @@ const chatStore = useChatStore();
 const isConnected = ref(false);
 
 // Определяем, является ли устройство мобильным
-const isMobile = ref(false);
+// Устанавливаем начальное значение true, чтобы боковая панель сразу показывалась
+const isMobile = ref(true);
 
 // Проверяем размер экрана при монтировании
 onMounted(() => {
-isMobile.value = window.innerWidth <= 859;
-window.addEventListener('resize', () => {
-  isMobile.value = window.innerWidth <= 859;
-});
+  // Проверяем размер экрана
+  const checkMobile = () => {
+    isMobile.value = window.innerWidth <= 859;
+  };
+  
+  // Проверяем размер экрана при изменении размера окна
+  window.addEventListener('resize', checkMobile);
+  
+  // Добавляем классы видимости напрямую к элементам DOM
+  setTimeout(() => {
+    // Добавляем класс visible к боковой панели
+    const sidebar = document.querySelector('.sidebar');
+    if (sidebar) {
+      sidebar.classList.add('visible');
+      console.log('[SideBar] Добавлен класс visible к .sidebar');
+    }
+    
+    // Добавляем класс sidebar-visible к приложению
+    const app = document.querySelector('.app');
+    if (app) {
+      app.classList.add('sidebar-visible');
+      console.log('[SideBar] Добавлен класс sidebar-visible к .app');
+    }
+  }, 100);
 });
 
 // Состояние модального окна создания чата
@@ -573,10 +594,33 @@ showCreateChatModal.value = false;
 
 // Функция для показа чата на мобильных устройствах
 const showChat = () => {
-const nuxtApp = useNuxtApp();
-if (nuxtApp.$sidebarVisible) {
-  nuxtApp.$sidebarVisible.value = false;
-}
+  console.log('[SideBar] Переключение на чат на мобильном устройстве');
+  
+  // Скрываем сайдбар на мобильных устройствах
+  isMobile.value = false;
+  
+  // Также удаляем класс visible у элемента .sidebar
+  setTimeout(() => {
+    const sidebar = document.querySelector('.sidebar');
+    if (sidebar) {
+      sidebar.classList.remove('visible');
+      console.log('[SideBar] Удален класс visible у .sidebar');
+    }
+    
+    // Удаляем класс sidebar-visible у приложения
+    const app = document.querySelector('.app');
+    if (app) {
+      app.classList.remove('sidebar-visible');
+      console.log('[SideBar] Удален класс sidebar-visible у .app');
+    }
+  }, 50);
+  
+  // Используем плагин sidebar-manager, если он доступен
+  const nuxtApp = useNuxtApp();
+  if (nuxtApp.$toggleSidebar) {
+    nuxtApp.$toggleSidebar(false);
+    console.log('[SideBar] Вызван $toggleSidebar(false)');
+  }
 };
 
 // Функция для перемещения чата в начало списка
