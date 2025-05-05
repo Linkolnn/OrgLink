@@ -1,9 +1,6 @@
 import { useChatStore } from '~/stores/chat';
 
 export default defineNuxtPlugin((nuxtApp) => {
-  // Проверяем, является ли устройство мобильным
-  const isMobileDevice = process.client ? /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) : false;
-  
   // Проверяем поддержку уведомлений в браузере
   const notificationsSupported = typeof window !== 'undefined' && 'Notification' in window && window.isSecureContext;
   
@@ -15,62 +12,14 @@ export default defineNuxtPlugin((nuxtApp) => {
     window.location.hostname === 'localhost' || 
     window.location.hostname === '127.0.0.1' ||
     window.location.hostname.includes('vercel.app') ||
-    window.location.hostname.includes('railway.app') ||
-    window.location.hostname.includes('org-link') ||
-    window.location.hostname.includes('orglink')
+    window.location.hostname.includes('railway.app')
   ) : false;
   
-  // Логируем текущий домен и информацию об устройстве
-  if (process.client) {
-    console.log('[Notifications] Информация об устройстве:', { 
-      domain: window.location.hostname, 
-      isAllowedDomain,
-      isMobileDevice,
-      userAgent: navigator.userAgent,
-      browser: getBrowserInfo()
-    });
-  }
+  // Определяем, является ли браузер Firefox
+  const isFirefox = process.client ? navigator.userAgent.toLowerCase().includes('firefox') : false;
   
-  // Функция для определения браузера
-  function getBrowserInfo() {
-    if (!process.client) return 'server';
-    
-    const ua = navigator.userAgent;
-    let browserName = 'Unknown';
-    let version = '';
-    
-    // Проверяем Firefox первым, так как он имеет особенности в работе с уведомлениями
-    if (ua.indexOf('Firefox') > -1) {
-      browserName = 'Firefox';
-      const match = ua.match(/Firefox\/(\d+\.\d+)/);
-      if (match) version = match[1];
-    }
-    else if (ua.indexOf('Chrome') > -1 && ua.indexOf('Edg') === -1 && ua.indexOf('OPR') === -1) {
-      browserName = 'Chrome';
-      const match = ua.match(/Chrome\/(\d+\.\d+)/);
-      if (match) version = match[1];
-    }
-    else if (ua.indexOf('Safari') > -1 && ua.indexOf('Chrome') === -1) {
-      browserName = 'Safari';
-      const match = ua.match(/Version\/(\d+\.\d+)/);
-      if (match) version = match[1];
-    }
-    else if (ua.indexOf('Edg') > -1) {
-      browserName = 'Edge';
-      const match = ua.match(/Edg\/(\d+\.\d+)/);
-      if (match) version = match[1];
-    }
-    else if (ua.indexOf('OPR') > -1 || ua.indexOf('Opera') > -1) {
-      browserName = 'Opera';
-      const match = ua.match(/(?:OPR|Opera)\/(\d+\.\d+)/);
-      if (match) version = match[1];
-    }
-    
-    return { name: browserName, version };
-  }
-  
-  // Проверяем, является ли браузер Firefox
-  const isFirefox = process.client ? navigator.userAgent.indexOf('Firefox') > -1 : false;
+  // Определяем, является ли устройство мобильным
+  const isMobileDevice = process.client ? /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) : false;
   
   // Состояние разрешения на уведомления
   const notificationPermission = ref(
@@ -126,62 +75,40 @@ export default defineNuxtPlugin((nuxtApp) => {
     }
     
     // Если разрешение уже получено, возвращаем true
-    if (Notification.permission === 'granted') {
+    if (notificationPermission.value === 'granted') {
       console.log('[Notifications] Разрешение на уведомления уже получено');
-      notificationPermission.value = 'granted';
       return true;
     }
     
+    // Если разрешение уже запрещено, возвращаем false
+    if (notificationPermission.value === 'denied') {
+      console.warn('[Notifications] Разрешение на уведомления было отклонено пользователем');
+      return false;
+    }
+    
     try {
-      // Запрашиваем разрешение на отправку уведомлений
-      console.log('[Notifications] Запрашиваем разрешение на уведомления...', { isFirefox, browser: getBrowserInfo() });
+      console.log('[Notifications] Запрашиваем разрешение на уведомления...');
       
-      // Специальная обработка для Firefox
-      if (isFirefox) {
-        console.log('[Notifications] Используем специальную обработку для Firefox');
-        
-        // Firefox использует только Promise API
-        try {
-          const permission = await Notification.requestPermission();
-          console.log('[Notifications] Firefox: результат запроса разрешения:', permission);
-          notificationPermission.value = permission;
-          
-          // Для Firefox дополнительно проверяем, что уведомления работают
-          if (permission === 'granted') {
-            // Отправляем тестовое уведомление для проверки
-            try {
-              const testNotification = new Notification('OrgLink', {
-                body: 'Уведомления активированы',
-                icon: window.location.origin + '/favicon.ico',
-                tag: 'test-notification'
-              });
-              
-              // Закрываем тестовое уведомление через 2 секунды
-              setTimeout(() => {
-                testNotification.close();
-              }, 2000);
-            } catch (e) {
-              console.warn('[Notifications] Firefox: не удалось отправить тестовое уведомление:', e);
-            }
-          }
-          
-          return permission === 'granted';
-        } catch (firefoxError) {
-          console.error('[Notifications] Firefox: ошибка при запросе разрешения:', firefoxError);
-          return false;
-        }
-      }
-      
-      // Для других браузеров используем стандартный подход
-      // Используем Promise для обработки разных реализаций API
+      // В Firefox Notification.requestPermission может не возвращать Promise
+      // Поэтому используем обертку, которая работает в обоих случаях
       const permission = await new Promise((resolve) => {
-        const permissionResult = Notification.requestPermission((result) => {
-          resolve(result);
-        });
-        
-        // Для браузеров, использующих Promise API
-        if (permissionResult) {
-          permissionResult.then(resolve);
+        try {
+          const permissionResult = Notification.requestPermission((result) => {
+            // Обработка для старого API (callback)
+            console.log('[Notifications] Получен результат через callback:', result);
+            resolve(result);
+          });
+          
+          // Если возвращается Promise (современные браузеры)
+          if (permissionResult instanceof Promise) {
+            permissionResult.then((result) => {
+              console.log('[Notifications] Получен результат через Promise:', result);
+              resolve(result);
+            });
+          }
+        } catch (innerError) {
+          console.error('[Notifications] Ошибка при запросе разрешения:', innerError);
+          resolve('denied');
         }
       });
       
@@ -194,7 +121,7 @@ export default defineNuxtPlugin((nuxtApp) => {
     }
   };
   
-  // Функция для отправки уведомления
+  // Функция для отправки только системных уведомлений
   const sendNotification = ({ title, body, icon, data = {}, forceShow = false }) => {
     // Проверяем поддержку уведомлений
     if (!notificationsSupported) {
@@ -227,17 +154,7 @@ export default defineNuxtPlugin((nuxtApp) => {
     }
     
     try {
-      console.log('[Notifications] Отправка уведомления:', { 
-        title, 
-        body, 
-        domain: process.client ? window.location.hostname : 'unknown',
-        isAllowedDomain,
-        isSecureContext,
-        notificationsSupported,
-        isMobileDevice,
-        browser: getBrowserInfo(),
-        permission: notificationPermission.value
-      });
+      console.log('[Notifications] Отправка системного уведомления:', { title, body });
       
       // Добавляем абсолютный URL для иконки
       let iconUrl = icon || '/favicon.ico';
@@ -246,32 +163,6 @@ export default defineNuxtPlugin((nuxtApp) => {
       if (iconUrl.startsWith('/') && typeof window !== 'undefined') {
         const origin = window.location.origin;
         iconUrl = `${origin}${iconUrl}`;
-        console.log('[Notifications] Используем абсолютный URL для иконки:', iconUrl);
-      }
-      
-      // Если это мобильное устройство, добавляем специальную обработку
-      if (isMobileDevice) {
-        console.log('[Notifications] Обнаружено мобильное устройство, применяем специальную обработку');
-        
-        // На мобильных устройствах может не работать стандартный механизм уведомлений
-        // Добавляем визуальное уведомление в интерфейсе
-        if (window.$showNotification) {
-          window.$showNotification(
-            `${title}: ${body}`,
-            'info',
-            5000 // Показываем уведомление на 5 секунд
-          );
-        }
-        
-        // Также можно добавить вибрацию, если браузер поддерживает
-        if ('vibrate' in navigator) {
-          try {
-            navigator.vibrate([200, 100, 200]); // Вибрация: 200мс вкл, 100мс выкл, 200мс вкл
-            console.log('[Notifications] Вибрация активирована');
-          } catch (e) {
-            console.warn('[Notifications] Не удалось активировать вибрацию:', e);
-          }
-        }
       }
       
       // Создаем объект с параметрами уведомления
@@ -280,7 +171,7 @@ export default defineNuxtPlugin((nuxtApp) => {
         icon: iconUrl,
         badge: iconUrl,
         tag: data.chatId || 'orglink-notification', // Используем тег для группировки уведомлений
-        requireInteraction: true, // Уведомление не исчезнет автоматически
+        requireInteraction: !isMobileDevice, // На мобильных устройствах отключаем этот параметр
         silent: false // Включаем звук
       };
       
@@ -288,70 +179,25 @@ export default defineNuxtPlugin((nuxtApp) => {
       if (isFirefox) {
         console.log('[Notifications] Используем специальные настройки для Firefox');
         // Firefox может игнорировать некоторые параметры
-        notificationOptions.requireInteraction = false; // В Firefox этот параметр может работать некорректно
+        notificationOptions.requireInteraction = false;
       }
       
-      // Добавляем данные в объект, если браузер поддерживает
-      if (data) {
-        try {
-          // В некоторых браузерах нельзя напрямую передать объект data
-          notificationOptions.data = {
-            chatId: data.chatId,
-            messageId: data.messageId,
-            url: window.location.origin + '/messenger?chat=' + data.chatId
-          };
-          console.log('[Notifications] Добавлены данные в уведомление:', notificationOptions.data);
-        } catch (e) {
-          console.warn('[Notifications] Не удалось добавить данные в уведомление:', e);
-        }
+      // Добавляем данные в объект
+      try {
+        notificationOptions.data = {
+          chatId: data.chatId,
+          messageId: data.messageId
+        };
+      } catch (e) {
+        console.warn('[Notifications] Не удалось добавить данные в уведомление:', e);
       }
-      
-      console.log('[Notifications] Создание уведомления с параметрами:', notificationOptions);
       
       // Создаем уведомление
-      let notification;
-      
-      // Специальная обработка для Firefox
-      if (isFirefox) {
-        try {
-          // В Firefox могут быть проблемы с некоторыми параметрами, поэтому упрощаем объект
-          const firefoxOptions = {
-            body: notificationOptions.body,
-            icon: notificationOptions.icon,
-            tag: notificationOptions.tag
-          };
-          
-          console.log('[Notifications] Firefox: создаем уведомление с упрощенными параметрами');
-          notification = new Notification(title, firefoxOptions);
-        } catch (firefoxError) {
-          console.error('[Notifications] Firefox: ошибка при создании уведомления:', firefoxError);
-          
-          // Пробуем создать с минимальными параметрами
-          try {
-            notification = new Notification(title, { body: notificationOptions.body });
-          } catch (e) {
-            console.error('[Notifications] Firefox: не удалось создать уведомление даже с минимальными параметрами:', e);
-            
-            // Используем визуальное уведомление в интерфейсе
-            if (window.$showNotification) {
-              window.$showNotification(
-                `${title}: ${body}`,
-                'info',
-                5000
-              );
-            }
-            
-            return null;
-          }
-        }
-      } else {
-        // Для других браузеров используем стандартный подход
-        notification = new Notification(title, notificationOptions);
-      }
+      const notification = new Notification(title, notificationOptions);
       
       // Обработка клика по уведомлению
       notification.onclick = (event) => {
-        console.log('[Notifications] Клик по уведомлению:', data, notification.data);
+        console.log('[Notifications] Клик по уведомлению:', { data, notificationData: notification.data });
         
         if (event) event.preventDefault();
         
@@ -366,28 +212,22 @@ export default defineNuxtPlugin((nuxtApp) => {
         // Если есть данные о чате, переходим к нему
         if (chatId) {
           console.log('[Notifications] Переход к чату:', chatId);
+          
           try {
             // Пробуем использовать хранилище чата
             const chatStore = useChatStore();
             chatStore.setActiveChat(chatId);
+            console.log('[Notifications] Установлен активный чат:', chatId);
             
-            // Также пробуем перейти по URL
-            if (notificationData?.url) {
-              window.location.href = notificationData.url;
-            } else {
-              window.location.href = window.location.origin + '/messenger?chat=' + chatId;
-            }
+            // Переходим к чату
+            const chatUrl = chatId ? `${window.location.origin}/messenger?chat=${chatId}` : `${window.location.origin}/messenger`;
+            window.location.href = chatUrl;
           } catch (e) {
             console.error('[Notifications] Ошибка при переходе к чату:', e);
             // В случае ошибки пробуем просто перейти на страницу мессенджера
             window.location.href = window.location.origin + '/messenger';
           }
         }
-      };
-      
-      // Добавляем обработчик ошибок
-      notification.onerror = (error) => {
-        console.error('[Notifications] Ошибка при показе уведомления:', error);
       };
       
       return notification;
@@ -459,7 +299,7 @@ export default defineNuxtPlugin((nuxtApp) => {
     
     console.log('Отправляем уведомление для чата:', chatId, title, body);
     
-    // Отправляем уведомление
+    // Отправляем только системное уведомление
     sendNotification({
       title,
       body,
