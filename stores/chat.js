@@ -1903,20 +1903,19 @@ export const useChatStore = defineStore('chat', {
     
     // Сброс активного чата без влияния на UI
     resetActiveChatSoft() {
-      console.log('ChatStore: Сброс активного чата');
-      this.activeChat = null;
-      this.messages = [];
-      this.messagesLoading = false;
-      this.messagesError = null;
-      this.messagesPage = 1;
-      this.messagesHasMore = false;
-      
-      // Сбрасываем также режим предпросмотра, если он был активен
-      this.isPreviewMode = false;
-      this.previewChat = null;
-      
-      // Сбрасываем поле неактивного чата
-      this.inactiveChatId = null;
+      if (this.activeChat) {
+        const chatId = this.activeChat._id;
+        console.log('ChatStore: Мягкий сброс активного чата:', chatId);
+        
+        // Сохраняем ID чата в специальном поле для мягкого сброса
+        this.softResetChatId = chatId;
+        
+        // Также отмечаем чат как неактивный для уведомлений
+        this.inactiveChatId = chatId;
+        
+        // Обновляем список чатов для отображения изменений
+        this.chatListUpdateTrigger++;
+      }
     },
     
     // Отметить чат как неактивный для уведомлений, но не сбрасывать полностью
