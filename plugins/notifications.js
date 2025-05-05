@@ -12,8 +12,15 @@ export default defineNuxtPlugin((nuxtApp) => {
     window.location.hostname === 'localhost' || 
     window.location.hostname === '127.0.0.1' ||
     window.location.hostname.includes('vercel.app') ||
-    window.location.hostname.includes('railway.app')
+    window.location.hostname.includes('railway.app') ||
+    window.location.hostname.includes('org-link') ||
+    window.location.hostname.includes('orglink')
   ) : false;
+  
+  // Логируем текущий домен
+  if (process.client) {
+    console.log('[Notifications] Текущий домен:', window.location.hostname, 'Разрешен:', isAllowedDomain);
+  }
   
   // Состояние разрешения на уведомления
   const notificationPermission = ref(
@@ -148,7 +155,15 @@ export default defineNuxtPlugin((nuxtApp) => {
     }
     
     try {
-      console.log('[Notifications] Отправка уведомления:', { title, body });
+      console.log('[Notifications] Отправка уведомления:', { 
+        title, 
+        body, 
+        domain: process.client ? window.location.hostname : 'unknown',
+        isAllowedDomain,
+        isSecureContext,
+        notificationsSupported,
+        permission: notificationPermission.value
+      });
       
       // Добавляем абсолютный URL для иконки
       let iconUrl = icon || '/favicon.ico';
@@ -157,22 +172,42 @@ export default defineNuxtPlugin((nuxtApp) => {
       if (iconUrl.startsWith('/') && typeof window !== 'undefined') {
         const origin = window.location.origin;
         iconUrl = `${origin}${iconUrl}`;
+        console.log('[Notifications] Используем абсолютный URL для иконки:', iconUrl);
       }
       
-      // Создаем уведомление
-      const notification = new Notification(title, {
+      // Создаем объект с параметрами уведомления
+      const notificationOptions = {
         body,
         icon: iconUrl,
         badge: iconUrl,
         tag: data.chatId || 'orglink-notification', // Используем тег для группировки уведомлений
-        data,
         requireInteraction: true, // Уведомление не исчезнет автоматически
         silent: false // Включаем звук
-      });
+      };
+      
+      // Добавляем данные в объект, если браузер поддерживает
+      if (data) {
+        try {
+          // В некоторых браузерах нельзя напрямую передать объект data
+          notificationOptions.data = {
+            chatId: data.chatId,
+            messageId: data.messageId,
+            url: window.location.origin + '/messenger?chat=' + data.chatId
+          };
+          console.log('[Notifications] Добавлены данные в уведомление:', notificationOptions.data);
+        } catch (e) {
+          console.warn('[Notifications] Не удалось добавить данные в уведомление:', e);
+        }
+      }
+      
+      console.log('[Notifications] Создание уведомления с параметрами:', notificationOptions);
+      
+      // Создаем уведомление
+      const notification = new Notification(title, notificationOptions);
       
       // Обработка клика по уведомлению
       notification.onclick = (event) => {
-        console.log('[Notifications] Клик по уведомлению:', data);
+        console.log('[Notifications] Клик по уведомлению:', data, notification.data);
         
         if (event) event.preventDefault();
         
@@ -180,11 +215,35 @@ export default defineNuxtPlugin((nuxtApp) => {
         window.focus();
         notification.close();
         
+        // Получаем данные из уведомления
+        const notificationData = notification.data || data;
+        const chatId = notificationData?.chatId || data?.chatId;
+        
         // Если есть данные о чате, переходим к нему
-        if (data.chatId) {
-          const chatStore = useChatStore();
-          chatStore.setActiveChat(data.chatId);
+        if (chatId) {
+          console.log('[Notifications] Переход к чату:', chatId);
+          try {
+            // Пробуем использовать хранилище чата
+            const chatStore = useChatStore();
+            chatStore.setActiveChat(chatId);
+            
+            // Также пробуем перейти по URL
+            if (notificationData?.url) {
+              window.location.href = notificationData.url;
+            } else {
+              window.location.href = window.location.origin + '/messenger?chat=' + chatId;
+            }
+          } catch (e) {
+            console.error('[Notifications] Ошибка при переходе к чату:', e);
+            // В случае ошибки пробуем просто перейти на страницу мессенджера
+            window.location.href = window.location.origin + '/messenger';
+          }
         }
+      };
+      
+      // Добавляем обработчик ошибок
+      notification.onerror = (error) => {
+        console.error('[Notifications] Ошибка при показе уведомления:', error);
       };
       
       return notification;
