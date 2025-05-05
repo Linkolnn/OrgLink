@@ -163,10 +163,28 @@ export default defineNuxtPlugin((nuxtApp) => {
   
   // Функция для отправки уведомления о новом сообщении
   const sendMessageNotification = ({ chatName, senderName, message, chatId, chatAvatar, forceShow = false }) => {
+    const chatStore = useChatStore();
+    
     // Проверяем, не отключены ли уведомления для этого чата
     if (chatId && isChatMuted(chatId)) {
       console.log('Уведомления отключены для чата:', chatId);
       return;
+    }
+    
+    // Проверяем различные состояния чата
+    const isActiveChat = chatStore.activeChat && chatStore.activeChat._id === chatId;
+    const isInactiveChat = chatStore.inactiveChatId === chatId;
+    
+    // Если чат активен и не отмечен как неактивный, не показываем уведомление
+    if (isActiveChat && !isInactiveChat && !forceShow) {
+      console.log('Чат активен, уведомление не отправляется:', chatId);
+      return;
+    }
+    
+    // Если чат отмечен как неактивный или активный чат сброшен, показываем уведомление
+    if (isInactiveChat || !isActiveChat) {
+      console.log('Чат неактивен или сброшен, показываем уведомление:', chatId);
+      forceShow = true;
     }
     
     // Формируем заголовок и текст уведомления

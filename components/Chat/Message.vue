@@ -191,7 +191,9 @@ const handleMessageClick = (event) => {
 .message
   display: flex
   margin-bottom: 10px
-  max-width: 75%  // Увеличиваем общую максимальную ширину
+  width: max-content
+  max-width: 70%
+  min-width: 12%  // Увеличиваем общую максимальную ширину
   position: relative
   align-items: flex-end  // Выравниваем элементы по нижнему краю
   

@@ -1,7 +1,7 @@
 <template>
   <div class="pattern-container">
-    <div class="app" :class="{ 'sidebar-visible': sidebarVisibleState && needsSidebar, 'mobile': isMobile && needsSidebar, 'initial-load': isInitialLoad }">
-      <MessengerSideBar v-if="isAuthenticated" :class="{ 'visible': sidebarVisibleState }"/>
+    <div class="app" :class="{ 'sidebar-visible': showSidebar, 'mobile': isMobile && needsSidebar, 'initial-load': isInitialLoad }">
+      <MessengerSideBar v-if="isAuthenticated" :class="{ 'visible': showSidebar }"/>
       <main class="main container">
         <NuxtPage>
           <template #default="{ Component }">
@@ -19,6 +19,7 @@
 
 <script setup>
 import { storeToRefs } from 'pinia';
+import { useChatStore } from '~/stores/chat';
 import { useAuthStore } from '~/stores/auth';
 
 const authStore = useAuthStore();
@@ -40,6 +41,32 @@ const needsSidebar = computed(() => isMessengerPage.value || isAdminPage.value);
 // Состояние видимости боковой панели
 const sidebarVisibleState = computed(() => $sidebarVisible?.value || false);
 const isMobile = ref(false);
+
+// Получаем ссылку на хранилище чата
+const chatStore = useChatStore();
+
+// Вычисляемое свойство для определения, нужно ли показывать боковую панель
+const showSidebar = computed(() => {
+  const ignoreFlag = chatStore.ignoreActiveChatForSidebar;
+  const sidebarState = sidebarVisibleState.value;
+  const needsSidebarValue = needsSidebar.value;
+  
+  // Добавляем логирование для отладки
+  console.log('[App] Расчет showSidebar:', { 
+    ignoreFlag, 
+    sidebarState, 
+    needsSidebarValue,
+    result: ignoreFlag ? sidebarState : (sidebarState && needsSidebarValue)
+  });
+  
+  // Если флаг игнорирования активного чата установлен, всегда показываем боковую панель
+  if (ignoreFlag) {
+    return sidebarState;
+  }
+  
+  // Иначе показываем боковую панель только если мы на странице мессенджера или админа
+  return sidebarState && needsSidebarValue;
+});
 
 // Проверяем ширину экрана при загрузке и при изменении размера окна
 const checkMobile = () => {
@@ -207,10 +234,24 @@ provide('showSidebar', () => {
     &.sidebar-visible
       .main
         transform: translateX(100%)
+        // Добавляем важные стили
+        overflow: hidden
+        position: fixed
+        width: 100%
+        height: 100%
+      
+      // Явно показываем боковую панель
+      .messenger-sidebar
+        transform: translateX(0) !important
+        display: block !important
     
     &:not(.sidebar-visible)
       .main
         transform: translateX(0)
+      
+      // Явно скрываем боковую панель
+      .messenger-sidebar
+        transform: translateX(-100%) !important
 
 .main
   flex: 1

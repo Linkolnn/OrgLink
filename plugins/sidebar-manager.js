@@ -23,9 +23,16 @@ export default defineNuxtPlugin((nuxtApp) => {
   };
   
   // Функция для переключения состояния боковой панели
-  const toggleSidebar = () => {
-    sidebarVisible.value = !sidebarVisible.value;
-    console.log('[SidebarManager] Переключаем боковую панель:', sidebarVisible.value);
+  const toggleSidebar = (forceState = null) => {
+    // Если передано явное состояние, используем его
+    if (forceState !== null) {
+      sidebarVisible.value = forceState;
+      console.log('[SidebarManager] Явно устанавливаем боковую панель в:', forceState);
+    } else {
+      // Иначе переключаем состояние
+      sidebarVisible.value = !sidebarVisible.value;
+      console.log('[SidebarManager] Переключаем боковую панель:', sidebarVisible.value);
+    }
   };
   
   // Функция для проверки наличия активного чата и показа боковой панели при необходимости
@@ -47,20 +54,32 @@ export default defineNuxtPlugin((nuxtApp) => {
     // Проверяем, является ли устройство мобильным
     const isMobile = isMobileDevice();
     
-    // Проверяем наличие активного чата
+    // Проверяем наличие активного чата и флаг игнорирования
     const hasActiveChat = chatStore.activeChat !== null;
+    const ignoreActiveChat = chatStore.ignoreActiveChatForSidebar === true;
     
     console.log('[SidebarManager] Проверка состояния:', { 
       isMessengerPage, 
       isMobile, 
       hasActiveChat, 
+      ignoreActiveChat,
       currentSidebarState: sidebarVisible.value 
     });
     
-    // Если мы на странице мессенджера, на мобильном устройстве и нет активного чата
-    if (isMessengerPage && isMobile && !hasActiveChat) {
-      console.log('[SidebarManager] Нет активного чата на мобильном устройстве, показываем боковую панель');
-      showSidebar();
+    // Если мы на странице мессенджера и на мобильном устройстве
+    if (isMessengerPage && isMobile) {
+      // Если флаг игнорирования установлен, показываем боковую панель вне зависимости от активного чата
+      if (ignoreActiveChat) {
+        console.log('[SidebarManager] Флаг игнорирования активного чата установлен, показываем боковую панель');
+        showSidebar();
+        return;
+      }
+      
+      // Если нет активного чата, показываем боковую панель
+      if (!hasActiveChat) {
+        console.log('[SidebarManager] Нет активного чата на мобильном устройстве, показываем боковую панель');
+        showSidebar();
+      }
     }
   };
   

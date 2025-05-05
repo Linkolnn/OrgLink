@@ -1,12 +1,8 @@
 <template>
   <div class="chat-page">
-    <!-- Если чат не выбран или данные еще не загружены -->
-    <div v-if="!chatData || !chatData._id" class="no-chat-selected">
-      Выберите чат, чтобы начать общение
-    </div>
-    
     <!-- Если чат выбран -->
-    <div v-else class="chat-content">
+    <Transition name="chat-fade" mode="out-in" :duration="{ leave: 2000 }">
+      <div v-if="chatData && chatData._id" class="chat-content" key="chat-content">
       <!-- Шапка чата -->
       <div class="page_header" ref="pageHeader" @click="openChatSettings">
         <!-- Кнопка переключения боковой панели для мобильных устройств -->
@@ -144,6 +140,11 @@
         </div>
       </div>
     </div>
+    </Transition>
+        <!-- Если чат не выбран или данные еще не загружены -->
+    <div v-if="!chatData || !chatData._id" class="no-chat-selected">
+      Выберите чат, чтобы начать общение
+    </div>
   </div>
   <ChatSettingsModal 
     v-if="showChatSettingsModal" 
@@ -173,10 +174,12 @@ import { secureUrl } from '~/utils/secureUrl';
 const chatStore = useChatStore();
 const authStore = useAuthStore();
 
-// Данные чата и сообщений
+// Данные текущего чата
 const chatData = computed(() => {
   return chatStore.activeChat;
 });
+
+
 
 const messages = computed(() => {
   return chatStore.messages;
@@ -639,28 +642,53 @@ const toggleSidebar = (event) => {
   if (event) {
     event.stopPropagation();
   }
-    
-  // Показываем боковую панель
-  const nuxtApp = useNuxtApp();
-  const { $toggleSidebar } = nuxtApp;
   
-  if ($toggleSidebar) {
-    // Если плагин доступен, используем его
-    $toggleSidebar(true); // Явно указываем, что нужно показать боковую панель
-  } else if (nuxtApp && nuxtApp.$sidebarVisible !== undefined) {
-    // Запасной вариант - используем старый метод
-    nuxtApp.$sidebarVisible.value = true; // Явно устанавливаем в true
-  } else {
-    // Если ничего не доступно, используем прямое изменение DOM
-    const app = document.querySelector('.app');
-    if (app) {
-      app.classList.add('sidebar-visible'); // Используем add вместо toggle
-    }
+  // Сохраняем ссылку на текущий активный чат для последующего сброса
+  const currentActiveChat = chatStore.activeChat;
+  
+  // СНАЧАЛА СБРАСЫВАЕМ АКТИВНЫЙ ЧАТ
+  if (chatStore.activeChat && currentActiveChat && chatStore.activeChat._id === currentActiveChat._id) {
+    // Сохраняем ID чата для уведомлений
+    chatStore.inactiveChatId = currentActiveChat._id;
+    
+    // Напрямую сбрасываем активный чат
+    chatStore.activeChat = null;
+    console.log('[Chat] Сброшен активный чат');
+    
+    // Обновляем список чатов
+    chatStore.chatListUpdateTrigger++;
   }
-
+  
+  // Добавляем небольшую задержку перед показом боковой панели
   setTimeout(() => {
-    chatStore.resetActiveChatSoft();
-  }, 190);
+    // ЗАТЕМ ПОКАЗЫВАЕМ БОКОВУЮ ПАНЕЛЬ
+    const nuxtApp = useNuxtApp();
+    const { $toggleSidebar } = nuxtApp;
+    
+    if ($toggleSidebar) {
+      // Если плагин доступен, используем его
+      $toggleSidebar(true); // Явно указываем, что нужно показать боковую панель
+      console.log('[Chat] Вызван $toggleSidebar(true)');
+    } else if (nuxtApp && nuxtApp.$sidebarVisible !== undefined) {
+      // Запасной вариант - используем старый метод
+      nuxtApp.$sidebarVisible.value = true; // Явно устанавливаем в true
+      console.log('[Chat] Установлено nuxtApp.$sidebarVisible.value = true');
+    } else {
+      // Если ничего не доступно, используем прямое изменение DOM
+      const app = document.querySelector('.app');
+      if (app) {
+        app.classList.add('sidebar-visible'); // Используем add вместо toggle
+        console.log('[Chat] Добавлен класс sidebar-visible напрямую');
+      }
+    }
+    
+    // Также напрямую добавляем класс видимости к самому компоненту SideBar
+    const sideBar = document.querySelector('.messenger-sidebar');
+    if (sideBar) {
+      sideBar.classList.add('visible');
+      console.log('[Chat] Добавлен класс visible к .messenger-sidebar');
+    }
+  }, 150); // Небольшая задержка перед показом боковой панели
 };
 
 // Предотвращаем появление SideBar при фокусе на поле ввода
@@ -1184,8 +1212,18 @@ const getOtherParticipantName = (chat) => {
 };
 </script>
 
-<style lang="sass">
-@import '~/assets/styles/variables.sass';
+<style lang="sass" scoped>
+@import '~/assets/styles/variables.sass'
+// Анимация для плавного исчезновения чата
+.chat-fade-enter-active
+  transition: opacity 0.5s ease
+
+.chat-fade-leave-active
+  transition: opacity 2s ease
+
+.chat-fade-enter-from,
+.chat-fade-leave-to
+  opacity: 0
 
 .chat-page 
   display: flex;

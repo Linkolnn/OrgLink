@@ -646,15 +646,18 @@ if (date >= today) {
   @include custom-scrollbar
   
   @include tablet
-    position: absolute
+    position: fixed
     left: 0
     top: 0
-    z-index: 5
+    z-index: 100
     width: 100%
+    height: 100vh
     transform: translateX(-100%)
+    background-color: $header-bg
     
     &.visible
       transform: translateX(0)
+      display: block !important
   
   &__header
     padding: 15px

@@ -9,6 +9,10 @@ export const useChatStore = defineStore('chat', {
   state: () => ({
     chats: [],
     activeChat: null,
+    // Флаг, указывающий, что сброс activeChat не должен влиять на выезжание messenger
+    ignoreActiveChatForSidebar: false,
+    // ID чата, который отмечен как неактивный для уведомлений
+    inactiveChatId: null,
     messages: [],
     messagesPage: 1,
     messagesHasMore: false,
@@ -954,6 +958,11 @@ export const useChatStore = defineStore('chat', {
     
     // Установка активного чата
     async setActiveChat(chatId) {
+      // Сбрасываем все поля, связанные с виртуальным и мягким сбросом
+      this.virtualActiveChat = null;
+      this.softResetChat = null;
+      this.inactiveChatId = null;
+      
       if (!chatId) {
         // Если чат был активен, покидаем его комнату в WebSocket
         if (this.activeChat) {
@@ -1901,22 +1910,7 @@ export const useChatStore = defineStore('chat', {
       this.inactiveChatId = null;
     },
     
-    // Сброс активного чата без влияния на UI
-    resetActiveChatSoft() {
-      if (this.activeChat) {
-        const chatId = this.activeChat._id;
-        console.log('ChatStore: Мягкий сброс активного чата:', chatId);
-        
-        // Сохраняем ID чата в специальном поле для мягкого сброса
-        this.softResetChatId = chatId;
-        
-        // Также отмечаем чат как неактивный для уведомлений
-        this.inactiveChatId = chatId;
-        
-        // Обновляем список чатов для отображения изменений
-        this.chatListUpdateTrigger++;
-      }
-    },
+
     
     // Отметить чат как неактивный для уведомлений, но не сбрасывать полностью
     markChatAsInactive() {
