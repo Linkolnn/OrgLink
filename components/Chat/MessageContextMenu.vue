@@ -4,6 +4,10 @@
     class="message-context-menu" 
     :style="{ top: `${position.y}px`, left: `${position.x}px` }"
   >
+    <!-- Отладочная информация -->
+    <div class="debug-info" style="color: white; font-size: 12px; padding: 5px; background-color: rgba(0,0,0,0.5);">
+      Позиция: {{ position.x }}, {{ position.y }}
+    </div>
     <div class="menu-item" @click="onEdit">
       <i class="fas fa-edit"></i>
       <span>Редактировать</span>
@@ -73,10 +77,11 @@ onUnmounted(() => {
   position: fixed
   background-color: $header-bg
   border-radius: 8px
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2)
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2), 0 0 0 2px #ff5722
   min-width: 180px
-  z-index: 1000
+  z-index: 9999
   overflow: hidden
+  border: 2px solid #ff5722 // Добавляем яркую рамку для заметности
   
   .menu-item
     display: flex

@@ -10,8 +10,7 @@
       v-else 
       class="message" 
       :class="isOwnMessage ? 'own' : 'other'"
-      @contextmenu.prevent="$emit('context-menu', $event, message)"
-      @click="handleMessageClick($event)"
+      @click.stop="showContextMenu($event)"
     >
       <!-- Аватарка пользователя (для сообщений от других пользователей в групповых чатах) -->
       <MessageAvatar 
@@ -27,6 +26,21 @@
         <!-- Имя отправителя (для групповых чатов) -->
         <!-- Контент сообщения -->
         <div class="message__content">
+          <!-- Кнопка меню для сообщения (только для своих сообщений) -->
+          <div v-if="isOwnMessage" class="message__menu-btn" @click.stop="showContextMenu($event)">
+            <i class="fas fa-ellipsis-v"></i>
+          </div>
+          
+          <!-- Контекстное меню (только для своих сообщений) -->
+          <ChatContextMenu 
+            v-if="contextMenuVisible && isOwnMessage" 
+            :is-visible="contextMenuVisible"
+            :message="props.message"
+            @edit="onEdit"
+            @delete="onDelete"
+            @close="hideContextMenu"
+          />
+          
           <div 
             v-if="!isOwnMessage && isGroupChat" 
             class="message__from"
@@ -34,10 +48,12 @@
             {{ message.sender?.name }}
           </div>
           <!-- Текстовое сообщение -->
-          <p v-if="message.media_type === 'none' && message.text" class="message__text">
+          <p v-if="message.media_type === 'none' && message.text" :class="['message__text', message.edited ? 'edited' : '']">
             {{ message.text }}
             <span class="message__time">
+              <span v-if="message.edited && !isOwnMessage" class="message__edited">изм</span>
               {{ formatTime(message.createdAt || message.timestamp) }}
+              <span v-if="message.edited && isOwnMessage" class="message__edited">изм</span>
             </span>
           </p>
           
@@ -86,9 +102,14 @@
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useAuthStore } from '@/stores/auth';
+import { useContextMenuStore } from '@/stores/contextMenu';
 import MessageAvatar from './MessageAvatar.vue';
+import ContextMenu from './ContextMenu.vue';
+
+const authStore = useAuthStore();
+const contextMenuStore = useContextMenuStore();
 
 const props = defineProps({
   message: {
@@ -109,11 +130,11 @@ const emit = defineEmits([
   'context-menu', 
   'click', 
   'image-loaded',
+  'edit',
+  'delete',
   'video-play',
   'profile-click'
 ]);
-
-const authStore = useAuthStore();
 
 // Проверка, является ли сообщение собственным
 const isOwnMessage = computed(() => {
@@ -154,13 +175,50 @@ const formatTime = (timestamp) => {
   });
 };
 
-// Обработка клика на сообщении
-const handleMessageClick = (event) => {
-  if (props.isMobile) {
-    emit('context-menu', event, props.message);
-  }
-  emit('click', event, props.message);
+// Логика контекстного меню
+// Используем вычисляемое свойство для определения видимости меню
+const contextMenuVisible = computed(() => {
+  return contextMenuStore.isMenuActive(props.message._id);
+});
+
+// Скрыть контекстное меню
+const hideContextMenu = () => {
+  contextMenuStore.closeMenu();
+  document.removeEventListener('click', hideContextMenu);
 };
+
+
+// Показать или скрыть контекстное меню
+const showContextMenu = (event) => {
+  event.preventDefault();
+  event.stopPropagation();
+  
+  // Если меню уже открыто для этого сообщения, закрываем его
+  if (contextMenuStore.isMenuActive(props.message._id)) {
+    contextMenuStore.closeMenu();
+    return;
+  }
+  
+  // Иначе закрываем все другие меню и показываем текущее
+  contextMenuStore.openMenu(props.message._id);
+  
+  // Добавляем обработчик для закрытия меню при клике вне его
+  setTimeout(() => {
+    document.addEventListener('click', hideContextMenu, { once: true });
+  }, 100);
+};
+
+// Обработчики действий меню
+const onEdit = (message) => {
+  emit('edit', message || props.message);
+  hideContextMenu();
+};
+
+const onDelete = (message) => {
+  emit('delete', message || props.message);
+  hideContextMenu();
+};
+
 </script>
 
 <style lang="sass">
@@ -244,10 +302,28 @@ const handleMessageClick = (event) => {
     color: $white
     word-break: break-word
     
+    .message__menu-btn
+      position: absolute
+      top: 5px
+      right: 5px
+      cursor: pointer
+      color: rgba(255, 255, 255, 0.5)
+      font-size: 14px
+      opacity: 0
+      transition: opacity 0.2s, color 0.2s
+      z-index: 2
+      
+      &:hover
+        color: $white
+    
     .message__text
       margin-bottom: 5px
       white-space: pre-wrap
-      padding-right: 30px  // Добавляем отступ справа для времени
+      padding-right: 35px  // Добавляем отступ справа для времени
+      
+      // Увеличиваем отступ для отредактированных сообщений
+      &.edited
+        padding-right: 60px
     
     .message__time
       font-size: 12px
@@ -255,6 +331,13 @@ const handleMessageClick = (event) => {
       position: absolute
       bottom: 10px
       right: 15px
+      display: flex
+      align-items: center
+      gap: 4px
+      
+      .message__edited
+        font-size: 12px
+        font-style: italic
 
 .image-container
   position: relative
@@ -339,4 +422,6 @@ const handleMessageClick = (event) => {
     
     &.other
       max-width: 70%  // Для мобильных устройств делаем сообщения от других пользователей шире
+
+// Стили контекстного меню перемещены в компонент ContextMenu.vue
 </style>

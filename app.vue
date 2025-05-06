@@ -176,6 +176,7 @@ provide('showSidebar', () => {
 *
   margin: 0
   padding: 0
+  border: 0
   box-sizing: border-box
   font-family: "Roboto", -apple-system, BlinkMacSystemFont, "Apple Color Emoji", "Segoe UI", Oxygen, Ubuntu, Cantarell, "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif
   touch-action: manipulation

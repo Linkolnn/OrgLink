@@ -78,8 +78,8 @@
               :message="message" 
               :is-group-chat="chatStore.isGroupChat(chatData)"
               :is-mobile="isMobile.value"
-              @context-menu="showContextMenu"
-              @click="handleMessageClick"
+              @edit="startEditingMessage"
+              @delete="deleteMessage"
               @image-loaded="(messageId) => { 
                 const msgIndex = chatStore.messages.findIndex(m => m._id === messageId);
                 if (msgIndex !== -1) {
@@ -109,7 +109,7 @@
             <i class="fas fa-edit"></i> Редактирование: {{ originalMessageText.length > 30 ? originalMessageText.substring(0, 30) + '...' : originalMessageText }}
           </div>
           <button class="cancel-btn" @click="cancelEditingMessage">
-            <i class="fas fa-times"></i>
+            x
           </button>
         </div>
         
@@ -154,21 +154,14 @@
     @close="showChatSettingsModal = false" 
     @saved="onChatUpdated" 
   />
-  <ChatMessageContextMenu 
-    v-if="contextMenuVisible" 
-    :is-visible="contextMenuVisible"
-    :position="contextMenuPosition" 
-    :message="selectedMessage"
-    @close="hideContextMenu"
-    @edit="startEditingMessage"
-    @delete="deleteMessage"
-  />
+  <!-- Контекстное меню перемещено в компонент Message -->
 </template>
 
 <script setup>
 import { useChatStore } from '~/stores/chat';
 import { useAuthStore } from '~/stores/auth';
 import { secureUrl } from '~/utils/secureUrl';
+// Nuxt.js автоматически регистрирует компоненты, поэтому импорт не нужен
 
 // Хранилища
 const chatStore = useChatStore();
@@ -240,8 +233,7 @@ const observer = ref(null);
 const messageText = ref('');
 
 // Состояния для контекстного меню сообщений
-const contextMenuVisible = ref(false);
-const contextMenuPosition = ref({ x: 0, y: 0 });
+// Контекстное меню перемещено в компонент Message
 const selectedMessage = ref(null);
 
 // Состояние редактирования сообщения
@@ -558,20 +550,7 @@ const onParticipantsUpdated = () => {};
 
 const onChatLeft = () => {};
 
-// Функции для управления контекстным меню сообщений
-const showContextMenu = (event, message) => {
-  event.preventDefault();
-  contextMenuPosition.value = {
-    x: event.clientX,
-    y: event.clientY
-  };
-  selectedMessage.value = message;
-  contextMenuVisible.value = true;
-};
-
-const hideContextMenu = () => {
-  contextMenuVisible.value = false;
-};
+// Контекстное меню перемещено в компонент Message
 
 // Функции для редактирования сообщений
 const startEditingMessage = (message) => {
@@ -631,9 +610,8 @@ const deleteMessage = async (message) => {
 
 // Обработка клика на сообщении
 const handleMessageClick = (event, message) => {
-  if (isMobile.value) {
-    showContextMenu(event, message);
-  }
+  // Показываем контекстное меню при клике на любом устройстве
+  showContextMenu(event, message);
 };
 
 // Функция для переключения боковой панели на мобильных устройствах
@@ -1459,7 +1437,7 @@ const getOtherParticipantName = (chat) => {
       justify-content: space-between
       padding: 5px 10px
       background-color: rgba(255, 255, 255, 0.1)
-      border-radius: 10px
+      border-radius: $radius
       margin-bottom: 10px
       
       .editing-text
@@ -1470,14 +1448,16 @@ const getOtherParticipantName = (chat) => {
           margin-right: 5px
       
       .cancel-btn
-        background-color: transparent
-        border: none
+        border-radius: 50%
+        background-color: $purple
         color: $white
-        font-size: 16px
+        font-size: 20px
+        padding: 0px 10px 5px
         cursor: pointer
+        transition: color 0.2s
         
         &:hover
-          color: rgba(255, 255, 255, 0.8)
+          color: darken($purple, 10%)
     
     .input_container
       display: flex

@@ -35,6 +35,7 @@
             <span class="chat-item__sender">{{ senderName }}:</span> 
           </template>
           {{ formattedLastMessage }}
+          <span v-if="chat.lastMessage && chat.lastMessage.edited" class="chat-item__edited">изм</span>
         </span>
       </div>
     </div>
@@ -104,6 +105,7 @@ const formattedLastMessage = computed(() => {
   
   // Если есть lastMessage, используем его текст
   if (props.chat.lastMessage && props.chat.lastMessage.text) {
+    // Добавляем показ статуса измененного сообщения
     return props.chat.lastMessage.text;
   }
   
@@ -270,6 +272,12 @@ const senderName = computed(() => {
   &__sender
     font-weight: 600
     margin-right: 4px
+    
+  &__edited
+    font-size: 12px
+    font-style: italic
+    margin-left: 4px
+    color: rgba($white, 0.7)
   
   &__meta
     display: flex

@@ -41,7 +41,11 @@ const messageSchema = new mongoose.Schema(
     read_by: [{
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User'
-    }]
+    }],
+    edited: {
+      type: Boolean,
+      default: false
+    }
   },
   {
     timestamps: true

@@ -120,6 +120,7 @@ const getChatMessages = async (req, res) => {
       file: 1,
       thumbnail: 1,
       read_by: 1,
+      edited: 1,
       createdAt: 1
     })
       .sort({ createdAt: -1 })
@@ -230,4 +231,147 @@ const markMessagesAsRead = async (req, res) => {
   }
 };
 
-export { sendMessage, getChatMessages, markMessagesAsRead };
+// @desc    Обновление (редактирование) сообщения
+// @route   PUT /api/chats/:chatId/messages/:messageId
+// @access  Private
+const updateMessage = async (req, res) => {
+  try {
+    const { chatId, messageId } = req.params;
+    const { text, edited } = req.body;
+    const userId = req.user._id;
+
+    // Проверяем, существует ли чат и является ли пользователь его участником
+    const chat = await Chat.findOne({
+      _id: chatId,
+      participants: userId
+    });
+    
+    if (!chat) {
+      return res.status(404).json({ error: 'Чат не найден или вы не являетесь его участником' });
+    }
+
+    // Находим сообщение и проверяем, является ли пользователь его отправителем
+    const message = await Message.findOne({
+      _id: messageId,
+      chat: chatId
+    });
+
+    if (!message) {
+      return res.status(404).json({ error: 'Сообщение не найдено' });
+    }
+
+    // Проверяем, является ли пользователь отправителем сообщения
+    if (message.sender.toString() !== userId.toString()) {
+      return res.status(403).json({ error: 'Вы не можете редактировать чужие сообщения' });
+    }
+
+    // Обновляем сообщение
+    message.text = text;
+    message.edited = edited === false ? false : true;
+    message.updatedAt = new Date();
+    
+    console.log('Обновляем сообщение:', {
+      messageId,
+      text,
+      edited: message.edited
+    });
+    
+    await message.save();
+
+    // Получаем обновленное сообщение с информацией об отправителе
+    const updatedMessage = await Message.findById(messageId)
+      .populate('sender', 'name email avatar');
+
+    // Если это последнее сообщение в чате, обновляем его
+    try {
+      if (chat.lastMessage && chat.lastMessage._id && chat.lastMessage._id.toString() === messageId) {
+        console.log('Обновляем последнее сообщение в чате:', {
+          chatId,
+          messageId,
+          lastMessageId: chat.lastMessage._id.toString()
+        });
+        chat.lastMessage.text = text;
+        await chat.save();
+      }
+    } catch (error) {
+      console.error('Ошибка при обновлении последнего сообщения в чате:', error);
+      // Продолжаем выполнение, даже если не удалось обновить последнее сообщение
+    }
+
+    // Отправляем обновленное сообщение через WebSocket
+    io.to(`chat:${chatId}`).emit('message-updated', {
+      message: updatedMessage,
+      chatId
+    });
+
+    return res.status(200).json(updatedMessage);
+  } catch (error) {
+    console.error('Ошибка при обновлении сообщения:', error);
+    console.error('Подробности запроса:', {
+      chatId,
+      messageId,
+      userId: req.user._id,
+      body: req.body
+    });
+    return res.status(500).json({ error: 'Ошибка сервера при обновлении сообщения', details: error.message });
+  }
+};
+
+// @desc    Удаление сообщения из чата
+// @route   DELETE /api/chats/:chatId/messages/:messageId
+// @access  Private
+const deleteMessage = async (req, res) => {
+  try {
+    const { chatId, messageId } = req.params;
+    
+    // Проверяем, существует ли чат и является ли пользователь его участником
+    const chat = await Chat.findOne({
+      _id: chatId,
+      participants: req.user._id
+    });
+    
+    if (!chat) {
+      return res.status(404).json({ error: 'Чат не найден или вы не являетесь его участником' });
+    }
+    
+    // Проверяем, существует ли сообщение
+    const message = await Message.findOne({
+      _id: messageId,
+      chat: chatId
+    });
+    
+    if (!message) {
+      return res.status(404).json({ error: 'Сообщение не найдено' });
+    }
+    
+    // Проверяем, является ли пользователь отправителем сообщения
+    if (message.sender.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ error: 'Вы не можете удалить чужое сообщение' });
+    }
+    
+    // Удаляем сообщение
+    await Message.deleteOne({ _id: messageId });
+    
+    // Проверяем, было ли это последнее сообщение в чате
+    if (chat.lastMessage && chat.lastMessage.toString() === messageId) {
+      // Находим новое последнее сообщение
+      const newLastMessage = await Message.findOne({ chat: chatId })
+        .sort({ createdAt: -1 })
+        .populate('sender', 'name email avatar');
+      
+      // Обновляем последнее сообщение в чате
+      chat.lastMessage = newLastMessage ? newLastMessage._id : null;
+      await chat.save();
+    }
+    
+    // Отправляем уведомление всем участникам чата через WebSocket
+    io.to(chatId).emit('message_deleted', { chatId, messageId });
+    
+    return res.status(200).json({ success: true, message: 'Сообщение успешно удалено' });
+  } catch (error) {
+    console.error('Ошибка при удалении сообщения:', error);
+    return res.status(500).json({ error: 'Ошибка сервера при удалении сообщения', details: error.message });
+  }
+};
+
+export { sendMessage, getChatMessages, markMessagesAsRead, updateMessage, deleteMessage };

@@ -1650,14 +1650,14 @@ export const useChatStore = defineStore('chat', {
         const config = useRuntimeConfig();
         const response = await $fetch(`${config.public.backendUrl}/api/chats/${chatId}/messages/${messageId}`, {
           method: 'PUT',
-          body: { text },
+          body: { text, edited: true },
           credentials: 'include'
         });
         
         // Обновляем сообщение в локальном списке
         const messageIndex = this.messages.findIndex(msg => msg._id === messageId);
         if (messageIndex !== -1) {
-          const updatedMessage = { ...this.messages[messageIndex], text };
+          const updatedMessage = { ...this.messages[messageIndex], text, edited: true };
           this.messages.splice(messageIndex, 1, updatedMessage);
           
           // Если это последнее сообщение в чате, обновляем его в списке чатов
@@ -1667,7 +1667,8 @@ export const useChatStore = defineStore('chat', {
               ...this.chats[chatIndex],
               lastMessage: { 
                 ...this.chats[chatIndex].lastMessage,
-                text 
+                text,
+                edited: true
               }
             };
             this.chats.splice(chatIndex, 1, updatedChat);

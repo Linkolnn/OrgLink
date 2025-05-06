@@ -13,7 +13,9 @@ import {
 import { 
   sendMessage, 
   getChatMessages, 
-  markMessagesAsRead 
+  markMessagesAsRead,
+  updateMessage,
+  deleteMessage 
 } from '../controllers/messageController.js';
 import { protect } from '../middleware/authMiddleware.js';
 import { uploadChatAvatar, handleUploadError } from '../middleware/uploadMiddleware.js';
@@ -39,5 +41,7 @@ router.delete('/:id/leave', protect, leaveChat);
 router.post('/:chatId/messages', protect, sendMessage);
 router.get('/:chatId/messages', protect, getChatMessages);
 router.post('/:chatId/messages/read', protect, markMessagesAsRead);
+router.put('/:chatId/messages/:messageId', protect, updateMessage);
+router.delete('/:chatId/messages/:messageId', protect, deleteMessage);
 
 export default router;
