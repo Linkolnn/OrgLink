@@ -71,9 +71,9 @@ onUnmounted(() => {
 .context-menu
   position: absolute
   bottom: 0
-  left: 0
+  left: -30%
   border: 1px solid rgba(255, 255, 255, 0.1)
-  transform: translate(-100%, 20%)
+  transform: translate(-100%, -50%)
   background-color: $primary-bg
   border-radius: $radius
   min-width: 180px

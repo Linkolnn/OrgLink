@@ -1,48 +1,49 @@
 <template>
   <div 
-    :data-chat-id="chat._id"
+    :data-chat-id="currentChat._id"
+    :data-last-message="getLastMessageText"
     class="chat-item"
     :class="{ 'chat-item--active': isActive }"
-    @click="$emit('select', chat._id)"
+    @click="$emit('select', currentChat._id)"
   >
     <div 
       class="chat-item__avatar"
-      :style="chat.avatar ? { backgroundImage: `url(${secureUrl(chat.avatar)})` } : {}"
+      :style="currentChat.avatar ? { backgroundImage: `url(${secureUrl(currentChat.avatar)})` } : {}"
     >
-      <div v-if="!chat.avatar" class="chat-item__initials">
-        <template v-if="isPrivateChat(chat)">
-          {{ getInitials(getOtherParticipantName(chat)) }}
+      <div v-if="!currentChat.avatar" class="chat-item__initials">
+        <template v-if="isPrivateChat(currentChat)">
+          {{ getInitials(getOtherParticipantName(currentChat)) }}
         </template>
         <template v-else>
-          {{ getInitials(chat.name) }}
+          {{ getInitials(currentChat.name) }}
         </template>
       </div>
     </div>
     <div class="chat-item__info">
       <div class="chat-item__name">
-        <template v-if="isPrivateChat(chat)">
-          {{ getOtherParticipantName(chat) }}
+        <template v-if="isPrivateChat(currentChat)">
+          {{ getOtherParticipantName(currentChat) }}
         </template>
         <template v-else>
-          {{ chat.name }}
+          {{ currentChat.name }}
         </template>
       </div>
-      <div :id="`chat-message-${chat._id}`" class="chat-item__message" :class="{ 'chat-item__message--service': isServiceMessage }">
-        <span v-if="isServiceMessage && chat.lastMessage">{{ chat.lastMessage.text }}</span>
+      <div :id="`chat-message-${currentChat._id}`" class="chat-item__message" :class="{ 'chat-item__message--service': isServiceMessage }">
+        <span v-if="isServiceMessage && currentChat.lastMessage">{{ currentChat.lastMessage.text }}</span>
         <span v-else>
           <!-- Для групповых чатов показываем имя отправителя -->
-          <template v-if="!isPrivateChat(chat) && chat.lastMessage && chat.lastMessage.sender && !isSelfMessage && senderName">
+          <template v-if="!isPrivateChat(currentChat) && currentChat.lastMessage && currentChat.lastMessage.sender && !isSelfMessage && senderName">
             <span class="chat-item__sender">{{ senderName }}:</span> 
           </template>
           {{ formattedLastMessage }}
-          <span v-if="chat.lastMessage && chat.lastMessage.edited" class="chat-item__edited">изм</span>
+          <span v-if="isMessageEdited" class="chat-item__edited">изм</span>
         </span>
       </div>
     </div>
     <div class="chat-item__meta">
-      <div v-if="chat.unread && chat.unread > 0" class="chat-item__badge">{{ chat.unread }}</div>
-      <div :id="`chat-time-${chat._id}`" class="chat-item__time">
-        {{ chat.formattedTime }}
+      <div v-if="currentChat.unread && currentChat.unread > 0" class="chat-item__badge">{{ currentChat.unread }}</div>
+      <div :id="`chat-time-${currentChat._id}`" class="chat-item__time">
+        {{ currentChat.formattedTime }}
       </div>
     </div>
   </div>
@@ -70,47 +71,175 @@ const props = defineProps({
 
 defineEmits(['select']);
 
-// Проверяем, является ли последнее сообщение служебным
-const isServiceMessage = computed(() => {
-  const lastMessage = props.chat.lastMessage;
-  if (!lastMessage) return false;
+// Отслеживаем обновления в хранилище чата
+const chatListUpdateTrigger = computed(() => chatStore.chatListUpdateTrigger);
+
+// Получаем актуальные данные о чате из хранилища
+const currentChat = computed(() => {
+  // Принудительно вычисляем при изменении триггера
+  const trigger = chatListUpdateTrigger.value;
   
-  // Проверяем тип сообщения
-  if (lastMessage.type === 'service') {
+  // Находим чат в хранилище по ID
+  const chatFromStore = chatStore.chats.find(c => c._id === props.chat._id);
+  
+  // Если чат найден в хранилище, используем его, иначе используем переданный через пропсы
+  return chatFromStore || props.chat;
+});
+
+// Проверяем, было ли последнее сообщение отредактировано
+const isMessageEdited = computed(() => {
+  const chat = currentChat.value;
+  
+  // Проверяем разные источники информации о редактировании
+  
+  // 1. Проверяем поле edited в объекте lastMessage
+  if (chat.lastMessage && typeof chat.lastMessage === 'object' && chat.lastMessage.edited) {
     return true;
   }
   
-  // Проверяем содержимое сообщения на наличие ключевых фраз, характерных для служебных сообщений
+  // 2. Проверяем поле edited в вложенном объекте lastMessage.lastMessage
+  if (chat.lastMessage && chat.lastMessage.lastMessage && chat.lastMessage.lastMessage.edited) {
+    return true;
+  }
+  
+  return false;
+});
+
+// Проверяем, является ли последнее сообщение служебным
+const isServiceMessage = computed(() => {
+  const lastMessage = currentChat.value.lastMessage;
+  if (!lastMessage) return false;
+  
+  // Если тип сообщения 'service', то это служебное сообщение
+  if (lastMessage.type === 'service') return true;
+  
+  // Также проверяем текст на соответствие шаблонам служебных сообщений
   const text = lastMessage.text || '';
   const servicePatterns = [
-    /создал групповой чат/i,
-    /покинул чат/i,
-    /удалил из чата/i,
-    /добавил в чат/i,
-    /был удален из чата/i,
-    /был добавлен в чат/i,
-    /добавил в чат пользователей/i,
-    /добавил в чат пользователя/i
+    /^\S+ создал\(а\) группу$/,
+    /^\S+ добавил\(а\) \S+$/,
+    /^\S+ покинул\(а\) группу$/,
+    /^\S+ изменил\(а\) название группы на .+$/,
+    /^\S+ изменил\(а\) аватар группы$/
   ];
   
   return servicePatterns.some(pattern => pattern.test(text));
 });
 
-// Форматируем текст последнего сообщения
+// Извлекаем текст последнего сообщения для сохранения в атрибуте
+const getLastMessageText = computed(() => {
+  const chat = currentChat.value;
+  
+  // Проверяем все возможные источники текста
+  if (chat.lastMessage && chat.lastMessage.text) {
+    return chat.lastMessage.text;
+  } else if (chat.lastMessageText) {
+    return chat.lastMessageText;
+  }
+  
+  // Если это медиа-сообщение
+  if (chat.lastMessage && chat.lastMessage.media_type && chat.lastMessage.media_type !== 'none') {
+    const mediaTypes = {
+      'image': 'Фотография',
+      'video': 'Видео',
+      'video_message': 'Видеосообщение',
+      'sticker': 'Стикер',
+      'file': 'Файл'
+    };
+    return mediaTypes[chat.lastMessage.media_type] || 'Медиа-сообщение';
+  }
+  
+  return '';
+});
+
+// Форматируем текст последнего сообщения для отображения
 const formattedLastMessage = computed(() => {
+  // Сохраняем ссылку на чат в локальной переменной для удобства
+  const chat = currentChat.value;
+  
+  // Добавляем расширенное логирование для отладки
+  console.log(`Формируем текст для чата ${chat._id}:`, {
+    hasLastMessage: !!chat.lastMessage,
+    lastMessageText: chat.lastMessageText,
+    lastMessageObj: chat.lastMessage ? {
+      text: chat.lastMessage.text,
+      type: chat.lastMessage.type,
+      media_type: chat.lastMessage.media_type
+    } : null,
+    isPreview: chat.isPreview,
+    trigger: chatListUpdateTrigger.value
+  });
+  
   // Если чат в режиме предпросмотра
-  if (props.chat.isPreview) {
+  if (chat.isPreview) {
     return 'Напишите сообщение, чтобы создать чат';
   }
   
-  // Если есть lastMessage, используем его текст
-  if (props.chat.lastMessage && props.chat.lastMessage.text) {
-    // Добавляем показ статуса измененного сообщения
-    return props.chat.lastMessage.text;
+  // Приоритет 1: Используем поле lastMessageText, если оно есть
+  if (chat.lastMessageText) {
+    console.log(`Используем поле lastMessageText: ${chat.lastMessageText}`);
+    
+    // Сохраняем текст в хранилище чата
+    chatStore.lastMessageTextCache[chat._id] = chat.lastMessageText;
+    
+    return chat.lastMessageText;
   }
   
-  // Иначе используем lastMessageText, если он есть
-  return props.chat.lastMessageText || '';
+  // Приоритет 2: Проверяем наличие объекта lastMessage с текстом
+  if (chat.lastMessage && typeof chat.lastMessage === 'object') {
+    // Если есть текст в последнем сообщении
+    if (chat.lastMessage.text) {
+      console.log(`Используем текст из объекта lastMessage: ${chat.lastMessage.text}`);
+      
+      // Сохраняем текст в хранилище чата
+      chatStore.lastMessageTextCache[chat._id] = chat.lastMessage.text;
+      
+      return chat.lastMessage.text;
+    } 
+    // Если это медиа-сообщение
+    else if (chat.lastMessage.media_type && chat.lastMessage.media_type !== 'none') {
+      const mediaTypes = {
+        'image': 'Фотография',
+        'video': 'Видео',
+        'video_message': 'Видеосообщение',
+        'sticker': 'Стикер',
+        'file': 'Файл'
+      };
+      const mediaText = mediaTypes[chat.lastMessage.media_type] || 'Медиа-сообщение';
+      console.log(`Используем медиа-тип из объекта lastMessage: ${mediaText}`);
+      
+      // Сохраняем текст в хранилище чата
+      chatStore.lastMessageTextCache[chat._id] = mediaText;
+      
+      return mediaText;
+    }
+  }
+  
+  // Приоритет 3: Проверяем наличие текста в кэше
+  if (chatStore.lastMessageTextCache[chat._id]) {
+    const cachedText = chatStore.lastMessageTextCache[chat._id];
+    console.log(`Используем текст из кэша: ${cachedText}`);
+    return cachedText;
+  }
+  
+  // Приоритет 4: Проверяем наличие сохраненного текста в атрибуте data-last-message
+  const chatElement = document.querySelector(`[data-chat-id="${chat._id}"]`);
+  if (chatElement && chatElement.getAttribute('data-last-message')) {
+    const savedText = chatElement.getAttribute('data-last-message');
+    console.log(`Используем сохраненный текст из атрибута: ${savedText}`);
+    
+    // Сохраняем текст в хранилище чата
+    chatStore.lastMessageTextCache[chat._id] = savedText;
+    
+    return savedText;
+  }
+  
+  // Если ничего не нашли, возвращаем дефолтное значение
+  console.log(`Не найдено ни одного источника текста последнего сообщения`);
+  return 'Нет сообщений';
+  
+  // Если нет никаких сообщений
+  return 'Нет сообщений';
 });
 
 // Получение инициалов из имени
@@ -172,13 +301,13 @@ function getSenderName(sender) {
 
 // Проверка, является ли сообщение отправлено текущим пользователем
 const isSelfMessage = computed(() => {
-  if (!props.chat.lastMessage || !props.chat.lastMessage.sender) return false;
+  if (!currentChat.value.lastMessage || !currentChat.value.lastMessage.sender) return false;
   
   // Проверяем, является ли отправитель текущим пользователем
-  if (typeof props.chat.lastMessage.sender === 'object') {
-    return props.chat.lastMessage.sender._id === authStore.user?._id;
-  } else if (typeof props.chat.lastMessage.sender === 'string') {
-    return props.chat.lastMessage.sender === authStore.user?._id;
+  if (typeof currentChat.value.lastMessage.sender === 'object') {
+    return currentChat.value.lastMessage.sender._id === authStore.user?._id;
+  } else if (typeof currentChat.value.lastMessage.sender === 'string') {
+    return currentChat.value.lastMessage.sender === authStore.user?._id;
   }
   
   return false;
@@ -186,9 +315,9 @@ const isSelfMessage = computed(() => {
 
 // Вычисляемое свойство для имени отправителя
 const senderName = computed(() => {
-  if (!props.chat.lastMessage || !props.chat.lastMessage.sender) return '';
+  if (!currentChat.value.lastMessage || !currentChat.value.lastMessage.sender) return '';
   
-  const sender = props.chat.lastMessage.sender;
+  const sender = currentChat.value.lastMessage.sender;
   
   // Если отправитель - объект с полем name
   if (typeof sender === 'object' && sender.name) {
@@ -198,7 +327,7 @@ const senderName = computed(() => {
   // Если отправитель - ID пользователя
   if (typeof sender === 'string') {
     // Проверяем, есть ли этот пользователь в списке участников чата
-    const participant = props.chat.participants?.find(p => p._id === sender);
+    const participant = currentChat.value.participants?.find(p => p._id === sender);
     if (participant && participant.name) {
       return participant.name;
     }

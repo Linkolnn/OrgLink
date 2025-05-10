@@ -13,6 +13,8 @@ export const useChatStore = defineStore('chat', {
     ignoreActiveChatForSidebar: false,
     // ID чата, который отмечен как неактивный для уведомлений
     inactiveChatId: null,
+    // Кэш текстов последних сообщений для каждого чата (используется временно до перезагрузки страницы)
+    lastMessageTextCache: {},
     messages: [],
     messagesPage: 1,
     messagesHasMore: false,
@@ -221,84 +223,75 @@ export const useChatStore = defineStore('chat', {
       console.log('Инициализация WebSocket слушателей...');
       
       // Удаляем существующие обработчики, чтобы избежать дублирования
-      $socket.off('new-message');
-      $socket.off('message-updated');
-      $socket.off('message-deleted');
-      $socket.off('message-read');
-      $socket.off('new-chat');
-      $socket.off('chat-updated');
-      $socket.off('chat-deleted');
-      $socket.off('participant-left');
-      $socket.off('participant-removed');
+      $socket.off('newMessage');
+      $socket.off('messageUpdated');
+      $socket.off('messageDeleted');
+      $socket.off('messageRead');
+      $socket.off('newChat');
+      $socket.off('chatUpdated');
+      $socket.off('chatDeleted');
+      $socket.off('participantLeft');
+      $socket.off('participantRemoved');
       
       // Добавляем обработчик нового сообщения
-      $socket.on('new-message', (message) => {
+      $socket.on('newMessage', (message) => {
         console.log('WebSocket: Получено новое сообщение:', message);
         this.addNewMessage(message);
       });
       
       // Добавляем обработчик обновления сообщения
-      $socket.on('message-updated', (updatedMessage) => {
-        console.log('WebSocket: Сообщение обновлено:', updatedMessage);
+      $socket.on('messageUpdated', ({ chatId, messageId, message }) => {
+        console.log('WebSocket: Сообщение обновлено:', { chatId, messageId, message });
         
-        // Обновляем сообщение в списке
-        const messageIndex = this.messages.findIndex(msg => msg._id === updatedMessage._id);
+        // Обновляем сообщение в локальном списке
+        const messageIndex = this.messages.findIndex(msg => msg._id === messageId);
         if (messageIndex !== -1) {
-          this.messages.splice(messageIndex, 1, updatedMessage);
-        }
-        
-        // Обновляем lastMessage в чате, если это последнее сообщение
-        const chatIndex = this.chats.findIndex(chat => 
-          chat.lastMessage && chat.lastMessage._id === updatedMessage._id
-        );
-        
-        if (chatIndex !== -1) {
-          const updatedChat = { 
-            ...this.chats[chatIndex],
-            lastMessage: updatedMessage
+          const updatedMessage = { 
+            ...this.messages[messageIndex], 
+            ...message,
+            edited: true
           };
-          this.chats.splice(chatIndex, 1, updatedChat);
+          this.messages.splice(messageIndex, 1, updatedMessage);
           
-          // Принудительно обновляем список чатов
-          this.triggerChatListUpdate();
+          // Если это последнее сообщение в чате, обновляем его в списке чатов
+          const chatIndex = this.chats.findIndex(chat => chat._id === chatId);
+          if (chatIndex !== -1 && this.chats[chatIndex].lastMessage?._id === messageId) {
+            const updatedChat = { 
+              ...this.chats[chatIndex],
+              lastMessage: {
+                ...this.chats[chatIndex].lastMessage,
+                ...message,
+                edited: true
+              }
+            };
+            this.chats.splice(chatIndex, 1, updatedChat);
+            
+            // Принудительно обновляем список чатов для обеспечения реактивности
+            this.triggerChatListUpdate();
+          }
         }
       });
       
       // Добавляем обработчик удаления сообщения
-      $socket.on('message-deleted', ({ messageId, chatId }) => {
-        console.log('WebSocket: Сообщение удалено:', { messageId, chatId });
+      $socket.on('messageDeleted', ({ chatId, messageId }) => {
+        console.log('WebSocket: Сообщение удалено:', { chatId, messageId });
         
-        // Удаляем сообщение из списка
-        const messageIndex = this.messages.findIndex(msg => msg._id === messageId);
-        if (messageIndex !== -1) {
-          this.messages.splice(messageIndex, 1);
-        }
+        // Удаляем сообщение из локального списка
+        this.messages = this.messages.filter(msg => msg._id !== messageId);
         
-        // Обновляем lastMessage в чате, если это было последнее сообщение
-        const chatIndex = this.chats.findIndex(chat => 
-          chat.lastMessage && chat.lastMessage._id === messageId
-        );
-        
-        if (chatIndex !== -1) {
-          // Находим новое последнее сообщение
-          const newLastMessage = this.messages
-            .filter(msg => msg.chat === chatId)
-            .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0];
-          
-          const updatedChat = { 
-            ...this.chats[chatIndex],
-            lastMessage: newLastMessage || null
-          };
-          
-          this.chats.splice(chatIndex, 1, updatedChat);
+        // Запрашиваем актуальную информацию о чате с сервера
+        this.loadChatById(chatId).then(updatedChat => {
+          console.log('WebSocket: Получена актуальная информация о чате:', updatedChat);
           
           // Принудительно обновляем список чатов
           this.triggerChatListUpdate();
-        }
+        }).catch(error => {
+          console.error('WebSocket: Ошибка при загрузке информации о чате:', error);
+        });
       });
       
       // Добавляем обработчик прочтения сообщения
-      $socket.on('message-read', ({ chatId, userId }) => {
+      $socket.on('messageRead', ({ chatId, userId }) => {
         console.log('WebSocket: Сообщения прочитаны:', { chatId, userId });
         this.updateMessagesReadStatus(chatId, userId);
         
@@ -318,24 +311,351 @@ export const useChatStore = defineStore('chat', {
       });
       
       // Добавляем обработчик нового чата
-      $socket.on('new-chat', (chat) => {
+      $socket.on('newChat', (chat) => {
         console.log('WebSocket: Получен новый чат:', chat);
         this.addNewChat(chat);
       });
       
       // Добавляем обработчик обновления чата
-      $socket.on('chat-updated', (updatedChat) => {
-        console.log('WebSocket: Чат обновлен:', updatedChat);
-        this.updateChatInList(updatedChat);
+      $socket.on('chatUpdated', (data) => {
+        console.log('WebSocket: Чат обновлен:', data);
         
-        // Если это активный чат, обновляем его данные
-        if (this.activeChat && this.activeChat._id === updatedChat._id) {
-          this.activeChat = { ...this.activeChat, ...updatedChat };
+        // Проверяем формат данных
+        if (!data.chatId) {
+          console.error('WebSocket: Неверный формат данных для chatUpdated:', data);
+          return;
+        }
+        
+        // Проверяем, является ли обновление результатом редактирования последнего сообщения
+        console.log('WebSocket: Проверка флага isLastMessage:', {
+          chatId: data.chatId,
+          isLastMessage: data.isLastMessage,
+          hasLastMessage: !!data.lastMessage
+        });
+        
+        // Находим чат в списке
+        const chatIndex = this.chats.findIndex(chat => chat._id === data.chatId);
+        
+        // Если получен полный объект чата
+        if (data.chat) {
+          if (chatIndex !== -1) {
+            // Обновляем существующий чат
+            console.log('WebSocket: Обновляем существующий чат:', data.chatId);
+            
+            // Сохраняем локальные свойства, которые не приходят с сервера
+            console.log('WebSocket: Получены данные для обновления чата:', {
+              chatId: data.chatId,
+              hasLastMessageInChat: !!data.chat.lastMessage,
+              hasExplicitLastMessage: !!data.lastMessage
+            });
+            
+            // Проверяем наличие поля lastMessageText в приходящих данных
+            console.log('WebSocket: Проверка поля lastMessageText в приходящих данных:', {
+              chatId: data.chatId,
+              hasLastMessageText: 'lastMessageText' in data,
+              lastMessageTextValue: data.lastMessageText,
+              hasLastMessageTextInChat: data.chat && 'lastMessageText' in data.chat,
+              chatLastMessageTextValue: data.chat ? data.chat.lastMessageText : undefined,
+              hasLastMessageObj: data.chat && data.chat.lastMessageObj,
+              lastMessageObjText: data.chat && data.chat.lastMessageObj ? data.chat.lastMessageObj.text : undefined
+            });
+            
+            // Создаем объект обновленного чата
+            const updatedChat = {
+              ...this.chats[chatIndex],
+              ...data.chat
+            };
+            
+            // Добавляем поле lastMessageText, если оно есть в данных
+            if (data.lastMessageText) {
+              console.log(`WebSocket: Устанавливаем lastMessageText из данных: ${data.lastMessageText}`);
+              updatedChat.lastMessageText = data.lastMessageText;
+            } else if (data.chat && data.chat.lastMessageText) {
+              console.log(`WebSocket: Устанавливаем lastMessageText из чата: ${data.chat.lastMessageText}`);
+              updatedChat.lastMessageText = data.chat.lastMessageText;
+            } else if (data.chat && data.chat.lastMessageObj && data.chat.lastMessageObj.text) {
+              console.log(`WebSocket: Устанавливаем lastMessageText из lastMessageObj: ${data.chat.lastMessageObj.text}`);
+              updatedChat.lastMessageText = data.chat.lastMessageObj.text;
+            }
+            
+            // Если это редактирование последнего сообщения, устанавливаем флаг edited
+            if (data.isLastMessage === true) {
+              console.log(`WebSocket: Устанавливаем флаг edited для последнего сообщения в чате ${data.chatId}`);
+              
+              // Устанавливаем флаг edited в объекте lastMessage
+              if (updatedChat.lastMessage && typeof updatedChat.lastMessage === 'object') {
+                updatedChat.lastMessage.edited = true;
+              }
+            }
+            
+            // Используем явно переданное последнее сообщение, если оно есть
+            if (data.lastMessage) {
+              console.log('WebSocket: Используем явно переданное последнее сообщение:', {
+                id: data.lastMessage._id,
+                text: data.lastMessage.text,
+                hasText: !!data.lastMessage.text
+              });
+              // Создаем копию объекта сообщения
+              const lastMessageCopy = { ...data.lastMessage };
+              
+              // Проверяем наличие поля text
+              if (!('text' in lastMessageCopy) || lastMessageCopy.text === undefined) {
+                console.log('WebSocket: Поле text отсутствует в объекте последнего сообщения, устанавливаем его вручную');
+                // Если поле text отсутствует, устанавливаем его вручную
+                lastMessageCopy.text = '';
+                
+                // Проверяем, есть ли текст в кэше
+                if (this.lastMessageTextCache[data.chatId]) {
+                  console.log(`WebSocket: Используем текст из кэша для чата ${data.chatId}: ${this.lastMessageTextCache[data.chatId]}`);
+                  lastMessageCopy.text = this.lastMessageTextCache[data.chatId];
+                }
+              } else {
+                // Если текст есть, сохраняем его в кэш
+                console.log(`WebSocket: Сохраняем текст в кэш для чата ${data.chatId}: ${lastMessageCopy.text}`);
+                this.lastMessageTextCache[data.chatId] = lastMessageCopy.text;
+              }
+              
+              // Проверяем, что поле text теперь существует
+              console.log('WebSocket: Проверка поля text после обработки:', {
+                hasText: 'text' in lastMessageCopy,
+                textValue: lastMessageCopy.text,
+                cachedText: this.lastMessageTextCache[data.chatId] || null
+              });
+              
+              // Устанавливаем обработанный объект последнего сообщения
+              updatedChat.lastMessage = lastMessageCopy;
+              
+              // Добавляем текст последнего сообщения как отдельное поле для удобства
+              updatedChat.lastMessageText = lastMessageCopy.text;
+            } else if (data.chat.lastMessage) {
+              console.log('WebSocket: Используем последнее сообщение из чата:', {
+                id: data.chat.lastMessage._id,
+                text: data.chat.lastMessage.text,
+                hasText: !!data.chat.lastMessage.text
+              });
+              // Создаем копию объекта сообщения
+              const lastMessageCopy = { ...data.chat.lastMessage };
+              
+              // Проверяем наличие поля text
+              if (!('text' in lastMessageCopy) || lastMessageCopy.text === undefined) {
+                console.log('WebSocket: Поле text отсутствует в объекте последнего сообщения из чата, устанавливаем его вручную');
+                // Если поле text отсутствует, устанавливаем его вручную
+                lastMessageCopy.text = '';
+                
+                // Проверяем, есть ли текст в кэше
+                if (this.lastMessageTextCache[data.chatId]) {
+                  console.log(`WebSocket: Используем текст из кэша для чата ${data.chatId}: ${this.lastMessageTextCache[data.chatId]}`);
+                  lastMessageCopy.text = this.lastMessageTextCache[data.chatId];
+                }
+              } else {
+                // Если текст есть, сохраняем его в кэш
+                console.log(`WebSocket: Сохраняем текст из чата в кэш для чата ${data.chatId}: ${lastMessageCopy.text}`);
+                this.lastMessageTextCache[data.chatId] = lastMessageCopy.text;
+              }
+              
+              // Проверяем, что поле text теперь существует
+              console.log('WebSocket: Проверка поля text из чата после обработки:', {
+                hasText: 'text' in lastMessageCopy,
+                textValue: lastMessageCopy.text,
+                cachedText: this.lastMessageTextCache[data.chatId] || null
+              });
+              
+              // Устанавливаем обработанный объект последнего сообщения
+              updatedChat.lastMessage = lastMessageCopy;
+              
+              // Добавляем текст последнего сообщения как отдельное поле для удобства
+              updatedChat.lastMessageText = lastMessageCopy.text;
+            } else {
+              updatedChat.lastMessage = null;
+            }
+            
+            // Проверяем, что последнее сообщение корректно установлено
+            console.log('WebSocket: Проверка последнего сообщения перед обновлением чата:', {
+              hasLastMessage: !!updatedChat.lastMessage,
+              text: updatedChat.lastMessage ? updatedChat.lastMessage.text : null
+            });
+            
+            this.chats.splice(chatIndex, 1, updatedChat);
+            
+            // Если это активный чат, обновляем его данные
+            if (this.activeChat && this.activeChat._id === data.chatId) {
+              console.log('WebSocket: Обновляем активный чат:', data.chatId);
+              
+              // Создаем обновленный активный чат
+              const updatedActiveChat = {
+                ...this.activeChat,
+                ...data.chat
+              };
+              
+              // Используем явно переданное последнее сообщение, если оно есть
+              if (data.lastMessage) {
+                console.log('WebSocket: Используем явно переданное последнее сообщение для активного чата:', {
+                  id: data.lastMessage._id,
+                  text: data.lastMessage.text,
+                  hasText: !!data.lastMessage.text
+                });
+                // Создаем копию объекта сообщения
+                const lastMessageCopy = { ...data.lastMessage };
+                
+                // Проверяем наличие поля text
+                if (!('text' in lastMessageCopy) || lastMessageCopy.text === undefined) {
+                  console.log('WebSocket: Поле text отсутствует в объекте последнего сообщения активного чата, устанавливаем его вручную');
+                  // Если поле text отсутствует, устанавливаем его вручную
+                  lastMessageCopy.text = '';
+                  
+                  // Проверяем, есть ли текст в кэше
+                  if (this.lastMessageTextCache[data.chatId]) {
+                    console.log(`WebSocket: Используем текст из кэша для активного чата ${data.chatId}: ${this.lastMessageTextCache[data.chatId]}`);
+                    lastMessageCopy.text = this.lastMessageTextCache[data.chatId];
+                  }
+                } else {
+                  // Если текст есть, сохраняем его в кэш
+                  console.log(`WebSocket: Сохраняем текст в кэш для активного чата ${data.chatId}: ${lastMessageCopy.text}`);
+                  this.lastMessageTextCache[data.chatId] = lastMessageCopy.text;
+                }
+                
+                // Проверяем, что поле text теперь существует
+                console.log('WebSocket: Проверка поля text активного чата после обработки:', {
+                  hasText: 'text' in lastMessageCopy,
+                  textValue: lastMessageCopy.text,
+                  cachedText: this.lastMessageTextCache[data.chatId] || null
+                });
+                
+                // Устанавливаем обработанный объект последнего сообщения
+                updatedActiveChat.lastMessage = lastMessageCopy;
+                
+                // Добавляем текст последнего сообщения как отдельное поле для удобства
+                updatedActiveChat.lastMessageText = lastMessageCopy.text;
+              } else if (data.chat.lastMessage) {
+                console.log('WebSocket: Используем последнее сообщение из чата для активного чата:', {
+                  id: data.chat.lastMessage._id,
+                  text: data.chat.lastMessage.text,
+                  hasText: !!data.chat.lastMessage.text
+                });
+                // Создаем копию объекта сообщения
+                const lastMessageCopy = { ...data.chat.lastMessage };
+                
+                // Проверяем наличие поля text
+                if (!('text' in lastMessageCopy) || lastMessageCopy.text === undefined) {
+                  console.log('WebSocket: Поле text отсутствует в объекте последнего сообщения из чата для активного чата, устанавливаем его вручную');
+                  // Если поле text отсутствует, устанавливаем его вручную
+                  lastMessageCopy.text = '';
+                  
+                  // Проверяем, есть ли текст в кэше
+                  if (this.lastMessageTextCache[data.chatId]) {
+                    console.log(`WebSocket: Используем текст из кэша для активного чата из чата ${data.chatId}: ${this.lastMessageTextCache[data.chatId]}`);
+                    lastMessageCopy.text = this.lastMessageTextCache[data.chatId];
+                  }
+                } else {
+                  // Если текст есть, сохраняем его в кэш
+                  console.log(`WebSocket: Сохраняем текст в кэш для активного чата из чата ${data.chatId}: ${lastMessageCopy.text}`);
+                  this.lastMessageTextCache[data.chatId] = lastMessageCopy.text;
+                }
+                
+                // Проверяем, что поле text теперь существует
+                console.log('WebSocket: Проверка поля text из чата для активного чата после обработки:', {
+                  hasText: 'text' in lastMessageCopy,
+                  textValue: lastMessageCopy.text,
+                  cachedText: this.lastMessageTextCache[data.chatId] || null
+                });
+                
+                // Устанавливаем обработанный объект последнего сообщения
+                updatedActiveChat.lastMessage = lastMessageCopy;
+                
+                // Добавляем текст последнего сообщения как отдельное поле для удобства
+                updatedActiveChat.lastMessageText = lastMessageCopy.text;
+              } else {
+                updatedActiveChat.lastMessage = null;
+              }
+              
+              // Проверяем, что последнее сообщение корректно установлено
+              console.log('WebSocket: Проверка последнего сообщения перед обновлением активного чата:', {
+                hasLastMessage: !!updatedActiveChat.lastMessage,
+                text: updatedActiveChat.lastMessage ? updatedActiveChat.lastMessage.text : null
+              });
+              
+              this.activeChat = updatedActiveChat;
+            }
+            
+            // Увеличиваем триггер обновления списка чатов
+            this.chatListUpdateTrigger++;
+            console.log('Обновлен триггер списка чатов:', this.chatListUpdateTrigger);
+          } else {
+            // Если чат не найден, добавляем его в список
+            console.log('WebSocket: Добавляем новый чат:', data.chat);
+            
+            // Создаем объект нового чата
+            const newChat = { ...data.chat };
+            
+            // Используем явно переданное последнее сообщение, если оно есть
+            if (data.lastMessage) {
+              console.log('WebSocket: Используем явно переданное последнее сообщение для нового чата:', {
+                id: data.lastMessage._id,
+                text: data.lastMessage.text,
+                hasText: !!data.lastMessage.text
+              });
+              newChat.lastMessage = {
+                ...data.lastMessage,
+                // Гарантируем, что поле text существует
+                text: data.lastMessage.text || ''
+              };
+            } else if (data.chat.lastMessage) {
+              console.log('WebSocket: Используем последнее сообщение из чата для нового чата:', {
+                id: data.chat.lastMessage._id,
+                text: data.chat.lastMessage.text,
+                hasText: !!data.chat.lastMessage.text
+              });
+              newChat.lastMessage = {
+                ...data.chat.lastMessage,
+                // Гарантируем, что поле text существует
+                text: data.chat.lastMessage.text || ''
+              };
+            }
+            
+            // Проверяем, что последнее сообщение корректно установлено
+            console.log('WebSocket: Проверка последнего сообщения перед добавлением нового чата:', {
+              hasLastMessage: !!newChat.lastMessage,
+              text: newChat.lastMessage ? newChat.lastMessage.text : null
+            });
+            
+            this.chats.push(newChat);
+            
+            // Сортируем чаты по времени последнего сообщения
+            this.sortChatsByLastMessage();
+            
+            // Увеличиваем триггер обновления списка чатов
+            this.chatListUpdateTrigger++;
+            console.log('Обновлен триггер списка чатов (новый чат):', this.chatListUpdateTrigger);
+          }
+          
+          // Принудительно обновляем список чатов
+          this.triggerChatListUpdate();
+        } 
+        // Если получено только последнее сообщение (старый формат)
+        else if (chatIndex !== -1 && data.lastMessage) {
+          console.log('WebSocket: Обновляем только последнее сообщение в чате:', data.chatId);
+          
+          const updatedChat = { 
+            ...this.chats[chatIndex],
+            lastMessage: data.lastMessage
+          };
+          
+          this.chats.splice(chatIndex, 1, updatedChat);
+          
+          // Если это активный чат, обновляем его данные
+          if (this.activeChat && this.activeChat._id === data.chatId) {
+            this.activeChat = { ...this.activeChat, lastMessage: data.lastMessage };
+          }
+          
+          // Принудительно обновляем список чатов
+          this.triggerChatListUpdate();
+        } else {
+          console.log('WebSocket: Чат не найден или нет данных для обновления:', data);
         }
       });
       
       // Добавляем обработчик удаления чата
-      $socket.on('chat-deleted', ({ chatId, chatName, chatType, deletedBy, message }) => {
+      $socket.on('chatDeleted', ({ chatId, chatName, chatType, deletedBy, message }) => {
         console.log('WebSocket: Чат удален:', { chatId, chatName, chatType, deletedBy, message });
         
         // Удаляем чат из списка
@@ -346,7 +666,7 @@ export const useChatStore = defineStore('chat', {
       });
       
       // Добавляем обработчик события выхода пользователя из чата
-      $socket.on('participant-left', ({ chatId, userId, userName, message }) => {
+      $socket.on('participantLeft', ({ chatId, userId, userName, message }) => {
         console.log('WebSocket: Пользователь покинул чат:', { chatId, userId, userName, message });
         
         // Удаляем чат из списка для пользователя, который покинул чат
@@ -362,7 +682,7 @@ export const useChatStore = defineStore('chat', {
       });
       
       // Добавляем обработчик события удаления пользователя из чата
-      $socket.on('participant-removed', ({ chatId, chatName, removedBy, removedByName, message }) => {
+      $socket.on('participantRemoved', ({ chatId, chatName, removedBy, removedByName, message }) => {
         console.log('WebSocket: Пользователь удален из чата:', { chatId, chatName, removedBy, removedByName, message });
         
         // Сохраняем ссылку на $showSidebar до удаления чата
@@ -495,12 +815,16 @@ export const useChatStore = defineStore('chat', {
           // Отправляем событие обновления чата для других клиентов
           const { $socket } = useNuxtApp();
           if ($socket && $socket.connected) {
-            $socket.emit('client-chat-updated', { chatId: messageClone.chat });
+            // Проверяем, является ли messageClone.chat объектом или строкой
+            const chatId = typeof messageClone.chat === 'object' ? messageClone.chat._id : messageClone.chat;
+            $socket.emit('client-chat-updated', { chatId });
           }
         } else {
           // Если чат не найден в списке, загружаем его с сервера
           console.log('Чат не найден в списке, загружаем информацию о чате');
-          this.loadChatById(messageClone.chat);
+          // Проверяем, является ли messageClone.chat объектом или строкой
+          const chatId = typeof messageClone.chat === 'object' ? messageClone.chat._id : messageClone.chat;
+          this.loadChatById(chatId);
         }
       } catch (error) {
         console.error('Ошибка при добавлении нового сообщения:', error);
@@ -1657,20 +1981,29 @@ export const useChatStore = defineStore('chat', {
         // Обновляем сообщение в локальном списке
         const messageIndex = this.messages.findIndex(msg => msg._id === messageId);
         if (messageIndex !== -1) {
-          const updatedMessage = { ...this.messages[messageIndex], text, edited: true };
+          // Сохраняем все поля из существующего сообщения, которых нет в ответе сервера
+          const updatedMessage = { 
+            ...this.messages[messageIndex], 
+            ...response.message,
+            edited: true // Гарантируем, что поле edited установлено
+          };
           this.messages.splice(messageIndex, 1, updatedMessage);
           
           // Если это последнее сообщение в чате, обновляем его в списке чатов
           const chatIndex = this.chats.findIndex(chat => chat._id === chatId);
           if (chatIndex !== -1 && this.chats[chatIndex].lastMessage?._id === messageId) {
+            // Создаем полное обновленное сообщение для lastMessage
+            const updatedLastMessage = {
+              ...this.chats[chatIndex].lastMessage,
+              ...response.message,
+              edited: true // Гарантируем, что поле edited установлено
+            };
+            
             const updatedChat = { 
               ...this.chats[chatIndex],
-              lastMessage: { 
-                ...this.chats[chatIndex].lastMessage,
-                text,
-                edited: true
-              }
+              lastMessage: updatedLastMessage
             };
+            
             this.chats.splice(chatIndex, 1, updatedChat);
             
             // Принудительно обновляем список чатов для обеспечения реактивности
@@ -1719,18 +2052,18 @@ export const useChatStore = defineStore('chat', {
         const chatIndex = this.chats.findIndex(chat => chat._id === chatId);
         if (chatIndex !== -1 && this.chats[chatIndex].lastMessage?._id === messageId) {
           // Находим новое последнее сообщение
-          const newLastMessage = [...this.messages]
+          const newLastMessage = this.messages
             .filter(msg => msg.chat === chatId)
             .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0];
           
-          const updatedChat = { 
+          const updatedChat = {
             ...this.chats[chatIndex],
             lastMessage: newLastMessage || null
           };
           
           this.chats.splice(chatIndex, 1, updatedChat);
           
-          // Принудительно обновляем список чатов для обеспечения реактивности
+          // Принудительно обновляем список чатов
           this.triggerChatListUpdate();
         }
         
@@ -1817,11 +2150,14 @@ export const useChatStore = defineStore('chat', {
     
     // Метод для плавного обновления списка чатов
     triggerChatListUpdate() {
+      console.log('Вызван метод triggerChatListUpdate');
+      
       // Сортируем чаты по времени последнего сообщения
       this.sortChatsByLastMessage();
       
       // Обновляем триггер для перерисовки списка
       this.chatListUpdateTrigger++;
+      console.log('Обновлен триггер списка чатов:', this.chatListUpdateTrigger);
       
       // Добавляем специальное поле для отслеживания изменений
       this.lastUpdated = Date.now();
@@ -1882,8 +2218,24 @@ export const useChatStore = defineStore('chat', {
       // Сортируем чаты по времени последнего сообщения (от новых к старым)
       this.chats.sort((a, b) => {
         // Получаем временные метки последних сообщений
-        const timestampA = a.lastMessage?.timestamp ? new Date(a.lastMessage.timestamp).getTime() : 0;
-        const timestampB = b.lastMessage?.timestamp ? new Date(b.lastMessage.timestamp).getTime() : 0;
+        // Используем разные поля для времени в порядке приоритета
+        const getTimestamp = (chat) => {
+          if (chat.lastMessage) {
+            if (chat.lastMessage.createdAt) {
+              return new Date(chat.lastMessage.createdAt).getTime();
+            }
+            if (chat.lastMessage.timestamp) {
+              return new Date(chat.lastMessage.timestamp).getTime();
+            }
+          }
+          if (chat.updatedAt) {
+            return new Date(chat.updatedAt).getTime();
+          }
+          return 0;
+        };
+        
+        const timestampA = getTimestamp(a);
+        const timestampB = getTimestamp(b);
         
         // Сортируем по убыванию (от новых к старым)
         return timestampB - timestampA;
@@ -1958,7 +2310,7 @@ export const useChatStore = defineStore('chat', {
           // Запасной вариант - просто выводим в консоль
           console.log(`Уведомление: Чат удален - ${message}`);
         }
-      }, 50); // Небольшая задержка, чтобы боковая панель успела появиться
+      }, 50); // Добавляем небольшую задержку для гарантии показа боковой панели
     }
   }
 });

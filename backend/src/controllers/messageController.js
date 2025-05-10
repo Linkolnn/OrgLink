@@ -59,7 +59,7 @@ const sendMessage = async (req, res) => {
       .populate('lastMessage.sender', 'name email avatar');
     
     // Отправляем сообщение через WebSocket всем подключенным к этому чату
-    io.to(`chat:${chatId}`).emit('new-message', {
+    io.to(`chat:${chatId}`).emit('newMessage', {
       message: populatedMessage,
       chatId,
       chat: updatedChat,
@@ -68,7 +68,7 @@ const sendMessage = async (req, res) => {
     
     // Отправляем уведомление о новом сообщении всем пользователям
     // Это поможет обновить список чатов у всех пользователей
-    io.emit('chat-updated', {
+    io.emit('chatUpdated', {
       chatId,
       lastMessage: {
         text: text || 'Медиа-сообщение',
@@ -147,7 +147,7 @@ const getChatMessages = async (req, res) => {
         }
       ).then(result => {
         if (result.modifiedCount > 0) {
-          io.to(`chat:${chatId}`).emit('messages-read', {
+          io.to(`chat:${chatId}`).emit('messagesRead', {
             chatId,
             userId: req.user._id
           });
@@ -215,7 +215,7 @@ const markMessagesAsRead = async (req, res) => {
     console.log(`Отмечено ${updateResult.modifiedCount} сообщений как прочитанные пользователем ${userId} в чате ${chatId}`);
     
     // Отправляем уведомление через WebSocket
-    io.to(`chat:${chatId}`).emit('messages-read', {
+    io.to(`chat:${chatId}`).emit('messagesRead', {
       chatId,
       userId,
       count: updateResult.modifiedCount
@@ -278,33 +278,159 @@ const updateMessage = async (req, res) => {
     
     await message.save();
 
-    // Получаем обновленное сообщение с информацией об отправителе
-    const updatedMessage = await Message.findById(messageId)
-      .populate('sender', 'name email avatar');
-
-    // Если это последнее сообщение в чате, обновляем его
+    // Проверяем, является ли это последнее сообщение в чате
+    let isLastMessage = false;
+    
     try {
-      if (chat.lastMessage && chat.lastMessage._id && chat.lastMessage._id.toString() === messageId) {
+      // Проверяем, является ли сообщение последним в чате
+      if (chat.lastMessage) {
+        // Проверяем по ID, если lastMessage - это ObjectId
+        if (chat.lastMessage._id && chat.lastMessage._id.toString() === messageId) {
+          isLastMessage = true;
+        }
+        // Проверяем по полю text, если lastMessage - это объект с текстом
+        else if (typeof chat.lastMessage === 'object' && chat.lastMessage.text) {
+          // Находим последнее сообщение в чате
+          const lastMessage = await Message.findOne({ chat: chatId })
+            .sort({ createdAt: -1 });
+          
+          if (lastMessage && lastMessage._id.toString() === messageId) {
+            isLastMessage = true;
+          }
+        }
+      }
+      
+      console.log('Проверка последнего сообщения при редактировании:', {
+        chatId,
+        messageId,
+        isLastMessage,
+        lastMessageType: chat.lastMessage ? (typeof chat.lastMessage === 'object' ? 'object' : 'id') : 'null'
+      });
+      
+      // Если это последнее сообщение, обновляем его в чате
+      if (isLastMessage) {
         console.log('Обновляем последнее сообщение в чате:', {
           chatId,
           messageId,
-          lastMessageId: chat.lastMessage._id.toString()
+          text,
+          edited: true
         });
-        chat.lastMessage.text = text;
-        await chat.save();
+        
+        // Создаем полный объект lastMessage с текстом и информацией об отправителе
+        await Chat.findByIdAndUpdate(
+          chatId,
+          { 
+            lastMessage: {
+              text: text,
+              sender: message.sender,
+              timestamp: new Date(),
+              edited: true
+            }
+          },
+          { new: true }
+        );
       }
     } catch (error) {
       console.error('Ошибка при обновлении последнего сообщения в чате:', error);
       // Продолжаем выполнение, даже если не удалось обновить последнее сообщение
     }
 
-    // Отправляем обновленное сообщение через WebSocket
-    io.to(`chat:${chatId}`).emit('message-updated', {
-      message: updatedMessage,
-      chatId
-    });
+    // Получаем обновленное сообщение с информацией об отправителе
+    const updatedMessage = await Message.findById(messageId)
+      .populate('sender', 'name email avatar');
 
-    return res.status(200).json(updatedMessage);
+    // Отправляем уведомление всем участникам чата через WebSocket
+    io.to(chatId).emit('messageUpdated', { 
+      chatId, 
+      messageId,
+      message: updatedMessage
+    });
+    
+    // Загружаем полную информацию о чате для отправки в WebSocket
+    let fullUpdatedChat = await Chat.findById(chatId)
+      .populate({
+        path: 'lastMessage',
+        populate: { path: 'sender', select: 'name email avatar' }
+      })
+      .populate('participants', 'name email avatar');
+      
+    // Проверяем тип последнего сообщения
+    console.log('Проверка данных чата при редактировании:', {
+      chatId,
+      lastMessageType: fullUpdatedChat.lastMessage ? (typeof fullUpdatedChat.lastMessage === 'object' ? 'object' : 'id') : 'null',
+      hasLastMessage: !!fullUpdatedChat.lastMessage
+    });
+    
+    // Если lastMessage является только ID, а не полным объектом, загрузим его вручную
+    if (fullUpdatedChat.lastMessage && typeof fullUpdatedChat.lastMessage !== 'object') {
+      console.log('Загружаем последнее сообщение вручную при редактировании:', fullUpdatedChat.lastMessage);
+      const lastMessageData = await Message.findById(fullUpdatedChat.lastMessage)
+        .populate('sender', 'name email avatar');
+      
+      // Создаем копию чата с полным объектом последнего сообщения
+      if (lastMessageData) {
+        fullUpdatedChat = {
+          ...fullUpdatedChat.toObject(),
+          lastMessage: lastMessageData.toObject()
+        };
+      }
+    }
+    
+    // Проверяем, что последнее сообщение загружено корректно
+    console.log('Проверка данных чата после загрузки при редактировании:', {
+      chatId,
+      lastMessageType: fullUpdatedChat.lastMessage ? (typeof fullUpdatedChat.lastMessage === 'object' ? 'object' : 'id') : 'null',
+      lastMessageText: fullUpdatedChat.lastMessage && typeof fullUpdatedChat.lastMessage === 'object' ? fullUpdatedChat.lastMessage.text : null
+    });
+    
+    // Формируем объект для отправки
+    const chatUpdateData = {
+      chatId,
+      chat: fullUpdatedChat,
+      isLastMessage: isLastMessage // Явно передаем флаг isLastMessage в событие
+    };
+    
+    // Если это последнее сообщение, явно добавляем его в данные для обновления
+    if (isLastMessage) {
+      console.log('Добавляем полное отредактированное сообщение в данные для отправки:', {
+        chatId,
+        messageId,
+        text,
+        edited: true
+      });
+      
+      // Создаем полный объект последнего сообщения
+      const lastMessageObj = {
+        _id: updatedMessage._id,
+        text: text,
+        sender: updatedMessage.sender,
+        edited: true
+      };
+      
+      // Добавляем его в данные для отправки
+      chatUpdateData.lastMessage = lastMessageObj;
+      chatUpdateData.lastMessageText = text;
+    }
+    
+    // Добавляем флаг isLastMessage в данные для отправки
+    chatUpdateData.isLastMessage = isLastMessage;
+    
+    // Отправляем событие обновления чата всем клиентам
+    io.emit('chatUpdated', chatUpdateData);
+    
+    console.log('Отправлено событие chatUpdated при редактировании сообщения:', {
+      chatId,
+      messageId,
+      text,
+      isLastMessage,
+      hasExplicitLastMessage: !!chatUpdateData.lastMessage
+    });
+    
+    return res.status(200).json({ 
+      success: true, 
+      message: 'Сообщение успешно обновлено',
+      message: updatedMessage
+    });
   } catch (error) {
     console.error('Ошибка при обновлении сообщения:', error);
     console.error('Подробности запроса:', {
@@ -352,20 +478,172 @@ const deleteMessage = async (req, res) => {
     // Удаляем сообщение
     await Message.deleteOne({ _id: messageId });
     
-    // Проверяем, было ли это последнее сообщение в чате
-    if (chat.lastMessage && chat.lastMessage.toString() === messageId) {
-      // Находим новое последнее сообщение
-      const newLastMessage = await Message.findOne({ chat: chatId })
-        .sort({ createdAt: -1 })
-        .populate('sender', 'name email avatar');
+    console.log('Проверяем, было ли это последнее сообщение в чате:', { 
+      messageId, 
+      lastMessageId: chat.lastMessage ? chat.lastMessage.toString() : null 
+    });
+    
+    // Находим новое последнее сообщение в чате
+    const newLastMessage = await Message.findOne({ chat: chatId })
+      .sort({ createdAt: -1 })
+      .populate('sender', 'name email avatar');
+    
+    console.log('Найдено новое последнее сообщение:', newLastMessage ? {
+      id: newLastMessage._id,
+      text: newLastMessage.text,
+      sender: newLastMessage.sender ? newLastMessage.sender._id : null,
+      senderName: newLastMessage.sender ? newLastMessage.sender.name : null
+    } : 'Сообщения отсутствуют');
+    
+    console.log('Новое последнее сообщение:', newLastMessage ? newLastMessage._id : null);
+    
+    // Обновляем последнее сообщение в чате
+    if (newLastMessage) {
+      // Если есть новое последнее сообщение, обновляем его
+      // Создаем полный объект lastMessage с текстом и информацией об отправителе
+      await Chat.findByIdAndUpdate(
+        chatId,
+        { 
+          lastMessage: {
+            text: newLastMessage.text || '',
+            sender: newLastMessage.sender._id,
+            timestamp: new Date()
+          }
+        },
+        { new: true }
+      );
       
-      // Обновляем последнее сообщение в чате
-      chat.lastMessage = newLastMessage ? newLastMessage._id : null;
-      await chat.save();
+      console.log('Обновленный чат с новым последним сообщением:', {
+        chatId,
+        lastMessageId: newLastMessage._id,
+        lastMessageText: newLastMessage.text
+      });
+    } else {
+      // Если больше нет сообщений в чате, устанавливаем lastMessage в объект с текстом "Нет сообщений"
+      await Chat.findByIdAndUpdate(
+        chatId,
+        { lastMessage: { text: 'Нет сообщений', timestamp: new Date() } },
+        { new: true }
+      );
+      
+      console.log('Чат обновлен, больше нет сообщений:', chatId);
     }
     
+    // Загружаем полную информацию о чате для отправки в WebSocket
+    let fullUpdatedChat = await Chat.findById(chatId)
+      .populate({
+        path: 'lastMessage',
+        populate: { path: 'sender', select: 'name email avatar' }
+      })
+      .populate('participants', 'name email avatar');
+    
+    // Дополнительная проверка данных чата перед отправкой
+    console.log('Проверка данных чата перед отправкой:', {
+      chatId,
+      lastMessageType: fullUpdatedChat.lastMessage ? (typeof fullUpdatedChat.lastMessage === 'object' ? 'object' : 'id') : 'null',
+      hasLastMessage: !!fullUpdatedChat.lastMessage
+    });
+    
+    // Если lastMessage является только ID, а не полным объектом, загрузим его вручную
+    if (fullUpdatedChat.lastMessage && typeof fullUpdatedChat.lastMessage !== 'object') {
+      console.log('Загружаем последнее сообщение вручную:', fullUpdatedChat.lastMessage);
+      const lastMessageData = await Message.findById(fullUpdatedChat.lastMessage)
+        .populate('sender', 'name email avatar');
+      
+      // Создаем копию чата с полным объектом последнего сообщения
+      if (lastMessageData) {
+        fullUpdatedChat = {
+          ...fullUpdatedChat.toObject(),
+          lastMessage: lastMessageData.toObject()
+        };
+      }
+    }
+    
+    // Проверяем, что последнее сообщение загружено корректно
+    console.log('Проверка данных чата после загрузки:', {
+      chatId,
+      lastMessageType: fullUpdatedChat.lastMessage ? (typeof fullUpdatedChat.lastMessage === 'object' ? 'object' : 'id') : 'null',
+      lastMessageText: fullUpdatedChat.lastMessage && typeof fullUpdatedChat.lastMessage === 'object' ? fullUpdatedChat.lastMessage.text : null
+    });
+    
     // Отправляем уведомление всем участникам чата через WebSocket
-    io.to(chatId).emit('message_deleted', { chatId, messageId });
+    io.to(chatId).emit('messageDeleted', { chatId, messageId });
+    
+    // Формируем объект для отправки
+    const chatUpdateData = {
+      chatId,
+      chat: fullUpdatedChat
+    };
+    
+    // Добавляем данные о последнем сообщении для случая, если оно не загрузилось корректно
+    if (newLastMessage) {
+      // Создаем полный объект последнего сообщения
+      // Сначала преобразуем объект в простой JavaScript объект
+      const messageData = newLastMessage.toObject ? newLastMessage.toObject() : { ...newLastMessage };
+      
+      // Затем создаем новый объект с гарантированными полями
+      const lastMessageObj = {
+        _id: messageData._id,
+        text: messageData.text || 'Медиа-сообщение',
+        createdAt: messageData.createdAt,
+        updatedAt: messageData.updatedAt,
+        type: messageData.type || 'default',
+        media_type: messageData.media_type || 'none',
+        edited: messageData.edited || false
+      };
+      
+      // Проверяем, что поле text действительно существует
+      console.log('Проверка поля text в объекте последнего сообщения:', {
+        originalText: messageData.text,
+        newText: lastMessageObj.text,
+        hasText: 'text' in lastMessageObj
+      });
+      console.log('Добавлено полное последнее сообщение в данные для отправки:', {
+        id: newLastMessage._id,
+        text: newLastMessage.text,
+        sender: newLastMessage.sender
+      });
+      
+      // Проверяем наличие текста в объекте последнего сообщения
+      const messageText = newLastMessage.text || (newLastMessage.type === 'media' ? 'Медиа-сообщение' : 'Сообщение');
+      
+      console.log('Проверка текста последнего сообщения перед отправкой:', {
+        originalText: newLastMessage.text,
+        finalText: messageText,
+        messageType: newLastMessage.type || 'default'
+      });
+      
+      // Добавляем полный объект последнего сообщения
+      chatUpdateData.lastMessage = {
+        id: newLastMessage._id,
+        text: messageText,
+        sender: newLastMessage.sender
+      };
+      
+      // Добавляем текст последнего сообщения в объект чата
+      chatUpdateData.chat.lastMessageText = messageText;
+      
+      // Добавляем полный объект последнего сообщения в объект чата
+      chatUpdateData.chat.lastMessage = {
+        id: newLastMessage._id,
+        text: messageText,
+        sender: newLastMessage.sender
+      };
+      
+      // Дублируем текст в объекте чата для надежности
+      chatUpdateData.chat.lastMessageObj = {
+        text: messageText
+      };
+    }
+    
+    // Отправляем событие обновления чата с полной информацией
+    io.emit('chatUpdated', chatUpdateData);
+    
+    console.log('Отправлено событие chatUpdated с актуальной информацией о чате:', {
+      chatId,
+      lastMessageId: chatUpdateData.lastMessage ? chatUpdateData.lastMessage.id : null,
+      lastMessageText: chatUpdateData.lastMessage ? chatUpdateData.lastMessage.text : null
+    });
     
     return res.status(200).json({ success: true, message: 'Сообщение успешно удалено' });
   } catch (error) {
