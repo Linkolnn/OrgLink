@@ -11,6 +11,7 @@ import { Server } from 'socket.io';
 import connectDB from './config/db.js';
 import authRoutes from './routes/authRoutes.js';
 import chatRoutes from './routes/chatRoutes.js';
+import adminRoutes from './routes/adminRoutes.js';
 import { createAdminIfNotExists } from './controllers/authController.js';
 import jwt from 'jsonwebtoken'; // Добавляем импорт jwt
 import { verifyToken } from './middleware/authMiddleware.js';
@@ -148,6 +149,7 @@ app.use(async (req, res, next) => {
 // Используем маршруты API
 app.use('/api/auth', authRoutes);
 app.use('/api/chats', chatRoutes);
+app.use('/api/admin', adminRoutes);
 
 // Корневой маршрут
 app.get('/', (req, res) => {

@@ -276,37 +276,46 @@ const saveChat = async () => {
         participants: selectedParticipants.value.map(p => p._id)
       };
       
-      // Если есть аватар, создаем FormData
-      if (chatFormData.value.avatar) {
-        const formData = new FormData();
-        formData.append('name', newChatData.name);
-        formData.append('description', newChatData.description || '');
-        formData.append('avatar', newChatData.avatar);
-        
-        // Добавляем участников
-        newChatData.participants.forEach(participantId => {
-          formData.append('participants[]', participantId);
-        });
-        
-        // Отправляем запрос
-        const response = await fetch('/api/chats', {
-          method: 'POST',
-          body: formData,
-          credentials: 'include'
-        });
-        
-        if (!response.ok) {
-          throw new Error(`Ошибка HTTP: ${response.status}`);
+      // Удаляем аватар из данных чата, чтобы отправить его отдельно
+      const hasAvatar = !!chatFormData.value.avatar;
+      const avatarData = hasAvatar ? chatFormData.value.avatar : null;
+      
+      // Создаем объект с данными чата без аватара
+      const chatData = {
+        name: newChatData.name,
+        description: newChatData.description || '',
+        type: newChatData.type || 'group',
+        participants: newChatData.participants,
+        initialMessage: newChatData.initialMessage || ''
+      };
+      
+      // Создаем чат без аватара
+      console.log('Создаем чат без аватара:', chatData);
+      result = await chatStore.createChat(chatData);
+      
+      // Если есть аватар и чат создан успешно, обновляем аватар отдельным запросом
+      if (hasAvatar && result && result._id) {
+        try {
+          console.log('Обновляем аватар чата:', result._id);
+          
+          // Получаем данные для запроса
+          const config = useRuntimeConfig();
+          const backendUrl = config.public.backendUrl || '';
+          
+          // Создаем данные для обновления чата
+          const updateData = {
+            name: chatData.name,
+            description: chatData.description
+          };
+          
+          // Обновляем чат с аватаром
+          await chatStore.updateChat(result._id, updateData, avatarData);
+          
+          console.log('Аватар чата обновлен');
+        } catch (avatarError) {
+          console.error('Ошибка при обновлении аватара:', avatarError);
+          // Продолжаем без аватара
         }
-        
-        result = await response.json();
-        
-        // Добавляем чат в список и делаем его активным
-        chatStore.chats.unshift(result);
-        chatStore.setActiveChat(result._id);
-      } else {
-        // Если нет аватара, используем обычный JSON
-        result = await chatStore.createChat(newChatData);
       }
     } else {
       // Редактируем существующий чат

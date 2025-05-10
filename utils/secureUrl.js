@@ -23,11 +23,15 @@ export const secureUrl = (url) => {
   
   // Не преобразуем локальные URL в разработке, так как локальный сервер может не поддерживать HTTPS
   if (url.includes('localhost') || url.includes('127.0.0.1')) {
+    // Для локальных URL убедимся, что они используют HTTP, а не HTTPS
+    if (url.startsWith('https://localhost') || url.startsWith('https://127.0.0.1')) {
+      return url.replace('https://', 'http://');
+    }
     return url;
   }
   
-  // Заменяем http:// на https:// только для внешних URL
-  if (url.startsWith('http://')) {
+  // Заменяем http:// на https:// только для внешних URL в продакшн-окружении
+  if (process.env.NODE_ENV === 'production' && url.startsWith('http://')) {
     return url.replace('http://', 'https://');
   }
   

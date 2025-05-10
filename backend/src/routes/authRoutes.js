@@ -6,9 +6,11 @@ import {
   logoutUser, 
   createAdmin, 
   getAllUsers,
-  updateUser
+  updateUser,
+  updateProfile
 } from '../controllers/authController.js';
 import { protect, admin } from '../middleware/authMiddleware.js';
+import { uploadUserAvatar, handleUploadError } from '../middleware/uploadMiddleware.js';
 
 const router = express.Router();
 
@@ -27,7 +29,10 @@ router.get('/users', protect, admin, getAllUsers);
 // Маршруты, доступные только администраторам
 router.post('/register', protect, admin, registerUser);
 
-// Маршрут для обновления пользователя
+// Маршрут для обновления пользователя (только для админа)
 router.put('/users/:id', protect, admin, updateUser);
+
+// Маршрут для обновления своего профиля
+router.post('/update-profile', protect, uploadUserAvatar, handleUploadError, updateProfile);
 
 export default router; 

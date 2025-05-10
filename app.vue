@@ -72,18 +72,12 @@ const showSidebar = computed(() => {
 const checkMobile = () => {
   const wasMobile = isMobile.value;
   isMobile.value = window.innerWidth <= 859;
-  console.log('[App] Проверка мобильного устройства:', { isMobile: isMobile.value, wasMobile, needsSidebar: needsSidebar.value, path: route.path });
-  
   // На мобильных устройствах первоначально показываем sidebar на страницах мессенжера и админа,
   // но только при первоначальной загрузке, а не при изменении размера окна
   if (isMobile.value && needsSidebar.value && !wasMobile) {
     // Используем setTimeout, чтобы дать время на отрисовку компонентов
-    setTimeout(() => {
-      // Используем метод из плагина sidebar-manager.js
-      const { $showSidebar } = useNuxtApp();
-      if ($showSidebar) $showSidebar();
-      console.log('[App] Показываем SideBar после проверки мобильного устройства');
-    }, 0);
+    const { $showSidebar } = useNuxtApp();
+    if ($showSidebar) $showSidebar();
   }
 };
 

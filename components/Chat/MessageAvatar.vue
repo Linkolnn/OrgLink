@@ -5,6 +5,9 @@
       @click="showUserProfile = true"
       :style="avatarUrl ? `background-image: url(${secureUrl(avatarUrl)})` : ''"
     >
+      <!-- Отладочная информация -->
+      <pre v-if="false" style="font-size: 6px; position: absolute; top: 0; left: 0; background: rgba(0,0,0,0.5); color: white; padding: 2px; max-width: 100%; overflow: hidden; text-overflow: ellipsis;">{{ avatarUrl }}</pre>
+      
       <div v-if="!avatarUrl" class="initials">
         {{ getInitials(userName) }}
       </div>

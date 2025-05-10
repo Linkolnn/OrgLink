@@ -1,14 +1,7 @@
 <template>
-  <div class="admin-panel">
-    <div class="admin-panel__header">
-      <!-- Кнопка переключения боковой панели для мобильных устройств -->
-      <button class="toggle-sidebar-btn" @click="toggleSidebar">
-        <i class="fas fa-bars"></i>
-      </button>
-      <h1 class="admin-panel__title">Панель администратора</h1>
-    </div>
-    <div class="admin-panel__content">
-      <AdminUserManagment />
+  <div class="admin-page">
+    <div class="admin-page__content">
+      <AdminPanel />
     </div>
   </div>
 </template>
@@ -17,7 +10,7 @@
 import { useRoute } from 'vue-router';
 import { ref, computed } from 'vue';
 import { useNuxtApp } from '#app';
-import AdminUserManagment from '~/components/admin/AdminUserManagment.vue';
+import AdminPanel from '~/components/admin/AdminPanel.vue';
 
 definePageMeta({
   middleware: ['auth'],
@@ -25,34 +18,12 @@ definePageMeta({
   requiresAdmin: true
 });
 
-// Функция для переключения боковой панели на мобильных устройствах
-const toggleSidebar = () => {
-  // Получаем доступ к глобальному состоянию видимости боковой панели
-  const nuxtApp = useNuxtApp();
-  
-  // Если есть доступ к глобальному состоянию
-  if (nuxtApp && nuxtApp.$sidebarVisible !== undefined) {
-    nuxtApp.$sidebarVisible.value = !nuxtApp.$sidebarVisible.value;
-  } else {
-    // Фоллбэк: прямое переключение класса в DOM
-    const app = document.querySelector('.app');
-    if (app) {
-      app.classList.toggle('sidebar-visible');
-    }
-  }
-  
-  // Принудительно обновляем состояние приложения
-  setTimeout(() => {
-    window.dispatchEvent(new Event('resize'));
-  }, 100);
-};
 </script>
 
 <style lang="sass">
 @import '~/assets/styles/variables'
 
-.admin-panel
-  padding: 20px
+.admin-page
   height: 100%
   display: flex
   flex-direction: column
@@ -93,9 +64,6 @@ const toggleSidebar = () => {
     flex: 1
     overflow-y: auto
     @include custom-scrollbar
-    
-  @include tablet
-    padding: 10px
 
 .access-denied
   display: flex

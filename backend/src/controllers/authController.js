@@ -224,15 +224,36 @@ const loginUser = async (req, res) => {
 // @access  Private
 const getUserProfile = async (req, res) => {
   try {
+    console.log('Запрос на получение профиля пользователя:', req.user._id);
+    
     const user = await User.findById(req.user._id).select('-password');
     
     if (user) {
-      res.json(user);
+      console.log('Пользователь найден:', {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        avatar: user.avatar
+      });
+      
+      // Формируем ответ с явным указанием всех полей
+      const responseData = {
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        number: user.number || '',
+        avatar: user.avatar || '',
+        role: user.role
+      };
+      
+      console.log('Отправляем данные пользователя:', responseData);
+      res.json(responseData);
     } else {
+      console.log('Пользователь не найден:', req.user._id);
       res.status(404).json({ error: 'Пользователь не найден' });
     }
   } catch (error) {
-    console.error(error);
+    console.error('Ошибка при получении профиля пользователя:', error);
     res.status(500).json({ error: 'Ошибка сервера' });
   }
 };
@@ -354,4 +375,86 @@ const updateUser = async (req, res) => {
   }
 };
 
-export { registerUser, loginUser, getUserProfile, logoutUser, createAdmin, createAdminIfNotExists, getAllUsers, updateUser }; 
+// @desc    Обновление своего профиля
+// @route   POST /api/auth/update-profile
+// @access  Private
+const updateProfile = async (req, res) => {
+  try {
+    // Получаем ID пользователя из токена
+    const userId = req.user._id;
+    
+    // Проверяем, существует ли пользователь
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ error: 'Пользователь не найден' });
+    }
+    
+    // Получаем данные для обновления
+    const { name, email, number } = req.body;
+    
+    // Обновляем только предоставленные поля
+    if (name) user.name = name;
+    if (email) user.email = email;
+    if (number) user.number = number;
+    
+    // Обработка загрузки аватара
+    console.log('Проверка загрузки аватара:', req.file);
+    
+    if (req.file) {
+      try {
+        // Импортируем функцию getFileUrl из uploadMiddleware
+        const { getFileUrl } = await import('../middleware/uploadMiddleware.js');
+        const avatarUrl = getFileUrl(req.file.filename, 'user-avatar');
+        console.log('Сформированный URL аватара:', avatarUrl);
+        
+        // Устанавливаем URL аватара в модель пользователя
+        user.avatar = avatarUrl;
+      } catch (error) {
+        console.error('Ошибка при обработке аватара:', error);
+      }
+    } else {
+      console.log('Файл аватара не был загружен');
+    }
+    
+    // Сохраняем обновленного пользователя
+    console.log('Данные пользователя перед сохранением:', {
+      id: user._id,
+      name: user.name,
+      email: user.email,
+      avatar: user.avatar
+    });
+    
+    const updatedUser = await user.save();
+    
+    console.log('Обновленные данные пользователя после сохранения:', {
+      id: updatedUser._id,
+      name: updatedUser.name,
+      email: updatedUser.email,
+      avatar: updatedUser.avatar
+    });
+    
+    // Обновляем токен с новыми данными
+    const token = generateToken(updatedUser);
+    setTokenCookie(res, token);
+    
+    // Формируем ответ с обновленными данными
+    const responseData = {
+      _id: updatedUser._id,
+      name: updatedUser.name,
+      email: updatedUser.email,
+      number: updatedUser.number,
+      avatar: updatedUser.avatar,
+      role: updatedUser.role
+    };
+    
+    console.log('Отправляем ответ клиенту:', responseData);
+    
+    // Отправляем обновленные данные пользователя (без пароля)
+    res.json(responseData);
+  } catch (error) {
+    console.error('Ошибка при обновлении профиля:', error);
+    res.status(500).json({ error: 'Ошибка сервера при обновлении профиля' });
+  }
+};
+
+export { registerUser, loginUser, getUserProfile, logoutUser, createAdmin, createAdminIfNotExists, getAllUsers, updateUser, updateProfile }; 

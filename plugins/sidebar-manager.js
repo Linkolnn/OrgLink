@@ -90,29 +90,44 @@ export default defineNuxtPlugin((nuxtApp) => {
     // Получаем текущий маршрут
     const route = useRoute();
     
-    // Проверяем, находимся ли мы на странице мессенджера
+    // Проверяем, находимся ли мы на странице мессенджера или админ-панели
     const isMessengerPage = route.path === '/messenger';
+    const isAdminPage = route.path === '/admin';
     
     // Проверяем, является ли устройство мобильным
     const isMobile = isMobileDevice();
     
     // Проверяем, есть ли активный чат
-    const hasActiveChat = chatStore.activeChat && chatStore.activeChat._id;
+    const hasActiveChat = chatStore.activeChat !== null;
     
-    console.log('[SidebarManager] Проверка активного чата:', {
+    console.log('[SidebarManager] Проверка активного чата:', { 
+      hasActiveChat, 
       isMessengerPage,
+      isAdminPage, 
       isMobile,
-      hasActiveChat,
       ignoreActiveChatForSidebar: ignoreActiveChatForSidebar.value
     });
     
-    // Если мы находимся на странице мессенджера и устройство мобильное
-    if (isMessengerPage && isMobile) {
-      // Если есть активный чат и не установлен флаг игнорирования активного чата
-      if (hasActiveChat && !ignoreActiveChatForSidebar.value) {
+    // Проверяем, находимся ли мы на странице мессенджера или админ-панели и на мобильном устройстве
+    if ((isMessengerPage || isAdminPage) && isMobile) {
+      // Для страницы мессенджера проверяем наличие активного чата
+      if (isMessengerPage && hasActiveChat && !ignoreActiveChatForSidebar.value) {
         // Скрываем боковую панель
         hideSidebar();
         console.log('[SidebarManager] Скрываем боковую панель, так как есть активный чат');
+      } else if (isAdminPage) {
+        // Для админ-панели проверяем, выбран ли пользователь
+        // Проверяем, есть ли выбранный пользователь в админ-панели
+        const selectedUserElement = document.querySelector('.admin-panel__section-title');
+        if (selectedUserElement && selectedUserElement.textContent.includes('Чаты пользователя:')) {
+          // Если выбран пользователь, скрываем боковую панель
+          hideSidebar();
+          console.log('[SidebarManager] Скрываем боковую панель, так как выбран пользователь в админ-панели');
+        } else {
+          // Если пользователь не выбран, показываем боковую панель
+          showSidebar();
+          console.log('[SidebarManager] Показываем боковую панель, так как пользователь не выбран в админ-панели');
+        }
       } else {
         // Показываем боковую панель
         showSidebar();

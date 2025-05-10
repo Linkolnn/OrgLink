@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia';
+import { nextTick } from 'vue';
 import { useRuntimeConfig } from '#imports';
 import { useNuxtApp } from '#app';
 import { safeFetch } from '~/utils/safeFetch';
@@ -233,9 +234,41 @@ export const useChatStore = defineStore('chat', {
       $socket.off('participantLeft');
       $socket.off('participantRemoved');
       
-      // Добавляем обработчик нового сообщения
-      $socket.on('newMessage', (message) => {
-        console.log('WebSocket: Получено новое сообщение:', message);
+      // Добавляем обработчик нового сообщения (новый формат)
+      $socket.on('newMessage', (data) => {
+        console.log('WebSocket: Получено новое сообщение (newMessage):', data);
+        
+        // Проверяем формат данных
+        let messageToAdd;
+        
+        if (data.message) {
+          // Если сообщение приходит в формате { message, chatId, chat, sender }
+          console.log('WebSocket: Сообщение в объекте data.message');
+          messageToAdd = data.message;
+          
+          // Добавляем информацию о чате, если ее нет
+          if (!messageToAdd.chat && data.chatId) {
+            messageToAdd.chat = data.chatId;
+          }
+        } else {
+          // Если сообщение приходит напрямую
+          console.log('WebSocket: Сообщение напрямую в data');
+          messageToAdd = data;
+        }
+        
+        console.log('WebSocket: Сообщение для добавления:', messageToAdd);
+        this.addNewMessage(messageToAdd);
+      });
+      
+      // Добавляем обработчик нового сообщения (старый формат)
+      $socket.on('new-message', ({ message, chatId }) => {
+        console.log('WebSocket: Получено новое сообщение (new-message):', message, 'для чата:', chatId);
+        
+        // Если сообщение не содержит поле chat, добавляем его
+        if (!message.chat && chatId) {
+          message.chat = chatId;
+        }
+        
         this.addNewMessage(message);
       });
       
@@ -251,7 +284,14 @@ export const useChatStore = defineStore('chat', {
             ...message,
             edited: true
           };
-          this.messages.splice(messageIndex, 1, updatedMessage);
+          
+          // Создаем новый массив для гарантии реактивности
+          const newMessages = [...this.messages];
+          newMessages.splice(messageIndex, 1, updatedMessage);
+          
+          // Обновляем массив сообщений
+          this.messages = newMessages;
+          console.log('WebSocket: Сообщение обновлено в хранилище:', updatedMessage);
           
           // Если это последнее сообщение в чате, обновляем его в списке чатов
           const chatIndex = this.chats.findIndex(chat => chat._id === chatId);
@@ -264,11 +304,18 @@ export const useChatStore = defineStore('chat', {
                 edited: true
               }
             };
-            this.chats.splice(chatIndex, 1, updatedChat);
+            
+            // Создаем новый массив чатов для гарантии реактивности
+            const newChats = [...this.chats];
+            newChats.splice(chatIndex, 1, updatedChat);
+            this.chats = newChats;
             
             // Принудительно обновляем список чатов для обеспечения реактивности
             this.triggerChatListUpdate();
           }
+          
+          // Обновляем lastUpdated для триггера реактивности
+          this.lastUpdated = Date.now();
         }
       });
       
@@ -276,12 +323,35 @@ export const useChatStore = defineStore('chat', {
       $socket.on('messageDeleted', ({ chatId, messageId }) => {
         console.log('WebSocket: Сообщение удалено:', { chatId, messageId });
         
-        // Удаляем сообщение из локального списка
-        this.messages = this.messages.filter(msg => msg._id !== messageId);
+        // Проверяем, есть ли сообщение в списке
+        const messageExists = this.messages.some(msg => msg._id === messageId);
+        
+        if (messageExists) {
+          console.log('WebSocket: Сообщение найдено в списке, удаляем');
+          
+          // Создаем новый массив без удаленного сообщения
+          const newMessages = this.messages.filter(msg => msg._id !== messageId);
+          
+          // Обновляем массив сообщений
+          this.messages = newMessages;
+          console.log('WebSocket: Сообщение удалено из хранилища, осталось:', newMessages.length);
+          
+          // Обновляем lastUpdated для триггера реактивности
+          this.lastUpdated = Date.now();
+        }
         
         // Запрашиваем актуальную информацию о чате с сервера
         this.loadChatById(chatId).then(updatedChat => {
           console.log('WebSocket: Получена актуальная информация о чате:', updatedChat);
+          
+          // Обновляем чат в списке чатов
+          const chatIndex = this.chats.findIndex(chat => chat._id === chatId);
+          if (chatIndex !== -1) {
+            // Создаем новый массив чатов для гарантии реактивности
+            const newChats = [...this.chats];
+            newChats.splice(chatIndex, 1, updatedChat);
+            this.chats = newChats;
+          }
           
           // Принудительно обновляем список чатов
           this.triggerChatListUpdate();
@@ -798,19 +868,24 @@ export const useChatStore = defineStore('chat', {
           
           // Обновляем временную метку для отслеживания изменений
           this.lastUpdated = Date.now();
-          console.log(`Чат ${messageClone.chat} перемещен в начало списка, lastUpdated обновлен`);
+          console.log(`Чат ${chatId} перемещен в начало списка, lastUpdated обновлен`);
           
           // Обновляем активный чат, если это тот же чат
-          if (this.activeChat && this.activeChat._id === messageClone.chat) {
+          if (isActiveChat) {
+            console.log('Обновляем активный чат с новым сообщением');
             this.activeChat = { ...this.activeChat, lastMessage };
+            
+            // Используем nextTick для прокрутки чата вниз после рендеринга
+            nextTick(() => {
+              const chatContainer = document.querySelector('.chat__messages');
+              if (chatContainer) {
+                chatContainer.scrollTop = chatContainer.scrollHeight;
+              }
+            });
           }
           
           // Отмечаем обновление списка чатов
           this.initialLoadComplete = true;
-          
-          // Обновляем временную метку для отслеживания изменений
-          this.lastUpdated = Date.now();
-          console.log('Обновлена временная метка lastUpdated');
           
           // Отправляем событие обновления чата для других клиентов
           const { $socket } = useNuxtApp();
@@ -1526,7 +1601,7 @@ export const useChatStore = defineStore('chat', {
     },
     
     // Редактирование чата
-    async updateChat(chatId, chatData) {
+    async updateChat(chatId, chatData, avatarData = null) {
       this.loading = true;
       this.error = null;
       
@@ -1538,14 +1613,48 @@ export const useChatStore = defineStore('chat', {
         if (chatData.name) formData.append('name', chatData.name);
         if (chatData.description !== undefined) formData.append('description', chatData.description);
         
-        // Добавляем аватар, если он есть
-        if (chatData.avatar && chatData.avatar instanceof File) {
-          formData.append('avatar', chatData.avatar);
+        // Добавляем аватар, если он есть в chatData
+        if (chatData.avatar) {
+          if (chatData.avatar instanceof File) {
+            formData.append('avatar', chatData.avatar);
+          } else if (typeof chatData.avatar === 'string' && chatData.avatar.startsWith('data:')) {
+            // Конвертируем base64 в Blob
+            try {
+              const response = await fetch(chatData.avatar);
+              const blob = await response.blob();
+              formData.append('avatar', blob, 'avatar.jpg');
+            } catch (error) {
+              console.error('Ошибка при конвертации base64 в Blob:', error);
+            }
+          }
         }
+        // Если аватар передан как отдельный параметр
+        else if (avatarData) {
+          if (avatarData instanceof File) {
+            formData.append('avatar', avatarData);
+          } else if (typeof avatarData === 'string' && avatarData.startsWith('data:')) {
+            // Конвертируем base64 в Blob
+            try {
+              const response = await fetch(avatarData);
+              const blob = await response.blob();
+              formData.append('avatar', blob, 'avatar.jpg');
+            } catch (error) {
+              console.error('Ошибка при конвертации base64 в Blob:', error);
+            }
+          }
+        }
+        
+        // Получаем токен из cookie
+        const tokenCookie = useCookie('token');
+        const clientTokenCookie = useCookie('client_token');
+        const token = tokenCookie.value || clientTokenCookie.value;
         
         const config = useRuntimeConfig();
         const response = await fetch(`${config.public.backendUrl}/api/chats/${chatId}`, {
           method: 'PUT',
+          headers: {
+            'Authorization': token ? `Bearer ${token}` : undefined
+          },
           body: formData,
           credentials: 'include'
         });

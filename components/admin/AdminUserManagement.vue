@@ -2,9 +2,6 @@
   <div class="user-management">
     <div class="user-management__header">
       <h2 class="user-management__title">Управление пользователями</h2>
-      <button class="user-management__add-btn" @click="showAddUserForm = true">
-        <i class="fas fa-plus"></i> Добавить пользователя
-      </button>
     </div>
     
     <!-- Таблица пользователей -->
@@ -19,17 +16,19 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="user in users" :key="user._id">
+          <tr v-for="user in users" :key="user._id" @click="selectUser(user)" class="user-management__table-row">
             <td>{{ user.name }}</td>
             <td>{{ user.email }}</td>
             <td>{{ user.role }}</td>
             <td class="user-management__actions">
-              <button class="user-management__action-btn user-management__action-btn--edit" @click="editUser(user)">
-                <i class="fas fa-edit"></i>
-              </button>
-              <button class="user-management__action-btn user-management__action-btn--delete" @click="deleteUser(user._id)">
-                <i class="fas fa-trash"></i>
-              </button>
+              <div class="user-management__actions-container">
+                <button class="user-management__action-btn user-management__action-btn--edit" @click.stop="editUser(user)">
+                  <i class="fas fa-edit"></i> Редактировать
+                </button>
+                <button class="user-management__action-btn user-management__action-btn--delete" @click.stop="deleteUser(user._id)">
+                  <i class="fas fa-trash"></i> Удалить
+                </button>
+              </div>
             </td>
           </tr>
         </tbody>
@@ -105,11 +104,19 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue';
+import { ref, reactive, onMounted, defineEmits } from 'vue';
+import { useRuntimeConfig } from '#app';
+
+const emit = defineEmits(['user-selected']);
+const config = useRuntimeConfig();
 
 // Функция для отображения уведомлений
 const showNotification = (message, type = 'success') => {
-  alert(`${type.toUpperCase()}: ${message}`);
+  if (window.$showNotification) {
+    window.$showNotification(message, type);
+  } else {
+    console.log(`${type.toUpperCase()}: ${message}`);
+  }
 };
 
 // Состояние компонента
@@ -131,26 +138,19 @@ onMounted(async () => {
 // Функция загрузки пользователей
 const loadUsers = async () => {
   try {
-    // Добавляем тестовые данные, если API недоступен
-    // В реальном приложении здесь будет запрос к API
-    try {
-      const response = await $fetch('/api/users');
-      users.value = response;
-    } catch (apiError) {
-      console.warn('Ошибка при загрузке пользователей из API:', apiError);
-      
-      // Добавляем тестовые данные для демонстрации
-      users.value = [
-        { _id: '1', name: 'Администратор', email: 'admin@example.com', role: 'admin' },
-        { _id: '2', name: 'Пользователь 1', email: 'user1@example.com', role: 'user' },
-        { _id: '3', name: 'Пользователь 2', email: 'user2@example.com', role: 'user' },
-        { _id: '4', name: 'Менеджер', email: 'manager@example.com', role: 'manager' }
-      ];
-    }
+    const response = await $fetch(`${config.public.backendUrl}/api/auth/users`, {
+      credentials: 'include',
+    });
+    users.value = response;
   } catch (error) {
-    console.error('Ошибка при загрузке пользователей:', error);
-    showNotification('Не удалось загрузить пользователей', 'error');
+    console.error('Ошибка загрузки пользователей:', error);
+    showNotification('Не удалось загрузить список пользователей', 'error');
   }
+};
+
+// Функция для выбора пользователя
+const selectUser = (user) => {
+  emit('user-selected', user);
 };
 
 // Функция для редактирования пользователя
@@ -158,28 +158,27 @@ const editUser = (user) => {
   editingUser.value = user;
   userForm.name = user.name;
   userForm.email = user.email;
-  userForm.password = '';
-  userForm.role = user.role || 'user';
+  userForm.password = ''; // Не отображаем пароль
+  userForm.role = user.role;
+  showAddUserForm.value = false;
 };
 
 // Функция для удаления пользователя
 const deleteUser = async (userId) => {
-  if (!confirm('Вы уверены, что хотите удалить этого пользователя?')) return;
+  if (!confirm('Вы уверены, что хотите удалить этого пользователя?')) {
+    return;
+  }
   
   try {
-    try {
-      await $fetch(`/api/users/${userId}`, {
-        method: 'DELETE'
-      });
-    } catch (apiError) {
-      console.warn('Ошибка при удалении пользователя через API:', apiError);
-    }
+    await $fetch(`${config.public.backendUrl}/api/auth/users/${userId}`, {
+      method: 'DELETE',
+      credentials: 'include',
+    });
     
-    // Удаляем пользователя из локального списка
-    users.value = users.value.filter(user => user._id !== userId);
     showNotification('Пользователь успешно удален');
+    await loadUsers();
   } catch (error) {
-    console.error('Ошибка при удалении пользователя:', error);
+    console.error('Ошибка удаления пользователя:', error);
     showNotification('Не удалось удалить пользователя', 'error');
   }
 };
@@ -189,7 +188,7 @@ const submitUserForm = async () => {
   try {
     if (editingUser.value) {
       // Обновление существующего пользователя
-      const payload = {
+      const updateData = {
         name: userForm.name,
         email: userForm.email,
         role: userForm.role
@@ -197,43 +196,42 @@ const submitUserForm = async () => {
       
       // Добавляем пароль только если он был введен
       if (userForm.password) {
-        payload.password = userForm.password;
+        updateData.password = userForm.password;
       }
       
-      try {
-        await $fetch(`/api/users/${editingUser.value._id}`, {
-          method: 'PUT',
-          body: payload
-        });
-      } catch (apiError) {
-        console.warn('Ошибка при обновлении пользователя через API:', apiError);
-      }
+      await $fetch(`${config.public.backendUrl}/api/auth/users/${editingUser.value._id}`, {
+        method: 'PUT',
+        body: updateData,
+        credentials: 'include',
+      });
+      
+      showNotification('Пользователь успешно обновлен');
       
       // Обновляем пользователя в списке
       const index = users.value.findIndex(u => u._id === editingUser.value._id);
       if (index !== -1) {
-        users.value[index] = { ...users.value[index], ...payload };
-      }
-      
-      showNotification('Пользователь успешно обновлен');
-    } else {
-      // Создание нового пользователя
-      try {
-        const newUser = await $fetch('/api/users', {
-          method: 'POST',
-          body: userForm
-        });
-        users.value.push(newUser);
-      } catch (apiError) {
-        console.warn('Ошибка при создании пользователя через API:', apiError);
-        
-        // Создаем пользователя локально для демонстрации
-        const newUser = {
-          _id: `temp-${Date.now()}`,
+        users.value[index] = {
+          ...users.value[index],
           name: userForm.name,
           email: userForm.email,
           role: userForm.role
         };
+      }
+    } else {
+      // Создание нового пользователя
+      const newUser = await $fetch(`${config.public.backendUrl}/api/auth/register`, {
+        method: 'POST',
+        body: {
+          name: userForm.name,
+          email: userForm.email,
+          password: userForm.password,
+          role: userForm.role
+        },
+        credentials: 'include',
+      });
+      
+      // Добавляем нового пользователя в список
+      if (newUser._id) {
         users.value.push(newUser);
       }
       
@@ -259,7 +257,7 @@ const closeForm = () => {
 </script>
 
 <style lang="sass">
-@import '~/assets/styles/variables'
+@import '@variables'
 
 .user-management
   width: 100%
@@ -289,7 +287,6 @@ const closeForm = () => {
     cursor: pointer
     display: flex
     align-items: center
-    gap: 8px
     transition: background-color $transition-speed $transition-function
     
     &:hover
@@ -319,26 +316,50 @@ const closeForm = () => {
     
     tr:last-child td
       border-bottom: none
+      
+  &__table-row
+    cursor: pointer
+    transition: background-color $transition-speed $transition-function
+    
+    &:hover
+      background-color: rgba(255, 255, 255, 0.05)
   
   &__actions
+    min-width: 160px
+    
+  &__actions-container
     display: flex
+    flex-direction: column
     gap: 8px
   
   &__action-btn
     background: transparent
-    border: none
+    border: 1px solid rgba(255, 255, 255, 0.2)
     color: $white
     cursor: pointer
-    padding: 5px
+    padding: 6px 12px
     border-radius: $radius
-    transition: background-color $transition-speed $transition-function
+    margin-right: 8px
+    font-size: 12px
+    display: inline-flex
+    justify-content: center
+    align-items: center
+    gap: 5px
+    transition: all $transition-speed $transition-function
     
-    &--edit:hover
-      background-color: rgba($purple, 0.2)
+    i
+      font-size: 14px
     
-    &--delete:hover
-      background-color: rgba(#e74c3c, 0.2)
-      color: #e74c3c
+    &--edit
+      &:hover
+        background-color: rgba($purple, 0.2)
+        border-color: $purple
+    
+    &--delete
+      &:hover
+        background-color: rgba(#e74c3c, 0.2)
+        color: #e74c3c
+        border-color: #e74c3c
 
 // Стили для формы пользователя
 .user-form-overlay

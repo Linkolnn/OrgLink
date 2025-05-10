@@ -8,9 +8,9 @@
   >
     <div 
       class="chat-item__avatar"
-      :style="currentChat.avatar ? { backgroundImage: `url(${secureUrl(currentChat.avatar)})` } : {}"
+      :style="getAvatarStyle(currentChat)"
     >
-      <div v-if="!currentChat.avatar" class="chat-item__initials">
+      <div v-if="!getAvatarUrl(currentChat)" class="chat-item__initials">
         <template v-if="isPrivateChat(currentChat)">
           {{ getInitials(getOtherParticipantName(currentChat)) }}
         </template>
@@ -277,6 +277,83 @@ function getOtherParticipantName(chat) {
   
   // Возвращаем имя собеседника или название чата, если собеседник не найден
   return otherParticipant?.name || chat.name || 'Чат';
+}
+
+// Получение аватара собеседника в личном чате
+function getOtherParticipantAvatar(chat) {
+  if (!chat) {
+    console.log('Чат не определен');
+    return null;
+  }
+  
+  console.log('Получение аватара для чата:', {
+    id: chat._id,
+    name: chat.name,
+    participants: chat.participants ? chat.participants.map(p => ({ id: p._id, name: p.name })) : 'none'
+  });
+  
+  // Проверяем наличие участников
+  if (!chat.participants || !Array.isArray(chat.participants) || chat.participants.length === 0) {
+    console.log('Участники отсутствуют или не являются массивом');
+    return null;
+  }
+  
+  // Получаем ID текущего пользователя
+  const currentUserId = authStore.user?._id;
+  console.log('Текущий пользователь:', currentUserId);
+  
+  // Находим собеседника (не текущего пользователя)
+  const otherParticipant = chat.participants.find(p => p._id !== currentUserId);
+  
+  if (otherParticipant) {
+    console.log('Найден собеседник:', {
+      id: otherParticipant._id,
+      name: otherParticipant.name,
+      avatar: otherParticipant.avatar
+    });
+  } else {
+    console.log('Собеседник не найден');
+  }
+  
+  // Возвращаем аватар собеседника или null, если собеседник не найден
+  return otherParticipant?.avatar || null;
+}
+
+// Получение URL аватара для чата
+function getAvatarUrl(chat) {
+  // Добавляем отладочную информацию
+  console.log('getAvatarUrl для чата:', {
+    id: chat._id,
+    name: chat.name,
+    type: chatStore.getChatType(chat),
+    isPrivate: isPrivateChat(chat),
+    hasParticipants: !!chat.participants && Array.isArray(chat.participants),
+    participantsCount: chat.participants ? chat.participants.length : 0,
+    chatAvatar: chat.avatar
+  });
+  
+  // Для приватных чатов используем аватар собеседника
+  if (isPrivateChat(chat)) {
+    const otherAvatar = getOtherParticipantAvatar(chat);
+    console.log('Аватар собеседника:', otherAvatar);
+    if (otherAvatar) {
+      return otherAvatar;
+    }
+  }
+  
+  // Для групповых чатов используем аватар чата
+  return chat.avatar || null;
+}
+
+// Формирование стиля для аватара
+function getAvatarStyle(chat) {
+  const avatarUrl = getAvatarUrl(chat);
+  
+  if (avatarUrl) {
+    return { backgroundImage: `url(${secureUrl(avatarUrl)})` };
+  }
+  
+  return {};
 }
 
 // Получение имени отправителя

@@ -49,6 +49,18 @@ const chatAvatarStorage = multer.diskStorage({
   }
 });
 
+// Настройка хранилища для аватаров пользователей
+const userAvatarStorage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, chatAvatarsDir); // Используем ту же директорию, что и для чатов
+  },
+  filename: function (req, file, cb) {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    const ext = path.extname(file.originalname);
+    cb(null, 'user-avatar-' + uniqueSuffix + ext);
+  }
+});
+
 // Настройка хранилища для файлов сообщений
 const messageFileStorage = multer.diskStorage({
   destination: function (req, file, cb) {
@@ -96,6 +108,23 @@ export const uploadChatAvatar = multer({
   }
 }).single('avatar');
 
+// Создаем middleware для загрузки аватаров пользователей
+export const uploadUserAvatar = multer({
+  storage: userAvatarStorage,
+  limits: {
+    fileSize: 5 * 1024 * 1024 // 5 МБ
+  },
+  fileFilter: (req, file, cb) => {
+    // Только изображения для аватаров
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+    if (allowedTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Только изображения могут быть использованы как аватар'), false);
+    }
+  }
+}).single('avatar');
+
 // Создаем middleware для загрузки файлов сообщений
 export const uploadMessageFile = multer({
   storage: messageFileStorage,
@@ -120,32 +149,56 @@ export const handleUploadError = (err, req, res, next) => {
 
 // Функция для получения URL файла
 export const getFileUrl = (filename, type) => {
-  if (!filename) return null;
+  if (!filename) {
+    console.log('Ошибка: имя файла не указано');
+    return null;
+  }
+  
+  console.log('Формирование URL для файла:', filename, 'тип:', type);
   
   // Базовый URL API
   const baseUrl = process.env.NODE_ENV === 'production' 
-    ? (process.env.BACKEND_URL || 'https://org-link-backend.vercel.app')
-    : `https://localhost:${process.env.BACKEND_PORT || 5000}`;
+    ? (process.env.BACKEND_URL || 'https://orglink-production-e9d8.up.railway.app')
+    : `http://localhost:${process.env.BACKEND_PORT || 5000}`;
+  
+  console.log('Базовый URL:', baseUrl);
   
   // Убедимся, что в продакшн-окружении всегда используется HTTPS
-  let secureBaseUrl = baseUrl;
-  if (baseUrl.startsWith('http://')) {
-    secureBaseUrl = baseUrl.replace('http://', 'https://');
+  let finalBaseUrl = baseUrl;
+  if (process.env.NODE_ENV === 'production' && baseUrl.startsWith('http://')) {
+    finalBaseUrl = baseUrl.replace('http://', 'https://');
+  } else if (process.env.NODE_ENV !== 'production' && baseUrl.startsWith('https://')) {
+    // Для локальной разработки используем HTTP
+    finalBaseUrl = baseUrl.replace('https://', 'http://');
   }
+  
+  console.log('Скорректированный базовый URL:', finalBaseUrl);
   
   // Проверяем, содержит ли имя файла полный путь (для временных файлов)
   if (filename.includes('/tmp/') || filename.includes('\\Temp\\')) {
     // Для временных файлов возвращаем только имя файла без пути
     const baseName = path.basename(filename);
-    return `${secureBaseUrl}/uploads/${baseName}`;
+    const url = `${finalBaseUrl}/uploads/${baseName}`;
+    console.log('Сформирован URL для временного файла:', url);
+    return url;
   }
   
+  let url;
   // Для обычных файлов используем стандартные пути
   if (type === 'chat-avatar') {
-    return `${secureBaseUrl}/uploads/chat-avatars/${filename}`;
+    url = `${finalBaseUrl}/uploads/chat-avatars/${filename}`;
+  } else if (type === 'user-avatar') {
+    // Для аватаров пользователей используем ту же директорию, что и для чатов
+    url = `${finalBaseUrl}/uploads/chat-avatars/${filename}`;
   } else if (type === 'message-file') {
-    return `${secureBaseUrl}/uploads/message-files/${filename}`;
+    url = `${finalBaseUrl}/uploads/message-files/${filename}`;
+  } else {
+    url = `${finalBaseUrl}/uploads/${filename}`;
   }
   
-  return `${secureBaseUrl}/uploads/${filename}`;
+  // Добавляем временную метку для предотвращения кэширования
+  url = `${url}?t=${Date.now()}`;
+  
+  console.log('Сформирован URL для файла:', url);
+  return url;
 };

@@ -12,15 +12,18 @@
       :class="isOwnMessage ? 'own' : 'other'"
       @click.stop="showContextMenu($event)"
     >
-      <!-- Аватарка пользователя (для сообщений от других пользователей в групповых чатах) -->
+      <!-- Аватарка пользователя (для сообщений от других пользователей) -->
       <MessageAvatar 
-        v-if="!isOwnMessage && isGroupChat" 
+        v-if="!isOwnMessage" 
         :user-id="message.sender?._id" 
         :user-name="message.sender?.name" 
         :avatar-url="message.sender?.avatar"
         @profile-click="$emit('profile-click', $event)"
         class="message__avatar"
       />
+      
+      <!-- Отладочная информация о сообщении -->
+      <pre v-if="false" style="font-size: 6px; position: absolute; top: 0; right: 0; background: rgba(0,0,0,0.5); color: white; padding: 2px; max-width: 150px; overflow: hidden; text-overflow: ellipsis;">{{ JSON.stringify({sender: message.sender?.name, avatar: message.sender?.avatar, isGroup: isGroupChat}) }}</pre>
       
       <div class="message__content-wrapper">
         <!-- Имя отправителя (для групповых чатов) -->

@@ -73,8 +73,9 @@ function navigateTo(path) {
   // Если мы на мобильном устройстве, скрываем боковую панель
   if (window.innerWidth <= 859) {
     setTimeout(() => {
-      if (nuxtApp.$sidebarVisible) {
-        nuxtApp.$sidebarVisible.value = false;
+      if (nuxtApp.$toggleSidebar) {
+        // Скрываем боковую панель при переходе на страницу админ-панели или мессенджера
+        nuxtApp.$toggleSidebar(false);
       }
     }, 50);
   }

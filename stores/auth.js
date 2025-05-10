@@ -68,6 +68,51 @@ export const useAuthStore = defineStore('auth', {
   },
   
   actions: {
+    // Загрузка полных данных пользователя
+    async loadUserProfile() {
+      try {
+        if (!this.isAuthenticated || !this.token) {
+          console.log('Нет токена для загрузки профиля');
+          return false;
+        }
+        
+        const config = useRuntimeConfig();
+        console.log('Загрузка полных данных пользователя...');
+        
+        // Выбираем URL в зависимости от окружения
+        let backendUrl = config.public.backendUrl;
+        if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+          backendUrl = config.public.localBackendUrl || 'http://localhost:5000';
+        }
+        
+        // Запрашиваем полные данные пользователя с сервера
+        const response = await safeFetch(`${backendUrl}/api/auth/me`, {
+          method: 'GET',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${this.token}`
+          }
+        });
+        
+        if (response && response._id) {
+          console.log('Получены полные данные пользователя:', response);
+          // Обновляем данные пользователя в хранилище
+          this.user = {
+            ...this.user,
+            ...response,
+            // Добавляем параметр для предотвращения кэширования аватара
+            avatar: response.avatar ? `${response.avatar}?t=${new Date().getTime()}` : null
+          };
+          return true;
+        }
+        return false;
+      } catch (error) {
+        console.error('Ошибка при загрузке профиля пользователя:', error);
+        return false;
+      }
+    },
+    
     // Проверка аутентификации пользователя
     async checkAuth() {
       try {
@@ -91,7 +136,7 @@ export const useAuthStore = defineStore('auth', {
               return false;
             }
             
-            // Устанавливаем данные пользователя из токена
+            // Устанавливаем базовые данные пользователя из токена
             this.user = {
               _id: decoded.id,
               role: decoded.role,
@@ -99,6 +144,9 @@ export const useAuthStore = defineStore('auth', {
             };
             this.token = token;
             this.isAuthenticated = true;
+            
+            // Загружаем полные данные пользователя (включая аватар)
+            await this.loadUserProfile();
             
             // Синхронизируем локальную копию токена
             if (tokenCookie.value && !clientTokenCookie.value) {

@@ -134,8 +134,8 @@ const getUserChats = async (req, res) => {
   try {
     // Находим все чаты, в которых пользователь является участником
     const chats = await Chat.find({ participants: req.user._id })
-      .populate('creator', 'name email')
-      .populate('participants', 'name email')
+      .populate('creator', 'name email avatar')
+      .populate('participants', 'name email avatar')
       .populate({
         path: 'lastMessage',
         populate: {
@@ -180,8 +180,8 @@ const getChatById = async (req, res) => {
       _id: chatId,
       participants: req.user._id
     })
-      .populate('creator', 'name email')
-      .populate('participants', 'name email')
+      .populate('creator', 'name email avatar')
+      .populate('participants', 'name email avatar')
       .populate({
         path: 'lastMessage',
         populate: {
@@ -209,26 +209,52 @@ const updateChat = async (req, res) => {
     const chatId = req.params.id;
     const { name, description } = req.body;
     
-    // Проверяем, существует ли чат и является ли пользователь его создателем
-    const chat = await Chat.findOne({
-      _id: chatId,
-      creator: req.user._id
-    });
+    // Сначала находим чат по ID
+    const chat = await Chat.findById(chatId);
     
     if (!chat) {
-      return res.status(404).json({ error: 'Чат не найден или вы не являетесь его создателем' });
+      return res.status(404).json({ error: 'Чат не найден' });
     }
     
-    // Обновляем данные чата
-    if (name) chat.name = name;
-    if (description !== undefined) chat.description = description;
-    
-    // Если загружен новый аватар, обновляем его
-    if (req.file) {
-      chat.avatar = getFileUrl(req.file.filename, 'chat-avatar');
+    // Проверяем права доступа в зависимости от типа чата
+    // Для приватных чатов - любой участник может обновлять
+    // Для групповых чатов - только создатель
+    if (chat.type === 'private') {
+      // Проверяем, является ли пользователь участником чата
+      // Используем some и equals для корректного сравнения ObjectId
+      const isParticipant = chat.participants.some(participantId => 
+        participantId.equals(req.user._id)
+      );
+      
+      if (!isParticipant) {
+        return res.status(403).json({ error: 'Вы не являетесь участником этого чата' });
+      }
+    } else {
+      // Для групповых чатов проверяем, является ли пользователь создателем
+      if (!chat.creator.equals(req.user._id)) {
+        return res.status(403).json({ error: 'Вы не являетесь создателем этого чата' });
+      }
     }
     
-    await chat.save();
+    try {
+      // Создаем объект с обновлениями
+      const updateData = {};
+      
+      // Добавляем только те поля, которые нужно обновить
+      if (name) updateData.name = name;
+      if (description !== undefined) updateData.description = description;
+      
+      // Если загружен новый аватар, добавляем его в обновления
+      if (req.file) {
+        updateData.avatar = getFileUrl(req.file.filename, 'chat-avatar');
+      }
+      
+      // Обновляем чат с помощью findByIdAndUpdate вместо save()
+      await Chat.findByIdAndUpdate(chatId, updateData, { new: true });
+    } catch (error) {
+      console.error('Ошибка при обновлении чата:', error);
+      return res.status(500).json({ error: 'Ошибка сервера при обновлении чата' });
+    }
     
     // Создаем сервисное сообщение об обновлении чата
     await Message.create({
@@ -240,8 +266,8 @@ const updateChat = async (req, res) => {
     
     // Получаем обновленные данные чата
     const updatedChat = await Chat.findById(chatId)
-      .populate('creator', 'name email')
-      .populate('participants', 'name email')
+      .populate('creator', 'name email avatar')
+      .populate('participants', 'name email avatar')
       .populate({
         path: 'lastMessage',
         populate: {
@@ -351,8 +377,8 @@ const addChatParticipants = async (req, res) => {
     
     // Получаем обновленные данные чата
     const updatedChat = await Chat.findById(chatId)
-      .populate('creator', 'name email')
-      .populate('participants', 'name email')
+      .populate('creator', 'name email avatar')
+      .populate('participants', 'name email avatar')
       .populate({
         path: 'lastMessage',
         populate: {
@@ -380,7 +406,7 @@ const removeChatParticipant = async (req, res) => {
     const chat = await Chat.findOne({
       _id: chatId,
       creator: req.user._id
-    }).populate('participants', 'name email');
+    }).populate('participants', 'name email avatar');
     
     if (!chat) {
       return res.status(404).json({ error: 'Чат не найден или вы не являетесь его создателем' });
@@ -434,8 +460,8 @@ const removeChatParticipant = async (req, res) => {
     
     // Получаем обновленные данные чата
     const updatedChat = await Chat.findById(chatId)
-      .populate('creator', 'name email')
-      .populate('participants', 'name email')
+      .populate('creator', 'name email avatar')
+      .populate('participants', 'name email avatar')
       .populate({
         path: 'lastMessage',
         populate: {
@@ -488,7 +514,7 @@ const leaveChat = async (req, res) => {
     const chat = await Chat.findOne({
       _id: chatId,
       participants: req.user._id
-    }).populate('participants', 'name email');
+    }).populate('participants', 'name email avatar');
     
     if (!chat) {
       return res.status(404).json({ error: 'Чат не найден или вы не являетесь его участником' });
@@ -554,8 +580,8 @@ const leaveChat = async (req, res) => {
     
     // Получаем обновленные данные чата для отправки уведомления
     const updatedChat = await Chat.findById(chatId)
-      .populate('creator', 'name email')
-      .populate('participants', 'name email')
+      .populate('creator', 'name email avatar')
+      .populate('participants', 'name email avatar')
       .populate({
         path: 'lastMessage',
         populate: {
@@ -687,6 +713,68 @@ const searchUsers = async (req, res) => {
   }
 };
 
+// @desc    Получение списка чатов пользователя (для админа)
+// @route   GET /api/admin/users/:userId/chats
+// @access  Admin
+const getAdminUserChats = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    // Проверяем, что текущий пользователь - администратор
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Доступ запрещен. Требуются права администратора.' });
+    }
+    
+    // Находим все чаты, в которых пользователь является участником
+    const chats = await Chat.find({ participants: userId })
+      .populate('creator', 'name email avatar')
+      .populate('participants', 'name email avatar')
+      .populate({
+        path: 'lastMessage',
+        populate: {
+          path: 'sender',
+          select: 'name'
+        }
+      });
+    
+    res.json(chats);
+  } catch (error) {
+    console.error('Ошибка получения чатов пользователя (админ):', error);
+    res.status(500).json({ error: 'Ошибка сервера при получении чатов пользователя' });
+  }
+};
+
+// @desc    Получение сообщений чата (для админа)
+// @route   GET /api/admin/chats/:chatId/messages
+// @access  Admin
+const getAdminChatMessages = async (req, res) => {
+  try {
+    const { chatId } = req.params;
+    
+    // Проверяем, что текущий пользователь - администратор
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Доступ запрещен. Требуются права администратора.' });
+    }
+    
+    // Находим чат по ID
+    const chat = await Chat.findById(chatId);
+    
+    if (!chat) {
+      return res.status(404).json({ error: 'Чат не найден' });
+    }
+    
+    // Получаем сообщения чата
+    const messages = await Message.find({ chat: chatId })
+      .populate('sender', 'name email avatar')
+      .sort({ createdAt: 1 });
+    
+    res.json(messages);
+  } catch (error) {
+    console.error('Ошибка получения сообщений чата (админ):', error);
+    res.status(500).json({ error: 'Ошибка сервера при получении сообщений чата' });
+  }
+};
+
 export { 
   createChat, 
   getUserChats, 
@@ -696,5 +784,7 @@ export {
   removeChatParticipant,
   leaveChat,
   deleteChat,
-  searchUsers
+  searchUsers,
+  getAdminUserChats,
+  getAdminChatMessages
 };

@@ -9,7 +9,7 @@
       <MessengerSideBarSearch />
     </header>
     <div class="sidebar__content">
-      <div v-if="chatStore.loading && !chatStore.chats.length" class="sidebar__loading">
+      <div v-if="chatStore.loading && !chatStore.chats.length && !isInitialLoadComplete" class="sidebar__loading">
         <div class="sidebar__spinner"></div>
         <p class="sidebar__message">Загрузка чатов...</p>
       </div>
@@ -84,6 +84,7 @@ onMounted(() => {
 
 // Состояние модального окна создания чата
 const showCreateChatModal = ref(false);
+const isInitialLoadComplete = ref(false);
 
 // Интервал обновления списка чатов (в миллисекундах)
 const CHAT_UPDATE_INTERVAL = 10000; // 10 секунд
@@ -111,7 +112,15 @@ chatStore.initSocketListeners();
 
 // Загружаем список чатов, если он еще не загружен
 if (!chatStore.initialLoadComplete) {
-  chatStore.fetchChats();
+  chatStore.fetchChats().then(() => {
+    // Устанавливаем флаг завершения первоначальной загрузки
+    isInitialLoadComplete.value = true;
+    console.log('[SideBar] Первоначальная загрузка чатов завершена');
+  }).catch(error => {
+    console.error('[SideBar] Ошибка при загрузке чатов:', error);
+    // Даже в случае ошибки устанавливаем флаг, чтобы не показывать лоадер бесконечно
+    isInitialLoadComplete.value = true;
+  });
 }
 
 // Запускаем периодический опрос сервера для обновления списка чатов
@@ -785,19 +794,34 @@ if (date >= today) {
       padding-bottom: 15px
       // max-height: calc(100vh - 60px) // В режиме PWA нет адресной строки
 
-    &__button
-      &--create
-        margin-top: 12px
-        background-color: $purple
-        color: $white
-        padding: 8px 16px
-        border-radius: $scrollbar-radius
-        font-size: 14px
-        border: none
-        cursor: pointer
-
-        &:hover
-          background-color: darken($purple, 10%)
+  &__button
+    border: none
+    cursor: pointer
+    transition: all 0.2s ease
+    
+    &--create
+      margin-top: 15px
+      background-color: $purple
+      color: $white
+      padding: 10px 20px
+      border-radius: $radius
+      font-size: 14px
+      font-weight: 500
+      display: flex
+      align-items: center
+      justify-content: center
+      width: 80%
+      max-width: 200px
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2)
+      
+      &:hover
+        background-color: darken($purple, 5%)
+        transform: translateY(-1px)
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3)
+      
+      &:active
+        transform: translateY(1px)
+        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2)
 
 // Анимация для спиннера
 @keyframes spin

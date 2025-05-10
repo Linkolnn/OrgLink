@@ -340,6 +340,14 @@ const updateMessage = async (req, res) => {
       .populate('sender', 'name email avatar');
 
     // Отправляем уведомление всем участникам чата через WebSocket
+    // Используем формат комнаты chat:${chatId} для совместимости с другими событиями
+    io.to(`chat:${chatId}`).emit('messageUpdated', { 
+      chatId, 
+      messageId,
+      message: updatedMessage
+    });
+    
+    // Также отправляем в старом формате для обратной совместимости
     io.to(chatId).emit('messageUpdated', { 
       chatId, 
       messageId,
@@ -567,6 +575,10 @@ const deleteMessage = async (req, res) => {
     });
     
     // Отправляем уведомление всем участникам чата через WebSocket
+    // Используем формат комнаты chat:${chatId} для совместимости с другими событиями
+    io.to(`chat:${chatId}`).emit('messageDeleted', { chatId, messageId });
+    
+    // Также отправляем в старом формате для обратной совместимости
     io.to(chatId).emit('messageDeleted', { chatId, messageId });
     
     // Формируем объект для отправки

@@ -7,13 +7,52 @@
     
     <!-- Аватар и кнопки под ним -->
     <div class="user-profile__avatar-container">
+      <!-- В режиме редактирования аватарка кликабельна -->
+      <label v-if="isEditing" class="user-profile__avatar-clickable">
+        <input 
+          type="file" 
+          accept="image/*" 
+          @change="handleAvatarUpload" 
+          class="user-profile__avatar-input"
+        >
+        <div 
+          class="user-profile__avatar" 
+          :style="avatarStyle"
+        >
+          <!-- Отладочная информация о URL аватара -->
+          <pre v-if="false" style="font-size: 8px; position: absolute; top: 0; left: 0; background: rgba(0,0,0,0.5); color: white; padding: 2px; max-width: 100px; overflow: hidden; text-overflow: ellipsis;">{{ avatarUrl }}</pre>
+          
+          <!-- Отображаем инициалы, если нет аватара -->
+          <div v-if="!avatarStyle.backgroundImage" class="user-profile__initials">
+            {{ getInitials(userData.name || '') }}
+          </div>
+          
+          <!-- Отладочная информация о времени обновления -->
+          <div v-if="avatarStyle.backgroundImage" class="user-profile__debug-info">{{ new Date().toISOString().slice(11, 19) }}</div>
+          
+          <!-- Индикатор возможности изменения -->
+          <div class="user-profile__avatar-overlay">
+            <span class="user-profile__avatar-change-icon">Изменить</span>
+          </div>
+        </div>
+      </label>
+      
+      <!-- В обычном режиме просто показываем аватарку -->
       <div 
+        v-else
         class="user-profile__avatar" 
         :style="avatarStyle"
       >
-        <div v-if="!avatarUrl && !avatarFile" class="user-profile__initials">
+        <!-- Отладочная информация о URL аватара -->
+        <pre v-if="false" style="font-size: 8px; position: absolute; top: 0; left: 0; background: rgba(0,0,0,0.5); color: white; padding: 2px; max-width: 100px; overflow: hidden; text-overflow: ellipsis;">{{ avatarUrl }}</pre>
+        
+        <!-- Отображаем инициалы, если нет аватара -->
+        <div v-if="!avatarStyle.backgroundImage" class="user-profile__initials">
           {{ getInitials(userData.name || '') }}
         </div>
+        
+        <!-- Отладочная информация о времени обновления -->
+        <div v-if="avatarStyle.backgroundImage" class="user-profile__debug-info">{{ new Date().toISOString().slice(11, 19) }}</div>
       </div>
       
       <!-- Кнопка изменения аватара (только в режиме редактирования) -->
@@ -21,24 +60,15 @@
         <input 
           type="file" 
           accept="image/*" 
-          @change="handleAvatarChange" 
+          @change="handleAvatarUpload" 
           class="user-profile__avatar-input"
         >
         <span class="user-profile__avatar-upload-text">Изменить фото</span>
       </label>
       
-      <!-- Кнопки действий (перемещены под аватар) -->
-      <div class="user-profile__actions">
+      <!-- Кнопка отправки сообщения (только для профилей других пользователей) -->
+      <div class="user-profile__actions" v-if="isOtherUser">
         <button 
-          v-if="!isOtherUser"
-          class="user-profile__edit-btn" 
-          @click="toggleEditMode" 
-          :class="{ 'user-profile__edit-btn--active': isEditing }"
-        >
-          {{ isEditing ? 'Сохранить' : 'Изменить' }}
-        </button>
-        <button 
-          v-else
           class="user-profile__message-btn" 
           @click="sendMessage"
         >
@@ -105,11 +135,17 @@
       </div>
     </div>
     
+    <!-- Кнопки действий для режима редактирования -->
     <div v-if="isEditing" class="user-profile__actions">
       <button class="user-profile__cancel-btn" @click="cancelEdit">Отмена</button>
       <button class="user-profile__save-btn" @click="saveProfile" :disabled="isSaving">
         {{ isSaving ? 'Сохранение...' : 'Сохранить' }}
       </button>
+    </div>
+    
+    <!-- Кнопка Изменить для обычного режима просмотра -->
+    <div v-if="!isEditing && !isOtherUser" class="user-profile__actions">
+      <button class="user-profile__edit-btn" @click="toggleEditMode">Изменить</button>
     </div>
     
     <div v-if="notification.show" class="user-profile__notification" :class="notification.type">
@@ -123,6 +159,8 @@ import { onMounted } from 'vue';
 import { useAuthStore } from '~/stores/auth';
 import { useChatStore } from '~/stores/chat';
 import { useNuxtApp } from '#app';
+import { useRoute, useRouter } from 'vue-router';
+import { secureUrl } from '~/utils/secureUrl';
 
 const props = defineProps({
   userData: {
@@ -189,15 +227,13 @@ onMounted(() => {
 
 // Используем данные из props, если они предоставлены, иначе используем локальные данные
 const userData = computed(() => {
-  if (props.isOtherUser) {
-    if (Object.keys(userDataFromServer.value).length > 0) {
-      return userDataFromServer.value;
-    }
-    if (Object.keys(props.userData).length > 0) {
-      return props.userData;
-    }
-  }
-  return localUserData.value;
+  return {
+    _id: localUserData.value._id || props.userData?._id || '',
+    name: localUserData.value.name || props.userData?.name || '',
+    email: localUserData.value.email || props.userData?.email || '',
+    number: localUserData.value.number || props.userData?.number || '',
+    avatar: localUserData.value.avatar || props.userData?.avatar || ''
+  };
 });
 
 const formData = reactive({
@@ -214,13 +250,77 @@ const notification = reactive({
   type: 'success'
 });
 
+// Создаем реактивную переменную для хранения временного URL файла
+const tempFileUrl = ref(null);
+
+// Следим за изменениями в avatarFile и создаем временный URL
+watch(avatarFile, (newFile) => {
+  // Освобождаем предыдущий URL, если он был
+  if (tempFileUrl.value) {
+    URL.revokeObjectURL(tempFileUrl.value);
+    tempFileUrl.value = null;
+  }
+  
+  // Создаем новый URL для файла, если он есть
+  if (newFile) {
+    tempFileUrl.value = URL.createObjectURL(newFile);
+    console.log('Создан новый временный URL:', tempFileUrl.value);
+  }
+});
+
+// Освобождаем временный URL при уничтожении компонента
+onBeforeUnmount(() => {
+  if (tempFileUrl.value) {
+    URL.revokeObjectURL(tempFileUrl.value);
+    tempFileUrl.value = null;
+  }
+});
+
 // Вычисляемое свойство для стиля аватара
 const avatarStyle = computed(() => {
-  if (avatarFile.value) {
-    return { backgroundImage: `url(${URL.createObjectURL(avatarFile.value)})` };
+  // Добавляем отладочную информацию
+  console.log('Значение avatarUrl:', avatarUrl.value);
+  console.log('Значение tempFileUrl:', tempFileUrl.value);
+  console.log('Значение userData.avatar:', userData.value?.avatar);
+  console.log('Значение localUserData.avatar:', localUserData.value?.avatar);
+  console.log('Значение authStore.user.avatar:', authStore.user?.avatar);
+  
+  let url = null;
+  
+  // Приоритет источников URL аватара:
+  if (tempFileUrl.value) {
+    // 1. Временный URL для загруженного файла
+    url = tempFileUrl.value;
+    console.log('Используем временный URL файла:', url);
   } else if (avatarUrl.value) {
-    return { backgroundImage: `url(${avatarUrl.value})` };
+    // 2. URL аватара из переменной avatarUrl
+    url = secureUrl(avatarUrl.value);
+    console.log('Обработанный URL аватара:', url);
+  } else if (localUserData.value && localUserData.value.avatar) {
+    // 3. Аватар из локальных данных пользователя
+    url = secureUrl(localUserData.value.avatar);
+    console.log('Используем аватар из локальных данных пользователя:', url);
+  } else if (userData.value && userData.value.avatar) {
+    // 4. Аватар из вычисляемого свойства userData
+    url = secureUrl(userData.value.avatar);
+    console.log('Используем аватар из данных пользователя:', url);
+  } else if (authStore.user && authStore.user.avatar) {
+    // 5. Аватар из хранилища аутентификации
+    url = secureUrl(authStore.user.avatar);
+    console.log('Используем аватар из хранилища аутентификации:', url);
   }
+  
+  // Если есть URL, формируем стиль с фоновым изображением
+  if (url) {
+    // Добавляем случайный параметр для предотвращения кэширования (только для URL с сервера, не для blob URL)
+    if (!url.startsWith('blob:')) {
+      const cacheBuster = `?t=${Date.now()}`;
+      url = url.includes('?') ? `${url}&t=${Date.now()}` : `${url}${cacheBuster}`;
+    }
+    return { backgroundImage: `url("${url}")` };
+  }
+  
+  // Иначе возвращаем пустой объект стилей
   return {};
 });
 
@@ -249,6 +349,14 @@ async function fetchUserData() {
     }
     
     const data = await response.json();
+    console.log('Получены данные пользователя:', data);
+    
+    // Если есть аватар, устанавливаем его URL
+    if (data.avatar) {
+      avatarUrl.value = data.avatar;
+      console.log('Установлен URL аватара:', avatarUrl.value);
+    }
+    
     localUserData.value = {
       _id: data._id || '',
       name: data.name || '',
@@ -264,6 +372,10 @@ async function fetchUserData() {
       number: data.number || authStore.user.number || '',
       avatar: data.avatar || authStore.user.avatar || ''
     };
+    
+    // Не обновляем userData, так как это вычисляемое свойство
+    // Вместо этого обновляем localUserData, которое используется в вычисляемом свойстве userData
+    console.log('Обновлены локальные данные пользователя');
   } catch (error) {
     console.error('Ошибка при получении данных пользователя:', error);
     showNotification('Не удалось загрузить данные профиля', 'error');
@@ -393,19 +505,33 @@ async function saveProfile() {
       hasAvatar: !!avatarFile.value
     });
     
+    // Создаем FormData для отправки файла
     const formDataToSend = new FormData();
     formDataToSend.append('name', formData.name);
     formDataToSend.append('email', formData.email);
     formDataToSend.append('number', formData.number);
     
+    // Добавляем файл аватара, если он есть
     if (avatarFile.value) {
+      console.log('Добавляем файл аватара в FormData:', avatarFile.value.name);
       formDataToSend.append('avatar', avatarFile.value);
     }
     
     // Отправляем запрос на обновление профиля на сервер
     try {
-      // Используем новый endpoint для обновления профиля
-      const response = await $fetch(`/api/users/update-profile`, {
+      // Используем правильный endpoint для обновления профиля
+      const config = useRuntimeConfig();
+      
+      // Выбираем URL в зависимости от окружения
+      let backendUrl = config.public.backendUrl;
+      if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+        backendUrl = config.public.localBackendUrl || 'http://localhost:5000';
+      }
+      
+      console.log('Отправляем данные на:', `${backendUrl}/api/auth/update-profile`);
+      
+      // Отправляем запрос на сервер
+      const response = await fetch(`${backendUrl}/api/auth/update-profile`, {
         method: 'POST',
         body: formDataToSend,
         headers: {
@@ -413,37 +539,67 @@ async function saveProfile() {
         }
       });
       
-      console.log('Ответ сервера:', response);
-      
-      // Обновляем данные пользователя
-      const data = await response.json();
-      localUserData.value = {
-        _id: data._id || '',
-        name: data.name || '',
-        email: data.email || '',
-        number: data.number || '',
-        avatar: data.avatar || ''
-      };
-      
-      if (response && response.avatar) {
-        avatarUrl.value = response.avatar;
-        userData.value.avatar = response.avatar;
-      } else if (avatarFile.value) {
-        // Если сервер не вернул аватар, но мы загрузили файл
-        const tempUrl = URL.createObjectURL(avatarFile.value);
-        avatarUrl.value = tempUrl;
-        userData.value.avatar = tempUrl;
+      // Проверяем успешность запроса
+      if (!response.ok) {
+        throw new Error(`Ошибка сервера: ${response.status} ${response.statusText}`);
       }
       
-      // Обновляем данные в авторизационном хранилище
+      // Парсим ответ
+      const data = await response.json();
+      console.log('Ответ сервера:', data);
+      
+      // Проверяем, что аватар есть в ответе
+      if (data && data.avatar) {
+        console.log('Аватар получен от сервера:', data.avatar);
+        
+        // Освобождаем временный URL, если он был
+        if (tempFileUrl.value) {
+          URL.revokeObjectURL(tempFileUrl.value);
+          tempFileUrl.value = null;
+        }
+        
+        // Используем secureUrl для корректной обработки URL
+        const secureAvatarUrl = secureUrl(data.avatar);
+        // Добавляем случайный параметр для предотвращения кэширования
+        const avatarWithCache = `${secureAvatarUrl}${secureAvatarUrl.includes('?') ? '&' : '?'}t=${new Date().getTime()}`;
+        console.log('Обработанный URL аватара:', avatarWithCache);
+        
+        // Устанавливаем URL аватара
+        avatarUrl.value = avatarWithCache;
+        avatarFile.value = null; // Сбрасываем файл после успешной загрузки
+        
+        // Обновляем аватар в хранилище авторизации
+        if (authStore.user) {
+          authStore.user.avatar = avatarWithCache;
+        }
+      } else {
+        console.warn('Аватар отсутствует в ответе сервера');
+      }
+      
+      // Обновляем локальные данные пользователя
+      localUserData.value = {
+        _id: data._id || localUserData.value._id || '',
+        name: data.name || localUserData.value.name || '',
+        email: data.email || localUserData.value.email || '',
+        number: data.number || localUserData.value.number || '',
+        avatar: data.avatar || avatarUrl.value || localUserData.value.avatar || ''
+      };
+      
+      console.log('Обновлены локальные данные пользователя:', localUserData.value);
+      
+      // Обновляем данные в хранилище авторизации
       if (authStore.user) {
         authStore.user = {
           ...authStore.user,
-          name: formData.name,
-          email: formData.email,
-          number: formData.number,
-          avatar: userData.value.avatar
+          name: data.name || authStore.user.name,
+          email: data.email || authStore.user.email,
+          number: data.number || authStore.user.number,
+          avatar: avatarUrl.value
         };
+        
+        // Загружаем полные данные пользователя с сервера
+        console.log('Загружаем полные данные пользователя с сервера...');
+        await authStore.loadUserProfile();
       }
       
       isEditing.value = false;
@@ -460,8 +616,9 @@ async function saveProfile() {
         };
         
         // Пытаемся отправить JSON данные вместо FormData
-        const altResponse = await $fetch(`/api/auth/update-profile`, {
-          method: 'PUT',
+        const config = useRuntimeConfig();
+        const altResponse = await $fetch(`${config.public.backendUrl}/api/auth/update-profile`, {
+          method: 'POST', // Используем POST вместо PUT, так как маршрут ожидает POST
           body: jsonData,
           headers: {
             'Content-Type': 'application/json',
@@ -472,8 +629,9 @@ async function saveProfile() {
         console.log('Ответ с альтернативного сервера:', altResponse);
         
         // Обновляем данные пользователя
-        userData.value = {
-          ...userData.value,
+        // Не обновляем userData напрямую, так как это вычисляемое свойство
+        localUserData.value = {
+          ...localUserData.value,
           name: formData.name,
           email: formData.email,
           number: formData.number
@@ -538,12 +696,33 @@ async function saveProfile() {
   }
 }
 
-// Обработка изменения аватара
-function handleAvatarChange(event) {
+// Обработчик загрузки файла аватара
+function handleAvatarUpload(event) {
   const file = event.target.files[0];
-  if (file) {
-    avatarFile.value = file;
+  if (!file) return;
+  
+  // Проверка типа файла
+  const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+  if (!allowedTypes.includes(file.type)) {
+    showNotification('Недопустимый тип файла. Разрешены только JPEG, PNG, GIF и WebP', 'error');
+    return;
   }
+  
+  // Проверка размера файла (5 МБ максимум)
+  const maxSize = 5 * 1024 * 1024; // 5 МБ в байтах
+  if (file.size > maxSize) {
+    showNotification('Файл слишком большой. Максимальный размер: 5 МБ', 'error');
+    return;
+  }
+  
+  // Устанавливаем файл для загрузки
+  avatarFile.value = file;
+  
+  // Не создаем временный URL здесь, так как это делается в watch функции
+  // tempFileUrl будет автоматически создан в watch функции
+  
+  // Отображаем уведомление об успешной загрузке
+  showNotification('Файл аватара выбран. Нажмите Сохранить, чтобы применить изменения.', 'info');
 }
 
 // Получение инициалов из имени
@@ -576,21 +755,21 @@ function copyToClipboard(text) {
     });
 }
 
-// Показать уведомление
-function showNotification(message, type = 'success') {
-  notification.message = message;
-  notification.type = type;
-  notification.show = true;
-  
-  // Скрыть уведомление через 3 секунды
-  setTimeout(() => {
-    notification.show = false;
-  }, 3000);
+// Используем глобальный метод $showNotification через useNuxtApp
+const nuxtApp = useNuxtApp();
+const showNotification = (message, type = 'info') => {
+  if (window.$showNotification) {
+    window.$showNotification(message, type);
+  } else if (nuxtApp.$notify) {
+    nuxtApp.$notify(message, type);
+  } else {
+    console.log(`${type}: ${message}`);
+  }
 }
 </script>
 
 <style lang="sass">
-@import '~/assets/styles/variables'
+@import '@variables'
 
 .user-profile
   background-color: $header-bg
@@ -646,18 +825,65 @@ function showNotification(message, type = 'success') {
     display: flex
     flex-direction: column
     align-items: center
+    margin-bottom: 20px
   
   &__avatar
     width: 100px
     height: 100px
     border-radius: 50%
-    background-color: $purple
+    background-size: cover
+    background-position: center
+    margin: 0 auto 10px
+    position: relative
     display: flex
     align-items: center
     justify-content: center
-    margin-bottom: 10px
-    background-size: cover
-    background-position: center
+    background-color: $purple
+    color: $white
+    font-size: 36px
+    font-weight: bold
+    overflow: hidden
+  
+  &__avatar-clickable
+    cursor: pointer
+    display: block
+    position: relative
+    
+    .user-profile__avatar-overlay
+      position: absolute
+      top: 0
+      left: 0
+      right: 0
+      bottom: 0
+      background-color: rgba(0, 0, 0, 0.5)
+      border-radius: 50%
+      display: flex
+      align-items: center
+      justify-content: center
+      opacity: 0
+      transition: opacity 0.3s ease
+    
+    &:hover .user-profile__avatar-overlay
+      opacity: 1
+    
+    .user-profile__avatar-change-icon
+      color: white
+      font-size: 14px
+      font-weight: bold
+  
+  &__avatar-input
+    display: none
+  
+  &__debug-info
+    position: absolute
+    bottom: 0
+    left: 0
+    right: 0
+    background-color: rgba(0, 0, 0, 0.5)
+    color: white
+    font-size: 10px
+    padding: 2px
+    text-align: center
   
   &__initials
     font-size: 36px
