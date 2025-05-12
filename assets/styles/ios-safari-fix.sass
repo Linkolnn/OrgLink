@@ -38,20 +38,30 @@ $safari-total-offset: calc(#{$safari-search-bar-height} + env(safe-area-inset-to
   .input_area
     padding-bottom: calc(env(safe-area-inset-bottom) + 10px)
     margin-bottom: env(safe-area-inset-bottom)
-    position: relative
     z-index: 10
+    display: flex
+    flex-direction: column
     
     // Текстовая область ввода
-    .input_field
+    .message_input
       padding-bottom: calc(env(safe-area-inset-bottom) / 2)
+      max-height: 150px
+      overflow-y: auto
+      transform-origin: bottom
+      resize: none
+      align-self: flex-end
+      flex-grow: 0
       
     // Кнопка отправки
     .send_button
       margin-bottom: calc(env(safe-area-inset-bottom) / 2)
+      align-self: flex-end
       
   // Контейнер сообщений
-  .messages-container
+  .messages_container
     padding-bottom: calc(env(safe-area-inset-bottom) + 60px)
+    max-height: calc(100vh - #{$safari-search-bar-height} - 20px - 60px) // Уменьшаем высоту на 20px для поискового поля
+    overflow-y: auto
     
   // Чат контент
   .chat-content

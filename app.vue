@@ -233,8 +233,7 @@ provide('showSidebar', () => {
 </script>
 <style lang="sass">
 @import '@variables'
-@import '~/assets/styles/ios-safari-fix.sass'
-@import '~/assets/styles/ios-chat-fix.sass'
+//@import '~/assets/styles/ios-safari-fix.sass'
 
 *
   margin: 0
