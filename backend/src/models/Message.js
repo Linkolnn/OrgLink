@@ -38,6 +38,38 @@ const messageSchema = new mongoose.Schema(
       type: String,
       default: null
     },
+    file_name: {
+      type: String,
+      default: null
+    },
+    // Массив файлов для поддержки нескольких файлов в одном сообщении
+    files: [{
+      file_url: {
+        type: String,
+        required: true
+      },
+      file_name: {
+        type: String,
+        default: 'Файл'
+      },
+      mime_type: {
+        type: String,
+        default: 'application/octet-stream'
+      },
+      media_type: {
+        type: String,
+        enum: ['image', 'video', 'file'],
+        default: 'file'
+      },
+      thumbnail: {
+        type: String,
+        default: null
+      },
+      size: {
+        type: Number,
+        default: 0
+      }
+    }],
     read_by: [{
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User'

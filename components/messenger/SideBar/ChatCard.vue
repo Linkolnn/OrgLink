@@ -140,7 +140,7 @@ const getLastMessageText = computed(() => {
   // Если это медиа-сообщение
   if (chat.lastMessage && chat.lastMessage.media_type && chat.lastMessage.media_type !== 'none') {
     const mediaTypes = {
-      'image': 'Фотография',
+      'image': 'Фото',
       'video': 'Видео',
       'video_message': 'Видеосообщение',
       'sticker': 'Стикер',
@@ -199,7 +199,7 @@ const formattedLastMessage = computed(() => {
     // Если это медиа-сообщение
     else if (chat.lastMessage.media_type && chat.lastMessage.media_type !== 'none') {
       const mediaTypes = {
-        'image': 'Фотография',
+        'image': 'Фото',
         'video': 'Видео',
         'video_message': 'Видеосообщение',
         'sticker': 'Стикер',
@@ -234,11 +234,26 @@ const formattedLastMessage = computed(() => {
     return savedText;
   }
   
+  // Проверяем, есть ли медиа-тип в последнем сообщении
+  if (chat.lastMessage && chat.lastMessage.media_type && chat.lastMessage.media_type !== 'none') {
+    const mediaTypes = {
+      'image': 'Фото',
+      'video': 'Видео',
+      'video_message': 'Видеосообщение',
+      'sticker': 'Стикер',
+      'file': 'Файл'
+    };
+    const mediaText = mediaTypes[chat.lastMessage.media_type] || 'Медиа-сообщение';
+    console.log(`Используем медиа-тип для пустого сообщения: ${mediaText}`);
+    
+    // Сохраняем текст в хранилище чата
+    chatStore.lastMessageTextCache[chat._id] = mediaText;
+    
+    return mediaText;
+  }
+  
   // Если ничего не нашли, возвращаем дефолтное значение
   console.log(`Не найдено ни одного источника текста последнего сообщения`);
-  return 'Нет сообщений';
-  
-  // Если нет никаких сообщений
   return 'Нет сообщений';
 });
 

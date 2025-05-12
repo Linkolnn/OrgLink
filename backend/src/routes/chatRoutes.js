@@ -18,7 +18,7 @@ import {
   deleteMessage 
 } from '../controllers/messageController.js';
 import { protect } from '../middleware/authMiddleware.js';
-import { uploadChatAvatar, handleUploadError } from '../middleware/uploadMiddleware.js';
+import { uploadChatAvatar, uploadMessageFile, handleUploadError } from '../middleware/uploadMiddleware.js';
 
 const router = express.Router();
 
@@ -39,6 +39,7 @@ router.delete('/:id/leave', protect, leaveChat);
 
 // Маршруты для сообщений
 router.post('/:chatId/messages', protect, sendMessage);
+router.post('/:chatId/messages/upload', protect, uploadMessageFile.array('files', 10), handleUploadError, sendMessage);
 router.get('/:chatId/messages', protect, getChatMessages);
 router.post('/:chatId/messages/read', protect, markMessagesAsRead);
 router.put('/:chatId/messages/:messageId', protect, updateMessage);

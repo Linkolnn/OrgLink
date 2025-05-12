@@ -1,0 +1,51 @@
+// Отключение стандартного контекстного меню браузера при долгом нажатии
+.message,
+.message *
+  -webkit-touch-callout: none // iOS Safari
+  -webkit-user-select: none   // Safari
+  -khtml-user-select: none    // Konqueror HTML
+  -moz-user-select: none      // Firefox
+  -ms-user-select: none       // Internet Explorer/Edge
+  user-select: none           // Non-prefixed version, currently supported by Chrome and Opera
+  touch-action: manipulation  // Отключает двойное нажатие для увеличения на мобильных устройствах
+
+// Разрешаем выделение текста в сообщениях
+.message-content
+  -webkit-user-select: text
+  -khtml-user-select: text
+  -moz-user-select: text
+  -ms-user-select: text
+  user-select: text
+
+// Анимация переливающейся рамки для выделенного сообщения
+@keyframes border-glow
+  0%
+    border-color: rgba(128, 90, 213, 0.3)
+  50%
+    border-color: rgba(128, 90, 213, 0.8)
+  100%
+    border-color: rgba(128, 90, 213, 0.3)
+
+// Стили для выделенного сообщения
+.message.highlighted
+  border: 2px solid rgba(128, 90, 213, 0.5)
+  border-radius: 12px
+  padding: 4px
+  animation: border-glow 1.5s infinite
+  box-shadow: 0 0 10px rgba(128, 90, 213, 0.3)
+  transition: all 0.3s ease
+
+// Блокировка скролла
+.messages_container.scroll-disabled
+  overflow: hidden !important
+  position: relative
+  
+  &:after
+    content: ''
+    position: absolute
+    top: 0
+    left: 0
+    right: 0
+    bottom: 0
+    background: rgba(0, 0, 0, 0.05)
+    z-index: 5

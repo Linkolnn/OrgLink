@@ -2,6 +2,7 @@ import Message from '../models/Message.js';
 import Chat from '../models/Chat.js';
 import mongoose from 'mongoose';
 import { io } from '../server.js';
+import { getFileUrl } from '../middleware/uploadMiddleware.js';
 
 // @desc    Отправка сообщения в чат
 // @route   POST /api/chats/:chatId/messages
@@ -9,7 +10,144 @@ import { io } from '../server.js';
 const sendMessage = async (req, res) => {
   try {
     const { chatId } = req.params;
-    const { text, media_type, file, thumbnail, mime_type } = req.body;
+    let { text, media_type = 'none' } = req.body;
+    let files = [];
+    
+    // Проверяем, есть ли загруженные файлы
+    if (req.files && req.files.length > 0) {
+      console.log('Обнаружены загруженные файлы:', req.files.length);
+      
+      // Функция для правильного декодирования имени файла
+      const decodeFileName = (encodedName) => {
+        try {
+          // Проверяем, если имя файла уже содержит кириллицу
+          if (/[\u0400-\u04FF]/.test(encodedName)) {
+            console.log('Имя файла уже содержит кириллицу:', encodedName);
+            return encodedName;
+          }
+          
+          // Пробуем разные методы декодирования
+          
+          // Метод 1: Декодирование из binary в utf8
+          try {
+            const decoded1 = Buffer.from(encodedName, 'binary').toString('utf8');
+            if (/[\u0400-\u04FF]/.test(decoded1)) {
+              console.log('Успешно декодировано имя файла (binary -> utf8):', decoded1);
+              return decoded1;
+            }
+          } catch (e) {
+            console.log('Ошибка при декодировании binary -> utf8:', e.message);
+          }
+          
+          // Метод 2: Декодирование из latin1 в utf8
+          try {
+            const decoded2 = Buffer.from(encodedName, 'latin1').toString('utf8');
+            if (/[\u0400-\u04FF]/.test(decoded2)) {
+              console.log('Успешно декодировано имя файла (latin1 -> utf8):', decoded2);
+              return decoded2;
+            }
+          } catch (e) {
+            console.log('Ошибка при декодировании latin1 -> utf8:', e.message);
+          }
+          
+          // Метод 3: Декодирование из ascii в utf8
+          try {
+            const decoded3 = Buffer.from(encodedName, 'ascii').toString('utf8');
+            if (/[\u0400-\u04FF]/.test(decoded3)) {
+              console.log('Успешно декодировано имя файла (ascii -> utf8):', decoded3);
+              return decoded3;
+            }
+          } catch (e) {
+            console.log('Ошибка при декодировании ascii -> utf8:', e.message);
+          }
+          
+          // Если ни один метод не сработал, возвращаем оригинальное имя
+          console.log('Не удалось декодировать имя файла, возвращаем оригинал:', encodedName);
+          return encodedName;
+        } catch (error) {
+          console.error('Ошибка при декодировании имени файла:', error);
+          return encodedName; // Возвращаем оригинальное имя в случае ошибки
+        }
+      };
+      
+      // Обрабатываем все загруженные файлы
+      for (const uploadedFile of req.files) {
+        // Декодируем имя файла
+        const decodedFileName = decodeFileName(uploadedFile.originalname);
+        const mime_type = uploadedFile.mimetype;
+        
+        // Определяем тип медиа на основе MIME-типа
+        let file_media_type = 'file';
+        if (mime_type.startsWith('image/')) {
+          file_media_type = 'image';
+        } else if (mime_type.startsWith('video/')) {
+          file_media_type = 'video';
+        }
+        
+        // Генерируем URL для файла
+        const fileUrl = getFileUrl(uploadedFile.filename, 'message-file');
+        
+        // Добавляем файл в массив
+        files.push({
+          file_url: fileUrl,
+          file_name: decodedFileName,
+          mime_type: mime_type,
+          media_type: file_media_type,
+          size: uploadedFile.size
+        });
+        
+        // Логируем детали файла
+        console.log('Детали загруженного файла:', {
+          originalname: uploadedFile.originalname,
+          decodedFileName: decodedFileName,
+          encoding: uploadedFile.encoding,
+          mimetype: mime_type,
+          size: uploadedFile.size,
+          buffer: uploadedFile.buffer ? 'Доступен' : 'Недоступен'
+        });
+        
+        console.log('Файл обработан:', {
+          originalName: decodedFileName,
+          mimeType: mime_type,
+          mediaType: file_media_type,
+          fileUrl: fileUrl
+        });
+      }
+      
+      // Если есть файлы, устанавливаем тип медиа для сообщения
+      if (files.length > 0) {
+        // Определяем тип медиа для сообщения на основе первого файла
+        if (files[0].media_type === 'image') {
+          media_type = 'image';
+        } else if (files[0].media_type === 'video') {
+          media_type = 'video';
+        } else {
+          media_type = 'file';
+        }
+      }
+    } else if (req.body.files && Array.isArray(req.body.files) && req.body.files.length > 0) {
+      // Если файлы переданы в теле запроса как массив
+      files = req.body.files;
+      
+      // Определяем тип медиа для сообщения на основе первого файла
+      if (files[0].media_type === 'image') {
+        media_type = 'image';
+      } else if (files[0].media_type === 'video') {
+        media_type = 'video';
+      } else {
+        media_type = 'file';
+      }
+    } else if (req.body.file) {
+      // Если файл передан в теле запроса (для обратной совместимости)
+      // Добавляем его в массив файлов
+      files.push({
+        file_url: req.body.file,
+        thumbnail: req.body.thumbnail,
+        mime_type: req.body.mime_type,
+        media_type: media_type,
+        file_name: req.body.file_name || 'Файл'
+      });
+    }
     
     // Проверяем, существует ли чат и является ли пользователь его участником
     const chat = await Chat.findOne({
@@ -22,25 +160,49 @@ const sendMessage = async (req, res) => {
     }
     
     // Проверяем наличие текста или медиа
-    if (!text && media_type === 'none') {
+    if (!text && media_type === 'none' && files.length === 0) {
       return res.status(400).json({ error: 'Сообщение должно содержать текст или медиа' });
     }
     
     // Создаем новое сообщение
-    const newMessage = await Message.create({
+    const messageData = {
       chat: chatId,
       sender: req.user._id,
       text,
-      media_type: media_type || 'none',
-      file,
-      thumbnail,
-      mime_type,
-      read_by: [req.user._id] // Отправитель автоматически считается прочитавшим сообщение
-    });
+      media_type: media_type,
+      read_by: [req.user._id], // Отправитель автоматически считается прочитавшим сообщение
+      files: files
+    };
+    
+    // Для обратной совместимости с существующими клиентами
+    if (files.length === 1) {
+      messageData.file = files[0].file_url;
+      messageData.file_name = files[0].file_name;
+      messageData.mime_type = files[0].mime_type;
+      if (files[0].thumbnail) {
+        messageData.thumbnail = files[0].thumbnail;
+      }
+    }
+    
+    const newMessage = await Message.create(messageData);
+    
+    // Определяем текст для последнего сообщения
+    let lastMessageText = text;
+    if (!lastMessageText) {
+      if (media_type === 'image') {
+        lastMessageText = 'Фото';
+      } else if (media_type === 'video') {
+        lastMessageText = 'Видео';
+      } else if (media_type === 'file') {
+        lastMessageText = 'Файл';
+      } else {
+        lastMessageText = 'Медиа-сообщение';
+      }
+    }
     
     // Обновляем последнее сообщение в чате
     chat.lastMessage = {
-      text: text || 'Медиа-сообщение',
+      text: lastMessageText,
       sender: req.user._id,
       timestamp: new Date()
     };
@@ -59,7 +221,7 @@ const sendMessage = async (req, res) => {
       .populate('lastMessage.sender', 'name email avatar');
     
     // Отправляем сообщение через WebSocket всем подключенным к этому чату
-    io.to(`chat:${chatId}`).emit('newMessage', {
+    io.to(`chat:${chatId}`).emit('new-message', {
       message: populatedMessage,
       chatId,
       chat: updatedChat,
@@ -92,19 +254,39 @@ const getChatMessages = async (req, res) => {
     const { chatId } = req.params;
     const { limit = 20, before_id } = req.query;
     
-    // Проверяем, существует ли чат и является ли пользователь его участником
-    // Используем select только для проверки существования и прав доступа
-    const chatExists = await Chat.findOne({
-      _id: chatId,
-      participants: req.user._id
-    }).select('_id').lean();
+    // Проверяем, является ли чат превью-чатом
+    const isPreviewChat = chatId.startsWith('preview_');
     
-    if (!chatExists) {
-      return res.status(404).json({ error: 'Чат не найден или вы не являетесь его участником' });
+    // Если это не превью-чат, проверяем существование и права доступа
+    if (!isPreviewChat) {
+      // Используем select только для проверки существования и прав доступа
+      const chatExists = await Chat.findOne({
+        _id: chatId,
+        participants: req.user._id
+      }).select('_id').lean();
+      
+      if (!chatExists) {
+        return res.status(404).json({ error: 'Чат не найден или вы не являетесь его участником' });
+      }
+    } else {
+      console.log('Получение сообщений для превью-чата:', chatId);
+      // Для превью-чатов не проверяем существование в базе данных
     }
     
     // Базовые условия запроса
     const query = { chat: chatId };
+    
+    // Если это превью-чат, возвращаем пустой массив сообщений
+    if (isPreviewChat) {
+      return res.status(200).json({
+        messages: [],
+        pagination: {
+          limit: parseInt(limit),
+          hasMore: false,
+          nextCursor: null
+        }
+      });
+    }
     
     // Если указан before_id, добавляем условие для пагинации
     if (before_id) {
@@ -118,7 +300,10 @@ const getChatMessages = async (req, res) => {
       text: 1,
       media_type: 1,
       file: 1,
+      file_name: 1, // Добавляем поле с именем файла
+      mime_type: 1, // Добавляем MIME-тип файла
       thumbnail: 1,
+      files: 1, // Добавляем массив файлов
       read_by: 1,
       edited: 1,
       createdAt: 1
@@ -147,7 +332,7 @@ const getChatMessages = async (req, res) => {
         }
       ).then(result => {
         if (result.modifiedCount > 0) {
-          io.to(`chat:${chatId}`).emit('messagesRead', {
+          io.to(`chat:${chatId}`).emit('messages-read', {
             chatId,
             userId: req.user._id
           });
@@ -178,6 +363,15 @@ const markMessagesAsRead = async (req, res) => {
   try {
     const { chatId } = req.params;
     const userId = req.user._id;
+    
+    // Проверяем, является ли чат превью-чатом
+    const isPreviewChat = chatId.startsWith('preview_');
+    
+    // Если это превью-чат, возвращаем успешный ответ без дополнительных проверок
+    if (isPreviewChat) {
+      console.log('Отметка сообщений как прочитанных для превью-чата:', chatId);
+      return res.status(200).json({ message: 'Нет непрочитанных сообщений в превью-чате' });
+    }
     
     // Проверяем, существует ли чат и является ли пользователь его участником
     const chat = await Chat.findOne({
@@ -215,7 +409,7 @@ const markMessagesAsRead = async (req, res) => {
     console.log(`Отмечено ${updateResult.modifiedCount} сообщений как прочитанные пользователем ${userId} в чате ${chatId}`);
     
     // Отправляем уведомление через WebSocket
-    io.to(`chat:${chatId}`).emit('messagesRead', {
+    io.to(`chat:${chatId}`).emit('messages-read', {
       chatId,
       userId,
       count: updateResult.modifiedCount
@@ -237,7 +431,7 @@ const markMessagesAsRead = async (req, res) => {
 const updateMessage = async (req, res) => {
   try {
     const { chatId, messageId } = req.params;
-    const { text, edited } = req.body;
+    const { text, edited, files, media_type } = req.body;
     const userId = req.user._id;
 
     // Проверяем, существует ли чат и является ли пользователь его участником
@@ -266,14 +460,36 @@ const updateMessage = async (req, res) => {
     }
 
     // Обновляем сообщение
-    message.text = text;
+    if (text !== undefined) {
+      message.text = text;
+    }
+    
     message.edited = edited === false ? false : true;
     message.updatedAt = new Date();
     
+    // Обновляем файлы, если они есть
+    if (files && Array.isArray(files) && files.length > 0) {
+      message.files = files;
+      
+      // Обновляем тип медиа, если он указан
+      if (media_type) {
+        message.media_type = media_type;
+      }
+      
+      // Для обратной совместимости с существующими клиентами
+      if (files.length === 1) {
+        message.file = files[0].file_url;
+        message.file_name = files[0].file_name;
+        message.mime_type = files[0].mime_type;
+      }
+    }
+    
     console.log('Обновляем сообщение:', {
       messageId,
-      text,
-      edited: message.edited
+      text: message.text,
+      edited: message.edited,
+      files: files ? files.length : 0,
+      media_type: message.media_type
     });
     
     await message.save();
@@ -509,11 +725,27 @@ const deleteMessage = async (req, res) => {
     if (newLastMessage) {
       // Если есть новое последнее сообщение, обновляем его
       // Создаем полный объект lastMessage с текстом и информацией об отправителе
+      // Определяем текст для последнего сообщения в зависимости от типа медиа
+      let lastMessageText = newLastMessage.text || '';
+      
+      // Если текста нет, но есть медиа-тип
+      if (!lastMessageText && newLastMessage.media_type && newLastMessage.media_type !== 'none') {
+        if (newLastMessage.media_type === 'image') {
+          lastMessageText = 'Фото';
+        } else if (newLastMessage.media_type === 'video') {
+          lastMessageText = 'Видео';
+        } else if (newLastMessage.media_type === 'file') {
+          lastMessageText = 'Файл';
+        } else {
+          lastMessageText = 'Медиа-сообщение';
+        }
+      }
+      
       await Chat.findByIdAndUpdate(
         chatId,
         { 
           lastMessage: {
-            text: newLastMessage.text || '',
+            text: lastMessageText,
             sender: newLastMessage.sender._id,
             timestamp: new Date()
           }
@@ -527,10 +759,10 @@ const deleteMessage = async (req, res) => {
         lastMessageText: newLastMessage.text
       });
     } else {
-      // Если больше нет сообщений в чате, устанавливаем lastMessage в объект с текстом "Нет сообщений"
+      // Если больше нет сообщений в чате, устанавливаем пустой объект lastMessage
       await Chat.findByIdAndUpdate(
         chatId,
-        { lastMessage: { text: 'Нет сообщений', timestamp: new Date() } },
+        { lastMessage: { text: '', timestamp: new Date() } },
         { new: true }
       );
       

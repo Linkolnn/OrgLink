@@ -202,6 +202,11 @@ export const useAuthStore = defineStore('auth', {
               this.token = response.token;
               // Сохраняем локальную копию токена для WebSocket
               clientTokenCookie.value = response.token;
+              
+              // Сохраняем токен в localStorage для резервного механизма аутентификации на iOS
+              if (typeof localStorage !== 'undefined') {
+                localStorage.setItem('auth_token', response.token);
+              }
             }
             
             this.isAuthenticated = true;
@@ -211,13 +216,45 @@ export const useAuthStore = defineStore('auth', {
           // Ошибка при запросе к серверу
           console.error('Auth check fetch error:', error);
           
-          // Если ошибка связана с CORS и мы на Safari/iOS, показываем более подробную информацию
-          if (error.message && (error.message.includes('CORS') || error.message.includes('Failed to fetch'))) {
+          // Если ошибка связана с CORS или сетевыми проблемами
+          if (error.message && (error.message.includes('CORS') || error.message.includes('Failed to fetch') || error.message.includes('Load failed') || error.message.includes('Network request failed'))) {
             const isSafari = typeof navigator !== 'undefined' && /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
             const isIOS = typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
             
             if (isSafari || isIOS) {
               console.warn('Safari/iOS CORS issue detected. Using fallback authentication.');
+              
+              // Пробуем альтернативный метод аутентификации для iOS
+              try {
+                // Используем токен из localStorage, если он есть
+                const savedToken = localStorage.getItem('auth_token');
+                
+                if (savedToken) {
+                  this.token = savedToken;
+                  clientTokenCookie.value = savedToken;
+                  this.isAuthenticated = true;
+                  
+                  // Декодируем JWT токен для получения информации о пользователе
+                  const base64Url = savedToken.split('.')[1];
+                  const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+                  const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
+                    return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+                  }).join(''));
+                  
+                  const decodedToken = JSON.parse(jsonPayload);
+                  
+                  if (decodedToken.id) {
+                    this.user = {
+                      _id: decodedToken.id,
+                      role: decodedToken.role || 'user',
+                      email: decodedToken.email || ''
+                    };
+                    return true;
+                  }
+                }
+              } catch (fallbackError) {
+                console.error('Fallback authentication failed:', fallbackError);
+              }
             }
           }
         }

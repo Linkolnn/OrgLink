@@ -12,6 +12,7 @@ import connectDB from './config/db.js';
 import authRoutes from './routes/authRoutes.js';
 import chatRoutes from './routes/chatRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
+import uploadRoutes from './routes/uploadRoutes.js';
 import { createAdminIfNotExists } from './controllers/authController.js';
 import jwt from 'jsonwebtoken'; // Добавляем импорт jwt
 import { verifyToken } from './middleware/authMiddleware.js';
@@ -59,31 +60,47 @@ const PORT = process.env.PORT || process.env.BACKEND_PORT || 5000;
 export { io };
 
 // Middlewares
+// Улучшенные настройки CORS для работы с iOS устройствами
 app.use(cors({
-  origin: allowedOrigins,
+  origin: function(origin, callback) {
+    // Разрешаем запросы без origin (например, локальные запросы)
+    if (!origin) return callback(null, true);
+    
+    // Проверяем, есть ли origin в списке разрешенных
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      // Для мобильных устройств разрешаем все запросы в режиме разработки
+      console.log('Запрос с неразрешенного источника:', origin);
+      callback(null, true); // Разрешаем все запросы для тестирования
+    }
+  },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Access-Control-Allow-Credentials']
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'Access-Control-Allow-Headers', 'Access-Control-Allow-Origin', 'Access-Control-Allow-Credentials'],
+  preflightContinue: false,
+  optionsSuccessStatus: 204
 }));
 
-// Middleware для предварительной проверки CORS
+// Дополнительный middleware для обработки CORS для iOS
 app.use((req, res, next) => {
   const origin = req.headers.origin;
   
-  // Если источник запроса в списке разрешенных, устанавливаем соответствующий заголовок
-  if (origin && allowedOrigins.includes(origin)) {
+  // Устанавливаем заголовки для всех запросов
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  
+  if (origin) {
     res.setHeader('Access-Control-Allow-Origin', origin);
   }
   
   // Для OPTIONS запросов сразу возвращаем успех
   if (req.method === 'OPTIONS') {
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
-    return res.status(200).end();
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin, Access-Control-Allow-Headers, Access-Control-Allow-Origin, Access-Control-Allow-Credentials');
+    res.setHeader('Access-Control-Max-Age', '86400'); // 24 часа кэширования preflight запросов
+    return res.status(204).end();
   }
   
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
   next();
 });
 app.use(express.json());
@@ -150,6 +167,7 @@ app.use(async (req, res, next) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/chats', chatRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/upload', uploadRoutes);
 
 // Корневой маршрут
 app.get('/', (req, res) => {

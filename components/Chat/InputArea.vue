@@ -6,11 +6,68 @@
         <i class="fas fa-edit"></i> Редактирование: {{ originalMessageText.length > 30 ? originalMessageText.substring(0, 30) + '...' : originalMessageText }}
       </div>
       <button class="cancel-btn" @click="cancelEditingMessage">
-        x
+        <CloseIcon />
       </button>
     </div>
     
+    <!-- Индикатор записи голосового сообщения -->
+    <div v-if="isRecording" class="recording-indicator">
+      <div class="recording-text">
+        <i class="fas fa-microphone-alt pulse"></i> Запись: {{ recordingTime }}
+      </div>
+      <div class="recording-actions">
+        <button class="cancel-recording-btn" @click="cancelRecording">
+          <i class="fas fa-times"></i>
+        </button>
+        <button class="send-recording-btn" @click="stopAndSendRecording">
+          <i class="fas fa-check"></i>
+        </button>
+      </div>
+    </div>
+    
+    <!-- Предпросмотр выбранных файлов -->
+    <div v-if="selectedFiles.length > 0" class="selected-files-preview">
+      <div class="files-grid">
+        <div v-for="(file, index) in selectedFiles" :key="index" class="file-preview-item">
+          <!-- Предпросмотр изображения -->
+          <div v-if="isImageFile(file)" class="image-preview">
+            <img :src="getImagePreview(file)" alt="Предпросмотр" />
+            <button class="remove-file-btn image-remove-btn" @click="removeFile(index)">
+              <CloseIcon />
+            </button>
+          </div>
+          <!-- Предпросмотр для не-изображений -->
+          <div v-else class="file-preview">
+            <button class="remove-file-btn file-remove-btn" @click="removeFile(index)">
+              <CloseIcon />
+            </button>
+            <div class="file-info">
+              <component :is="getFileIconComponent(file)" class="file-type-icon" />
+              <span class="file-name">{{ file.name }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
     <div class="input_container" ref="inputContainer">
+      <!-- Кнопка для загрузки файлов (скрепка) -->
+      <button 
+        type="button" 
+        class="attachment_button"
+        @click.stop="openFileSelector"
+      >
+        <PaperclipIcon />
+        <input 
+          type="file" 
+          ref="fileInput" 
+          class="file-input" 
+          @change="handleFileSelected" 
+          accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt"
+          multiple
+        >
+      </button>
+      
       <textarea 
         v-model="messageText" 
         class="inp inp--textarea message_input" 
@@ -24,14 +81,19 @@
         ref="messageInput"
         rows="1"
       ></textarea>
+      
       <div class="button_container" @click.stop>
         <button 
           type="button" 
           class="send_button"
-          :disabled="!messageText.trim()"
-          @click.stop="sendMessage"
+          :class="{ 'record-button': !messageText.trim() && selectedFiles.length === 0 }"
+          :disabled="isRecording"
+          @click.stop="sendMessage()"
+          @touchstart.stop="messageText.trim() || selectedFiles.length > 0 ? null : handleTouchStart()"
+          @touchend.stop="messageText.trim() || selectedFiles.length > 0 ? null : handleTouchEnd()"
         >
-          <i class="fas fa-paper-plane"></i>
+          <SendIcon v-if="messageText.trim() || selectedFiles.length > 0" class="icon send-icon" />
+          <MicrophoneIcon v-else class="icon mic-icon" />
         </button>
       </div>
     </div>
@@ -39,10 +101,18 @@
 </template>
 
 <script setup>
-import { ref, computed, nextTick, watch, onMounted } from 'vue';
+import { ref, computed, nextTick, watch, onMounted, onBeforeUnmount } from 'vue';
 import { useNuxtApp } from '#app';
 import { useChatStore } from '~/stores/chat';
 import { useAuthStore } from '~/stores/auth';
+import SendIcon from '~/components/Icons/SendIcon.vue';
+import MicrophoneIcon from '~/components/Icons/MicrophoneIcon.vue';
+import PaperclipIcon from '~/components/Icons/PaperclipIcon.vue';
+import CloseIcon from '~/components/Icons/CloseIcon.vue';
+import FileIcon from '~/components/Icons/FileIcon.vue';
+import ImageFileIcon from '~/components/Icons/ImageFileIcon.vue';
+import DocFileIcon from '~/components/Icons/DocFileIcon.vue';
+
 
 // Хранилища
 const chatStore = useChatStore();
@@ -63,6 +133,8 @@ const props = defineProps({
 // Эмиты
 const emit = defineEmits(['message-sent', 'editing-started', 'editing-cancelled', 'editing-saved', 'height-changed']);
 
+// Экспорт функций будет добавлен в конце файла после объявления всех функций
+
 // Ссылки на элементы
 const inputArea = ref(null);
 const messageInput = ref(null);
@@ -76,6 +148,20 @@ const originalMessageText = ref('');
 const selectedMessage = ref(null);
 const isMobile = ref(false);
 
+// Данные для загрузки файлов
+const fileInput = ref(null);
+const selectedFiles = ref([]);
+
+// Данные для записи голосовых сообщений
+const isRecording = ref(false);
+const recordingTime = ref('00:00');
+const mediaRecorder = ref(null);
+const audioChunks = ref([]);
+const recordingTimer = ref(null);
+const recordingStartTime = ref(0);
+const longPressTimer = ref(null);
+const isLongPress = ref(false);
+
 // Проверяем ширину экрана и обновляем высоту контейнера
 const checkMobile = () => {
   isMobile.value = window.innerWidth <= 768;
@@ -87,104 +173,210 @@ const checkMobile = () => {
 
 // Отправка сообщения
 const sendMessage = async () => {
-  if (!messageText.value.trim()) return;
+  // Если нет ни текста, ни файлов, то начинаем запись
+  if (!messageText.value.trim() && selectedFiles.value.length === 0) {
+    startRecording();
+    return;
+  }
   
+  // Если в режиме редактирования, то сохраняем изменения
   if (isEditingMessage.value && selectedMessage.value) {
     await saveEditedMessage();
     return;
   }
   
-  // Сохраняем текст сообщения перед очисткой
-  const messageContent = messageText.value;
+  // Загрузка файлов на сервер
+  const uploadFiles = async (files) => {
+    if (!files || files.length === 0) return [];
+    
+    const config = useRuntimeConfig();
+    const uploadedFiles = [];
+    
+    try {
+      // Создаем массив промисов для параллельной загрузки файлов
+      const uploadPromises = files.map(async (file) => {
+        const formData = new FormData();
+        formData.append('file', file);
+        
+        // Создаем временный URL для предпросмотра
+        const previewUrl = isImageFile(file) ? URL.createObjectURL(file) : null;
+        
+        try {
+          // Загружаем файл на сервер
+          const response = await fetch(`${config.public.backendUrl}/api/upload`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${authStore.token}`
+            },
+            body: formData
+          });
+          
+          if (!response.ok) {
+            throw new Error(`Ошибка загрузки файла: ${response.status}`);
+          }
+          
+          const result = await response.json();
+          
+          return {
+            file_url: result.fileUrl,
+            file_name: file.name,
+            mime_type: file.type,
+            media_type: file.type && file.type.startsWith('image/') ? 'image' : 
+                       file.type && file.type.startsWith('video/') ? 'video' : 'file',
+            thumbnail: result.fileUrl,
+            // Добавляем временный URL для предпросмотра
+            previewUrl
+          };
+        } catch (error) {
+          console.error(`Ошибка при загрузке файла ${file.name}:`, error);
+          // Возвращаем нулевой результат для этого файла
+          return null;
+        }
+      });
+      
+      // Ждем завершения всех загрузок
+      const results = await Promise.all(uploadPromises);
+      
+      // Фильтруем нулевые результаты (ошибки загрузки)
+      return results.filter(result => result !== null);
+    } catch (error) {
+      console.error('[Загрузка] Ошибка при загрузке файлов:', error);
+      throw error;
+    }
+  };
+  
+  // Подготовка файлов для предпросмотра (используется только для предпросмотра)
+  const prepareFilesForPreview = (files) => {
+    if (!files || files.length === 0) return [];
+    
+    const preparedFiles = [];
+    
+    for (const file of files) {
+      // Создаем URL для предпросмотра файла
+      const fileUrl = isImageFile(file) ? URL.createObjectURL(file) : null;
+      
+      preparedFiles.push({
+        url: fileUrl,
+        name: file.name,
+        type: file.type,
+        size: file.size,
+        thumbnail: fileUrl
+      });
+    }
+    
+    return preparedFiles;
+  };
+
+  // Сохраняем текст сообщения и файлы перед очисткой
+  const messageContent = messageText.value.trim();
+  const files = [...selectedFiles.value];
   
   // Проверяем, находимся ли мы в режиме предпросмотра приватного чата
   if (props.isPreviewMode) {
     console.log('[InputArea] Отправка сообщения в режиме предпросмотра');
     
     try {
-      // Создаем реальный чат и отправляем сообщение
-      console.log('[InputArea] Создаем реальный чат из предпросмотра с сообщением:', messageContent);
-      
-      // Очищаем поле ввода и сбрасываем его высоту
-      messageText.value = '';
-      
-      // Сбрасываем высоту textarea вручную
-      if (messageInput.value) {
-        messageInput.value.style.height = '45px';
+      // Загружаем файлы на сервер, если они есть
+      let uploadedFiles = [];
+      if (files.length > 0) {
+        console.log('[InputArea] Загрузка файлов в режиме предпросмотра');
+        uploadedFiles = await uploadFiles(files);
+        console.log('[InputArea] Файлы успешно загружены:', uploadedFiles);
       }
       
-      // Вызываем adjustTextareaHeight для обновления высоты
-      nextTick(() => {
-        adjustTextareaHeight();
+      // Создаем новый чат и отправляем сообщение
+      const newChat = await chatStore.sendMessageInPreviewMode(messageContent, uploadedFiles);
+      console.log('[InputArea] Чат создан и сообщение отправлено:', newChat);
+      
+      // Оповещаем родительский компонент
+      emit('message-sent', { 
+        chatId: newChat._id, 
+        text: messageContent,
+        files: uploadedFiles.length > 0 ? uploadedFiles : null
       });
-      
-      try {
-        // Вызываем метод sendMessageInPreviewMode, который создает чат и отправляет сообщение
-        const newChat = await chatStore.sendMessageInPreviewMode(messageContent);
-        console.log('[InputArea] Чат создан и сообщение отправлено:', newChat);
-        
-        // Оповещаем родительский компонент
-        emit('message-sent', { chatId: newChat._id, text: messageContent });
-      } catch (error) {
-        console.error('[InputArea] Ошибка при создании чата из предпросмотра:', error);
-      }
-      
-      return;
     } catch (error) {
       console.error('[InputArea] Ошибка при создании чата из предпросмотра:', error);
     }
-  }
-  
-  // Обычная отправка сообщения в существующий чат
-  console.log('[WebSocket] Отправка сообщения в чат:', props.chatId);
-  
-  try {
-    await chatStore.sendMessage({
-      chatId: props.chatId,
-      text: messageText.value,
-      media_type: 'none'
-    });
+  } else {
+    // Обычная отправка сообщения в существующий чат
+    console.log('[WebSocket] Отправка сообщения в чат:', props.chatId);
     
-    console.log('[WebSocket] Сообщение отправлено успешно');
-    
-    // Оповещаем родительский компонент
-    emit('message-sent', { chatId: props.chatId, text: messageContent });
-    
-    // Очищаем поле ввода и сбрасываем его высоту
-    messageText.value = '';
-    
-    // Сбрасываем высоту textarea вручную
-    if (messageInput.value) {
-      messageInput.value.style.height = '45px';
+    try {
+      // Загружаем файлы на сервер, если они есть
+      let uploadedFiles = [];
+      if (files.length > 0) {
+        console.log('[WebSocket] Загрузка файлов на сервер');
+        uploadedFiles = await uploadFiles(files);
+        console.log('[WebSocket] Файлы успешно загружены:', uploadedFiles);
+      }
+      
+      // Отправляем сообщение через родительский компонент
+      emit('message-sent', { 
+        chatId: props.chatId, 
+        text: messageContent,
+        files: uploadedFiles.length > 0 ? uploadedFiles : null
+      });
+      
+      console.log('[WebSocket] Сообщение отправлено успешно');
+    } catch (error) {
+      console.error('[WebSocket] Ошибка при отправке сообщения:', error);
     }
-    
-    // Вызываем adjustTextareaHeight для обновления высоты
-    nextTick(() => {
-      adjustTextareaHeight();
-    });
-  } catch (error) {
-    console.error('[WebSocket] Ошибка при отправке сообщения:', error);
   }
+  
+  // Очищаем поле ввода и список файлов
+  messageText.value = '';
+  selectedFiles.value = [];
+  
+  // Сбрасываем высоту textarea
+  adjustTextareaHeight();
 };
 
 // Функции для редактирования сообщений
 const startEditingMessage = (message) => {
-  if (!message || !isOwnMessage(message)) return;
-  
-  originalMessageText.value = message.text;
-  editingMessageText.value = message.text;
-  messageText.value = message.text;
-  selectedMessage.value = message;
-  isEditingMessage.value = true;
-  
-  nextTick(() => {
-    if (messageInput.value) {
-      messageInput.value.focus();
-    }
+  console.log('Вызвана функция startEditingMessage в InputArea.vue', message);
+  console.log('Детали сообщения в InputArea.vue:', {
+    id: message?._id,
+    text: message?.text,
+    sender: message?.sender?._id,
+    'authStore.user._id': authStore.user?._id
   });
   
-  // Оповещаем родительский компонент
-  emit('editing-started', message);
+  try {
+    // Проверяем, что сообщение существует
+    if (!message) {
+      console.warn('Не можем редактировать: сообщение не передано');
+      return;
+    }
+    
+    console.log('Начинаем редактирование сообщения в InputArea.vue');
+    
+    // Устанавливаем значения для редактирования
+    console.log('Устанавливаем значения для редактирования');
+    originalMessageText.value = message.text;
+    editingMessageText.value = message.text;
+    messageText.value = message.text;
+    selectedMessage.value = message;
+    isEditingMessage.value = true;
+    
+    console.log('Значения установлены:', {
+      originalMessageText: originalMessageText.value,
+      editingMessageText: editingMessageText.value,
+      messageText: messageText.value,
+      selectedMessage: selectedMessage.value?._id,
+      isEditingMessage: isEditingMessage.value
+    });
+  
+    nextTick(() => {
+      if (messageInput.value) {
+        messageInput.value.focus();
+      }
+    });
+    
+    // Оповещаем родительский компонент
+    emit('editing-started', message);
+  } catch (error) {
+    console.error('Ошибка при редактировании сообщения:', error);
+  }
 };
 
 const cancelEditingMessage = () => {
@@ -325,16 +517,291 @@ const addNewLine = () => {
   });
 };
 
-// Публичные методы
+// Публичные методы и свойства для родительского компонента
 defineExpose({
+  // Методы для редактирования сообщений
   startEditingMessage,
   cancelEditingMessage,
+  saveEditedMessage,
+  // Методы для управления размерами
   adjustContainerHeight,
   adjustTextareaHeight,
-  messageText
+  // Свойства
+  messageText,
+  // DOM-элементы
+  inputArea,
+  messageInput,
+  inputContainer
 });
 
 // Функция checkMobile определена выше
+
+// Функции для работы с файлами
+// Открыть диалог выбора файлов
+const openFileSelector = () => {
+  if (fileInput.value) {
+    fileInput.value.click();
+  }
+};
+
+// Обработка выбранных файлов
+const handleFileSelected = (event) => {
+  const files = event.target.files;
+  if (files && files.length > 0) {
+    // Добавляем выбранные файлы в массив
+    for (let i = 0; i < files.length; i++) {
+      selectedFiles.value.push(files[i]);
+    }
+    // Сбрасываем значение инпута, чтобы можно было выбрать тот же файл снова
+    event.target.value = '';
+  }
+};
+
+// Удаление файла из списка выбранных
+const removeFile = (index) => {
+  selectedFiles.value.splice(index, 1);
+};
+
+// Проверка, является ли файл изображением
+const isImageFile = (file) => {
+  return file.type.startsWith('image/');
+};
+
+// Получение URL для предпросмотра изображения
+const getImagePreview = (file) => {
+  if (isImageFile(file)) {
+    return URL.createObjectURL(file);
+  }
+  return '';
+};
+
+// Определяем иконку для файла в зависимости от его типа
+const getFileIconComponent = (file) => {
+  const fileType = file.type || '';
+  const extension = file.name.split('.').pop().toLowerCase();
+  
+  if (fileType.startsWith('image/') || isImageFile(file)) {
+    return ImageFileIcon;
+  } else if (['doc', 'docx', 'pdf', 'txt'].includes(extension) || 
+           fileType.includes('pdf') || 
+           fileType.includes('word') || 
+           fileType === 'text/plain') {
+    return DocFileIcon;
+  } else {
+    return FileIcon;
+  }
+};
+
+// Получение иконки для файла в зависимости от его типа
+const getFileIcon = (file) => {
+  const fileType = file.type || '';
+  const extension = file.name.split('.').pop().toLowerCase();
+  
+  if (fileType.startsWith('image/')) {
+    return 'fas fa-image';
+  } else if (extension === 'pdf' || fileType === 'application/pdf') {
+    return 'fas fa-file-pdf';
+  } else if (['doc', 'docx'].includes(extension) || fileType.includes('word')) {
+    return 'fas fa-file-word';
+  } else if (['xls', 'xlsx'].includes(extension) || fileType.includes('excel') || fileType.includes('spreadsheet')) {
+    return 'fas fa-file-excel';
+  } else if (extension === 'txt' || fileType === 'text/plain') {
+    return 'fas fa-file-alt';
+  } else {
+    return 'fas fa-file';
+  }
+};
+
+// Отправка файлов
+const sendFiles = async () => {
+  if (selectedFiles.value.length === 0) return;
+  
+  try {
+    // Создаем FormData для отправки файлов
+    const formData = new FormData();
+    formData.append('chatId', props.chatId);
+    
+    // Добавляем все файлы в FormData
+    selectedFiles.value.forEach((file, index) => {
+      formData.append('files', file);
+    });
+    
+    // Добавляем текст сообщения, если он есть
+    if (messageText.value.trim()) {
+      formData.append('text', messageText.value.trim());
+    }
+    
+    // Отправляем файлы на сервер
+    await chatStore.sendFiles(formData);
+    
+    // Очищаем список выбранных файлов и поле ввода
+    selectedFiles.value = [];
+    messageText.value = '';
+    
+    // Сбрасываем высоту textarea вручную
+    if (messageInput.value) {
+      messageInput.value.style.height = '45px';
+    }
+    
+    // Вызываем adjustTextareaHeight для обновления высоты
+    nextTick(() => {
+      adjustTextareaHeight();
+      adjustContainerHeight(true);
+    });
+    
+    // Оповещаем родительский компонент
+    emit('message-sent', { chatId: props.chatId, files: true });
+  } catch (error) {
+    console.error('[Файлы] Ошибка при отправке файлов:', error);
+  }
+};
+
+// Функции для работы с голосовыми сообщениями
+// Начать запись голосового сообщения
+const startRecording = async () => {
+  // Проверяем, есть ли текст в поле ввода
+  if (messageText.value.trim()) {
+    sendMessage();
+    return;
+  }
+  
+  try {
+    // Запрашиваем доступ к микрофону
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    
+    // Создаем MediaRecorder
+    mediaRecorder.value = new MediaRecorder(stream);
+    audioChunks.value = [];
+    
+    // Обработчик для сохранения частей аудио
+    mediaRecorder.value.ondataavailable = (event) => {
+      if (event.data.size > 0) {
+        audioChunks.value.push(event.data);
+      }
+    };
+    
+    // Начинаем запись
+    mediaRecorder.value.start();
+    isRecording.value = true;
+    recordingStartTime.value = Date.now();
+    
+    // Запускаем таймер для отображения времени записи
+    recordingTimer.value = setInterval(updateRecordingTime, 1000);
+    
+    console.log('[Запись] Началась запись голосового сообщения');
+  } catch (error) {
+    console.error('[Запись] Ошибка при начале записи:', error);
+  }
+};
+
+// Обновление времени записи
+const updateRecordingTime = () => {
+  const elapsed = Math.floor((Date.now() - recordingStartTime.value) / 1000);
+  const minutes = Math.floor(elapsed / 60).toString().padStart(2, '0');
+  const seconds = (elapsed % 60).toString().padStart(2, '0');
+  recordingTime.value = `${minutes}:${seconds}`;
+};
+
+// Остановить запись и отправить голосовое сообщение
+const stopAndSendRecording = () => {
+  if (!isRecording.value || !mediaRecorder.value) return;
+  
+  // Останавливаем запись
+  mediaRecorder.value.stop();
+  
+  // Обработчик завершения записи
+  mediaRecorder.value.onstop = async () => {
+    try {
+      // Создаем аудиофайл из частей
+      const audioBlob = new Blob(audioChunks.value, { type: 'audio/webm' });
+      
+      // Создаем файл для отправки
+      const audioFile = new File([audioBlob], `voice_message_${Date.now()}.webm`, { type: 'audio/webm' });
+      
+      // Создаем FormData для отправки файла
+      const formData = new FormData();
+      formData.append('chatId', props.chatId);
+      formData.append('files', audioFile);
+      formData.append('media_type', 'audio');
+      
+      // Отправляем голосовое сообщение на сервер
+      await chatStore.sendFiles(formData);
+      
+      console.log('[Запись] Голосовое сообщение отправлено');
+      
+      // Оповещаем родительский компонент
+      emit('message-sent', { chatId: props.chatId, audio: true });
+    } catch (error) {
+      console.error('[Запись] Ошибка при отправке голосового сообщения:', error);
+    } finally {
+      // Сбрасываем состояние записи
+      resetRecording();
+    }
+  };
+};
+
+// Отменить запись голосового сообщения
+const cancelRecording = () => {
+  if (!isRecording.value || !mediaRecorder.value) return;
+  
+  // Останавливаем запись
+  mediaRecorder.value.stop();
+  
+  // Сбрасываем состояние записи
+  resetRecording();
+  
+  console.log('[Запись] Запись голосового сообщения отменена');
+};
+
+// Сбросить состояние записи
+const resetRecording = () => {
+  // Останавливаем таймер
+  if (recordingTimer.value) {
+    clearInterval(recordingTimer.value);
+    recordingTimer.value = null;
+  }
+  
+  // Останавливаем все треки
+  if (mediaRecorder.value && mediaRecorder.value.stream) {
+    mediaRecorder.value.stream.getTracks().forEach(track => track.stop());
+  }
+  
+  // Сбрасываем состояние
+  isRecording.value = false;
+  recordingTime.value = '00:00';
+  mediaRecorder.value = null;
+  audioChunks.value = [];
+};
+
+// Обработчики для мобильных устройств
+const handleTouchStart = () => {
+  // Запускаем таймер для определения длительного нажатия
+  longPressTimer.value = setTimeout(() => {
+    isLongPress.value = true;
+    startRecording();
+  }, 500); // 500 мс для определения длительного нажатия
+};
+
+const handleTouchEnd = () => {
+  // Отменяем таймер длительного нажатия
+  if (longPressTimer.value) {
+    clearTimeout(longPressTimer.value);
+    longPressTimer.value = null;
+  }
+  
+  // Если было длительное нажатие и запись активна, останавливаем и отправляем
+  if (isLongPress.value && isRecording.value) {
+    stopAndSendRecording();
+  } else if (!isLongPress.value) {
+    // Если это было короткое нажатие, просто начинаем запись
+    startRecording();
+  }
+  
+  // Сбрасываем флаг длительного нажатия
+  isLongPress.value = false;
+};
+
+// Функции для редактирования сообщений экспортированы выше через defineExpose
 
 // Жизненный цикл компонента
 onMounted(() => {
@@ -342,11 +809,6 @@ onMounted(() => {
   checkMobile();
   window.addEventListener('resize', checkMobile);
   adjustContainerHeight(true);
-  
-  // Удаляем слушатель при размонтировании
-  onUnmounted(() => {
-    window.removeEventListener('resize', checkMobile);
-  });
 });
 </script>
 
@@ -356,81 +818,287 @@ onMounted(() => {
 .input_area
   position: relative
   width: 100%
-  padding: 10px
   max-width: 700px
   align-self: center
 
 .input_container
   display: flex
   align-items: flex-end
-  background-color: $primary-bg
   border-radius: $radius
   position: relative
-
+  
 .message_input
   flex: 1
-  border: none
   background: transparent
+  border: none
   resize: none
-  height: 45px
-  max-height: 150px
-  padding: 10px 0
+  padding: 10px 35px 10px 10px !important // Увеличиваем отступ слева для кнопки скрепки
+  color: $white
   font-size: 14px
   line-height: 1.4
-  color: $white
+  max-height: 150px
+  overflow-y: auto
+  
+  &::placeholder
+    color: $service-color
   
   &:focus
     outline: none
 
-.button_container
-  display: flex
-  align-items: center
-
-.send_button
-  background-color: $purple 
-  color: white
-  border: none
+// Кнопка для загрузки файлов (скрепка)
+.attachment_button
+  position: absolute
+  right: 65px
+  bottom: 12px
+  width: 20px
+  height: 20px
   border-radius: 50%
-  width: 45px
-  height: 45px
+  background-color: transparent
+  border: none
   display: flex
   align-items: center
   justify-content: center
+  color: $service-color
   cursor: pointer
-  transition: background-color 0.2s
+  transition: color 0.2s ease
+  z-index: 2
+  
+  &:hover
+    color: $white
+  
+  .file-input
+    display: none
+    
+// Кнопка отправки сообщения
+.send_button
+  width: 45px
+  height: 45px
+  border-radius: 50%
+  background-color: $purple
+  border: none
+  display: flex
+  align-items: center
+  justify-content: center
+  color: $white
+  cursor: pointer
+  transition: background-color 0.2s ease
   margin-left: 8px
+  position: relative
+  
+  &:hover
+    background-color: darken($purple, 10%)
   
   &:disabled
-    background-color: rgba(108, 92, 231, 0.4); // Серый полупрозрачный цвет
+    background-color: $service-color
     cursor: not-allowed
   
-  &:hover:not(:disabled)
-    background-color: darken($purple, 10%)
+  // Стили для кнопки записи
+  &.record-button
+    background-color: $purple
+    
+    &:hover
+      background-color: darken($purple, 10%)
+  
+  // Стили для иконок
+  .icon
+    width: 20px
+    height: 20px
+    stroke: white
+    stroke-width: 2
+    display: block
+    margin: 0 auto
+    transform: translate(-1px)
+    animation: fadeIn 0.5s ease
 
+    
+  @keyframes fadeIn
+    0%
+      opacity: 0
+    100%
+      opacity: 1
+
+// Индикатор редактирования сообщения
 .editing-indicator
   display: flex
   align-items: center
   justify-content: space-between
+  padding: 5px 10px
   background-color: rgba(255, 255, 255, 0.1)
-  color: $white
-  padding: 8px 12px
   border-radius: $radius
-  margin-bottom: 8px
-  font-size: 13px
-
-.editing-text
-  flex: 1
-
-.cancel-btn
-  background: none
-  border: none
-  color: $white
-  font-weight: bold
-  cursor: pointer
-  padding: 0 8px
-  font-size: 16px
+  margin-bottom: 10px
   
-  &:hover
+  .editing-text
+    color: $white
+    font-size: 14px
+    
+    i
+      margin-right: 5px
+  
+  .cancel-btn
+    border-radius: 50%
+    background-color: $purple
+    color: $white
+    width: 24px
+    height: 24px
+    border: none
+    display: flex
+    align-items: center
+    justify-content: center
+    cursor: pointer
+    
+    &:hover
+      background-color: darken($purple, 10%)
+
+// Индикатор записи голосового сообщения
+.recording-indicator
+  display: flex
+  align-items: center
+  justify-content: space-between
+  padding: 5px 10px
+  background-color: rgba(255, 0, 0, 0.2)
+  border-radius: $radius
+  margin-bottom: 10px
+  
+  .recording-text
+    color: $white
+    font-size: 14px
+    display: flex
+    align-items: center
+    
+    i
+      margin-right: 5px
+      color: $red
+      
+      &.pulse
+        animation: pulse 1.5s infinite
+  
+  .recording-actions
+    display: flex
+    align-items: center
+    
+    button
+      width: 30px
+      height: 30px
+      border-radius: 50%
+      border: none
+      display: flex
+      align-items: center
+      justify-content: center
+      cursor: pointer
+      margin-left: 5px
+      
+      &.cancel-recording-btn
+        background-color: $red
+        color: $white
+        
+        &:hover
+          background-color: darken($red, 10%)
+      
+      &.send-recording-btn
+        background-color: $green
+        color: $white
+        
+        &:hover
+          background-color: darken($green, 10%)
+
+// Предпросмотр выбранных файлов
+.selected-files-preview
+  margin-bottom: 10px
+  max-height: 200px
+  overflow-y: auto
+  @include custom-scrollbar
+  
+  .files-grid
+    display: grid
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr))
+    gap: 10px
+  
+  // Стили для элемента предпросмотра файла
+  .file-preview-item
+    height: 120px;
+    position: relative
+    border-radius: 15px
+    display: flex
+    overflow: hidden
+    align-items: center
+    justify-content: center
+    text-align: center
+    color: $white
+    
+    // Стили для предпросмотра изображения
+    .image-preview
+      position: relative
+      width: 100%
+      height: 120px
+      
+      img
+        width: 100%
+        height: 100%
+        object-fit: cover
+        border-radius: $radius
+      
+  // Общие стили для кнопки удаления файлов
+  .remove-file-btn
+    position: absolute
+    top: 5px
+    right: 5px
+    background-color: rgba(0, 0, 0, 0.5)
+    border-radius: 50%
+    width: 24px
+    height: 24px
+    display: flex
+    align-items: center
+    justify-content: center
+    border: none
+    color: $white
+    cursor: pointer
+    z-index: 2
+    
+    &:hover
+      background-color: rgba(0, 0, 0, 0.7)
+    
+    // Стили для предпросмотра не-изображений
+  .file-preview
+    position: relative
+    display: flex
+    flex-direction: column
+    align-items: center
+    justify-content: center
+    background-color: rgba(255, 255, 255, 0.1)
+    border-radius: $radius
+    padding: 15px 10px
+    height: 100%
+    
+    .file-info
+      display: flex
+      flex-direction: column
+      align-items: center
+      justify-content: center
+      width: 100%
+      gap: 5px
+      
+      .file-type-icon
+        width: 40px
+        height: 40px
+        color: $purple
+      
+      .file-name
+        color: $white
+        font-size: 12px
+        text-align: center
+        max-width: 100px
+        overflow: hidden
+    
+    // Стили для кнопки удаления перенесены в общие стили выше
+
+// Анимация пульсации для индикатора записи
+@keyframes pulse
+  0%
+    opacity: 1
+  50%
+    opacity: 0.5
+  100%
+    opacity: 1
     opacity: 0.8
 
 // Мобильные стили

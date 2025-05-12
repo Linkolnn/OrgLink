@@ -52,14 +52,16 @@ const createChat = async (req, res) => {
       participantIds.push(req.user._id);
     }
     
-    // Создаем новый чат
+    console.log(`Создание нового чата типа: ${type}, с участниками:`, participants);
+  
     const chatData = {
       name,
-      creator: req.user._id,
-      participants: participantIds,
+      description,
       type,
-      isGroup: type === 'group',
-      description: description || ''
+      creator: req.user._id,
+      participants: [...new Set([...participants, req.user._id])], // Добавляем создателя и удаляем дубликаты
+      isGroup: type === 'group', // Для обратной совместимости
+      avatar: null
     };
     
     // Если загружен аватар, добавляем его
@@ -89,17 +91,70 @@ const createChat = async (req, res) => {
     }
     
     // Создаем первое сообщение, если оно было передано
-    if (initialMessage) {
-      const firstMessage = await Message.create({
-        chat: populatedChat._id,
-        sender: req.user._id,
-        text: initialMessage,
-        read_by: [req.user._id]
-      });
+    if (initialMessage || (req.body.files && req.body.files.length > 0)) {
+      // Определяем тип сообщения в зависимости от типа чата
+      // Для приватных чатов - обычное сообщение, для групповых - служебное
+      const messageType = populatedChat.type === 'private' ? 'default' : 'service';
+      console.log(`Создание первого сообщения для чата типа ${populatedChat.type} с типом сообщения ${messageType}`);
+      console.log(`Текст первого сообщения: ${initialMessage || ''}`);
       
-      // Загружаем данные отправителя
-      await firstMessage.populate('sender', 'name email avatar');
-      messages.push(firstMessage);
+      // Проверяем, есть ли файлы в запросе
+      const files = req.body.files || [];
+      console.log(`Файлы в первом сообщении:`, files.length > 0 ? files.length : 'нет');
+      
+      try {
+        // Создаем объект с данными для первого сообщения
+        const messageData = {
+          chat: populatedChat._id,
+          sender: req.user._id,
+          text: initialMessage || '',
+          read_by: [req.user._id],
+          type: messageType // Явно устанавливаем тип сообщения
+        };
+        
+        // Добавляем файлы, если они есть
+        if (files && files.length > 0) {
+          // Определяем тип медиа на основе первого файла
+          let media_type = 'none';
+          const firstFile = files[0];
+          
+          if (firstFile.mime_type && firstFile.mime_type.startsWith('image/')) {
+            media_type = 'image';
+          } else if (firstFile.mime_type && firstFile.mime_type.startsWith('video/')) {
+            media_type = 'video';
+          } else {
+            media_type = 'file';
+          }
+          
+          messageData.media_type = media_type;
+          messageData.files = files;
+          
+          // Для обратной совместимости с существующими клиентами
+          if (files.length === 1) {
+            messageData.file = files[0].file_url;
+            messageData.file_name = files[0].file_name;
+            messageData.mime_type = files[0].mime_type;
+          }
+        }
+        
+        const firstMessage = await Message.create(messageData);
+        
+        console.log(`Первое сообщение создано с ID: ${firstMessage._id}`);
+        
+        // Загружаем данные отправителя
+        await firstMessage.populate('sender', 'name email avatar');
+        messages.push(firstMessage);
+        
+        // Обновляем последнее сообщение в чате
+        populatedChat.lastMessage = {
+          text: initialMessage,
+          sender: req.user._id,
+          timestamp: new Date()
+        };
+        await populatedChat.save();
+      } catch (error) {
+        console.error(`Ошибка при создании первого сообщения:`, error);
+      }
     }
     
     // Добавляем сообщения в ответ

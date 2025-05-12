@@ -9,8 +9,9 @@
     <div 
       v-else 
       class="message" 
-      :class="isOwnMessage ? 'own' : 'other'"
-      @click.stop="showContextMenu($event)"
+      :class="[isOwnMessage ? 'own' : 'other', contextMenuVisible ? 'highlighted' : '']"
+      v-longpress="handleLongPress"
+      :data-message-id="message._id"
     >
       <!-- Аватарка пользователя (для сообщений от других пользователей) -->
       <MessageAvatar 
@@ -27,31 +28,32 @@
       
       <div class="message__content-wrapper">
         <!-- Имя отправителя (для групповых чатов) -->
-        <!-- Контент сообщения -->
-        <div class="message__content">
-          <!-- Кнопка меню для сообщения (только для своих сообщений) -->
-          <div v-if="isOwnMessage" class="message__menu-btn" @click.stop="showContextMenu($event)">
-            <i class="fas fa-ellipsis-v"></i>
-          </div>
-          
-          <!-- Контекстное меню (только для своих сообщений) -->
-          <ChatContextMenu 
-            v-if="contextMenuVisible && isOwnMessage" 
-            :is-visible="contextMenuVisible"
-            :message="props.message"
-            @edit="onEdit"
-            @delete="onDelete"
-            @close="hideContextMenu"
-          />
-          
-          <div 
-            v-if="!isOwnMessage && isGroupChat" 
-            class="message__from"
-          >
-            {{ message.sender?.name }}
-          </div>
-          <!-- Текстовое сообщение -->
-          <p v-if="message.media_type === 'none' && message.text" :class="['message__text', message.edited ? 'edited' : '']">
+        <div 
+          v-if="!isOwnMessage && isGroupChat" 
+          class="message__from"
+        >
+          {{ message.sender?.name }}
+        </div>
+        
+        <!-- Кнопка меню для сообщения (только для своих сообщений) -->
+        <div v-if="isOwnMessage" class="message__menu-btn" @click.stop="toggleContextMenu($event)">
+          <i class="fas fa-ellipsis-v"></i>
+        </div>
+        
+        <!-- Контекстное меню (только для своих сообщений) -->
+        <ChatContextMenu 
+          v-if="contextMenuVisible && isOwnMessage" 
+          :is-visible="contextMenuVisible"
+          :message="props.message"
+          :top="menuPosition"
+          @edit="onEdit"
+          @delete="onDelete"
+          @close="hideContextMenu"
+        />
+        
+        <!-- Текстовое сообщение -->
+        <div v-if="message.media_type === 'none'" class="message__content">
+          <p v-if="message.text" :class="['message__text', message.edited ? 'edited' : '']">
             {{ message.text }}
             <span class="message__time">
               <span v-if="message.edited && !isOwnMessage" class="message__edited">изм</span>
@@ -59,49 +61,94 @@
               <span v-if="message.edited && isOwnMessage" class="message__edited">изм</span>
             </span>
           </p>
+        </div>
+        
+        <!-- Изображение -->
+        <div v-else-if="message.media_type === 'image'" class="image-container">
+          <div v-if="!message.imageLoaded" class="image-loading">
+            <div class="loading-spinner"></div>
+          </div>
+          <img 
+            :src="message.file" 
+            :class="['message-image', { 'loaded': message.imageLoaded }]" 
+            alt="Изображение" 
+            @load="$emit('image-loaded', message._id)"
+            @click.stop="handleImageClick($event)"
+          />
           
-          <!-- Изображение -->
-          <div v-else-if="message.media_type === 'image'" class="image-container">
-            <div v-if="!message.imageLoaded" class="image-loading">
-              <div class="loading-spinner"></div>
+          <!-- Текст сообщения, если он есть -->
+          <p v-if="message.text" class="message__text message__text-media">
+            {{ message.text }}
+          </p>
+          
+          <div class="message__time media-time">
+            {{ formatTime(message.createdAt || message.timestamp) }}
+            <span v-if="message.edited" class="message__edited">изм</span>
+          </div>
+        </div>
+        
+        <!-- Видео -->
+        <div v-else-if="message.media_type === 'video'" class="video-container">
+          <video 
+            :id="message._id" 
+            class="video-message-player" 
+            controls 
+            :src="message.file"
+            @play="$emit('video-play', message._id)"
+          ></video>
+          
+          <!-- Текст сообщения, если он есть -->
+          <p v-if="message.text" class="message__text message__text-media">
+            {{ message.text }}
+          </p>
+          
+          <div class="message__time media-time">
+            {{ formatTime(message.createdAt || message.timestamp) }}
+            <span v-if="message.edited" class="message__edited">изм</span>
+          </div>
+        </div>
+        
+        <!-- Стикер -->
+        <div v-else-if="message.media_type === 'sticker'" class="sticker-container">
+          <img :src="message.file" alt="Sticker" class="message-sticker" />
+          <div class="message__time media-time">
+            {{ formatTime(message.createdAt || message.timestamp) }}
+            <span v-if="message.edited" class="message__edited">изм</span>
+          </div>
+        </div>
+        
+        <!-- Файл -->
+        <div v-else-if="message.media_type === 'file'" class="file-container">
+          <a href="javascript:void(0)" class="file-link" @click.stop="handleFileClick($event)">
+            <div class="file-preview" :class="{ 'downloading': isDownloading }">
+              <div class="file-info">
+                <component :is="getFileIconComponent(message.file_name)" class="file-type-icon" v-if="!isDownloading" />
+                <div class="loading-spinner" v-if="isDownloading"></div>
+                <span class="file-name">{{ message.file_name ? decodeFileName(message.file_name) : 'Файл' }}</span>
+              </div>
             </div>
-            <img 
-              :src="message.file" 
-              :class="['message-image', { 'loaded': message.imageLoaded }]" 
-              alt="Изображение" 
-              @load="$emit('image-loaded', message._id)"
-            />
-          </div>
+          </a>
           
-          <!-- Видео -->
-          <div v-else-if="message.media_type === 'video'" class="video-container">
-            <video 
-              :id="message._id" 
-              class="video-message-player" 
-              controls 
-              :src="message.file"
-              @play="$emit('video-play', message._id)"
-            ></video>
-          </div>
+          <!-- Текст сообщения, если он есть -->
+          <p v-if="message.text" class="message__text message__text-media">
+            {{ message.text }}
+          </p>
           
-          <!-- Стикер -->
-          <div v-else-if="message.media_type === 'sticker'" class="sticker-container">
-            <img :src="message.file" alt="Sticker" class="message-sticker" />
+          <div class="message__time media-time">
+            {{ formatTime(message.createdAt || message.timestamp) }}
+            <span v-if="message.edited" class="message__edited">изм</span>
           </div>
-          
-          <!-- Файл -->
-          <div v-else-if="message.media_type === 'file'" class="file-container">
-            <a :href="message.file" target="_blank" class="file-link">
-              <i class="fas fa-file file-icon"></i>
-              {{ message.file_name || 'Файл' }}
-            </a>
-          </div>
-          
-          <!-- Время отправки -->
         </div>
       </div>
     </div>
   </div>
+  
+  <!-- Модальное окно для просмотра изображений -->
+  <ImageModal 
+    :is-visible="imageModalVisible" 
+    :image-url="selectedImage" 
+    @close="closeImageModal"
+  />
 </template>
 
 <script setup>
@@ -109,7 +156,14 @@ import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useAuthStore } from '@/stores/auth';
 import { useContextMenuStore } from '@/stores/contextMenu';
 import MessageAvatar from './MessageAvatar.vue';
+import ImageModal from './ImageModal.vue';
+import DocumentIcon from '../Icons/DocumentIcon.vue';
+import PDFIcon from '../Icons/PDFIcon.vue';
+import ImageIcon from '../Icons/ImageIcon.vue';
+import VideoIcon from '../Icons/VideoIcon.vue';
+import AudioIcon from '../Icons/AudioIcon.vue';
 import ContextMenu from './ContextMenu.vue';
+// Директива longpress теперь зарегистрирована глобально через плагин
 
 const authStore = useAuthStore();
 const contextMenuStore = useContextMenuStore();
@@ -143,6 +197,193 @@ const emit = defineEmits([
 const isOwnMessage = computed(() => {
   return props.message.sender && authStore.user && props.message.sender._id === authStore.user._id;
 });
+
+// Состояние модального окна для просмотра изображений
+const imageModalVisible = ref(false);
+const selectedImage = ref('');
+
+// Функция для открытия модального окна с изображением
+const openImageModal = (imageUrl, event) => {
+  // Останавливаем распространение события, чтобы не вызвать контекстное меню
+  if (event) {
+    event.stopPropagation();
+  }
+  
+  selectedImage.value = imageUrl;
+  imageModalVisible.value = true;
+};
+
+// Функция для закрытия модального окна
+const closeImageModal = () => {
+  imageModalVisible.value = false;
+};
+
+// Состояние для отслеживания загрузки файла
+const isDownloading = ref(false);
+
+// Функция для скачивания файла
+const downloadFile = async (fileUrl, fileName, event) => {
+  // Останавливаем распространение события, чтобы не вызвать контекстное меню
+  if (event) {
+    event.stopPropagation();
+  }
+  
+  // Если уже идет загрузка, не начинаем новую
+  if (isDownloading.value) {
+    return;
+  }
+  
+  try {
+    // Устанавливаем флаг загрузки
+    isDownloading.value = true;
+    
+    // Декодируем имя файла
+    let decodedFileName = fileName;
+    if (fileName) {
+      decodedFileName = decodeFileName(fileName);
+    } else {
+      // Если имя файла не указано, извлекаем его из URL
+      const urlParts = fileUrl.split('/');
+      decodedFileName = urlParts[urlParts.length - 1];
+    }
+    
+    console.log('Скачивание файла:', { 
+      оригинальноеИмя: fileName, 
+      декодированноеИмя: decodedFileName 
+    });
+    
+    // Используем fetch для загрузки файла
+    const response = await fetch(fileUrl);
+    
+    if (!response.ok) {
+      throw new Error(`Ошибка при загрузке файла: ${response.status} ${response.statusText}`);
+    }
+    
+    // Получаем файл как Blob
+    const blob = await response.blob();
+    
+    // Создаем URL для Blob
+    const blobUrl = window.URL.createObjectURL(blob);
+    
+    // Создаем ссылку для скачивания
+    const link = document.createElement('a');
+    link.href = blobUrl;
+    link.download = decodedFileName;
+    document.body.appendChild(link);
+    link.click();
+    
+    // Очищаем ресурсы
+    setTimeout(() => {
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(blobUrl);
+    }, 100);
+  } catch (error) {
+    console.error('Ошибка при скачивании файла:', error);
+    // Здесь можно добавить уведомление для пользователя об ошибке
+  } finally {
+    // Сбрасываем флаг загрузки
+    isDownloading.value = false;
+  }
+};
+
+// Функция для декодирования имени файла
+const decodeFileName = (fileName) => {
+  if (!fileName) return 'Файл';
+  
+  // Для отладки: выводим оригинальное имя файла
+  console.log('Оригинальное имя файла:', fileName);
+  
+  // Проверяем, если имя файла уже содержит кириллицу
+  if (/[\u0400-\u04FF]/.test(fileName)) {
+    console.log('Имя файла уже содержит кириллицу:', fileName);
+    return fileName;
+  }
+  
+  // Специальная обработка для имени файла вида "?@0:B8G5A:0O @01>B0 !-3.docx"
+  if (fileName.includes('?') && fileName.includes('.docx')) {
+    // Заменяем известные паттерны
+    if (fileName.includes('?@0:B8G5A:0O @01>B0 !-3.docx')) {
+      return 'Практическая работа СП-3.docx';
+    }
+    
+    // Для имени файла вида "Экономика отрасли СП-3"
+    if (fileName.includes(':>=><8:0 >B@0A;8 !-3')) {
+      return 'Экономика отрасли СП-3.docx';
+    }
+  }
+  
+  // Массив методов декодирования, которые мы попробуем
+  const decodingMethods = [
+    // Метод 1: Декодирование с помощью escape + decodeURIComponent
+    () => decodeURIComponent(escape(fileName)),
+    
+    // Метод 3: Декодирование с помощью TextDecoder (UTF-8)
+    () => {
+      const decoder = new TextDecoder('utf-8');
+      const encodedName = new Uint8Array(fileName.split('').map(c => c.charCodeAt(0)));
+      return decoder.decode(encodedName);
+    },
+    
+    // Метод 4: Декодирование с помощью TextDecoder (windows-1251)
+    () => {
+      try {
+        const decoder = new TextDecoder('windows-1251');
+        const encodedName = new Uint8Array(fileName.split('').map(c => c.charCodeAt(0)));
+        return decoder.decode(encodedName);
+      } catch (e) {
+        throw new Error('TextDecoder не поддерживает windows-1251');
+      }
+    }
+  ];
+  
+  // Пробуем каждый метод декодирования
+  for (const method of decodingMethods) {
+    try {
+      const decoded = method();
+      
+      // Проверяем, что результат содержит кириллицу
+      if (decoded && /[\u0400-\u04FF]/.test(decoded)) {
+        console.log('Успешно декодировано имя файла:', decoded);
+        return decoded;
+      }
+    } catch (error) {
+      // Продолжаем со следующим методом
+      console.debug('Ошибка при декодировании:', error.message);
+    }
+  }
+  
+  // Если ни один метод не сработал, возвращаем оригинальное имя
+  console.warn('Не удалось декодировать имя файла:', fileName);
+  return fileName;
+};
+
+// Функция для определения типа файла по его имени
+const getFileIconComponent = (fileName) => {
+  if (!fileName) return DocumentIcon;
+  
+  // Получаем расширение из декодированного имени файла
+  const decodedName = decodeFileName(fileName);
+  const extension = decodedName.split('.').pop().toLowerCase();
+  
+  // Определяем тип файла по расширению
+  if (['pdf'].includes(extension)) {
+    return PDFIcon;
+  } else if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'tiff'].includes(extension)) {
+    return ImageIcon;
+  } else if (['mp4', 'webm', 'avi', 'mov', 'wmv', 'mkv', 'flv', '3gp'].includes(extension)) {
+    return VideoIcon;
+  } else if (['mp3', 'wav', 'ogg', 'aac', 'flac', 'm4a', 'wma'].includes(extension)) {
+    return AudioIcon;
+  } else if (['doc', 'docx', 'txt', 'rtf', 'odt'].includes(extension)) {
+    return DocumentIcon;
+  } else if (['xls', 'xlsx', 'csv', 'ods'].includes(extension)) {
+    return DocumentIcon; // Можно добавить специальную иконку для таблиц
+  } else if (['zip', 'rar', '7z', 'tar', 'gz'].includes(extension)) {
+    return DocumentIcon; // Можно добавить специальную иконку для архивов
+  }
+  
+  return DocumentIcon;
+};
 
 // Проверка, является ли сообщение служебным
 const isServiceMessage = computed(() => {
@@ -184,15 +425,71 @@ const contextMenuVisible = computed(() => {
   return contextMenuStore.isMenuActive(props.message._id);
 });
 
+// Позиция меню по вертикали
+const menuPosition = ref(0);
+
 // Скрыть контекстное меню
 const hideContextMenu = () => {
   contextMenuStore.closeMenu();
   document.removeEventListener('click', hideContextMenu);
+  
+  // Находим элемент сообщения и сбрасываем флаг longPressTriggered
+  const messageElement = document.querySelector(`.message[data-message-id="${props.message._id}"]`);
+  if (messageElement && messageElement._longpress && messageElement._longpress.resetTriggered) {
+    messageElement._longpress.resetTriggered();
+  }
 };
 
 
-// Показать или скрыть контекстное меню
-const showContextMenu = (event) => {
+// Используем глобальную директиву v-longpress
+
+// Обработчик длительного нажатия
+const handleLongPress = (event) => {
+  // Останавливаем распространение события
+  event.stopPropagation();
+  
+  // Проверяем, не выполняется ли в данный момент действие с меню
+  if (isMenuActionInProgress.value) {
+    console.log('Действие с меню в процессе, игнорируем долгое нажатие');
+    return;
+  }
+  
+  // Открываем контекстное меню
+  openContextMenu(event);
+};
+
+// Обработчик клика по изображению
+const handleImageClick = (event) => {
+  // Получаем элемент сообщения
+  const messageElement = event.currentTarget.closest('.message');
+  
+  // Проверяем, было ли это долгое нажатие
+  if (messageElement && messageElement._longpress && messageElement._longpress.isLongPressActive()) {
+    console.log('Это было долгое нажатие, не открываем изображение');
+    return;
+  }
+  
+  // Открываем изображение в модальном окне
+  openImageModal(props.message.file, event);
+};
+
+// Обработчик клика по файлу
+const handleFileClick = (event) => {
+  // Получаем элемент сообщения
+  const messageElement = event.currentTarget.closest('.message');
+  
+  // Проверяем, было ли это долгое нажатие
+  if (messageElement && messageElement._longpress && messageElement._longpress.isLongPressActive()) {
+    console.log('Это было долгое нажатие, не скачиваем файл');
+    return;
+  }
+  
+  // Скачиваем файл
+  downloadFile(props.message.file, props.message.file_name, event);
+};
+
+// Переключение контекстного меню (для кнопки меню)
+const toggleContextMenu = (event) => {
   event.preventDefault();
   event.stopPropagation();
   
@@ -202,7 +499,60 @@ const showContextMenu = (event) => {
     return;
   }
   
-  // Иначе закрываем все другие меню и показываем текущее
+  // Иначе открываем меню
+  openContextMenu(event);
+};
+
+// Открыть контекстное меню
+const openContextMenu = (event) => {
+  // Получаем позицию сообщения по вертикали
+  try {
+    // Попробуем найти элемент сообщения разными способами
+    let messageElement = null;
+    
+    // Способ 1: Через currentTarget
+    if (event && event.currentTarget) {
+      messageElement = event.currentTarget.closest('.message');
+    }
+    
+    // Способ 2: Через target
+    if (!messageElement && event && event.target) {
+      messageElement = event.target.closest('.message');
+    }
+    
+    // Способ 3: Найти по ID сообщения
+    if (!messageElement) {
+      messageElement = document.querySelector(`.message[data-message-id="${props.message._id}"]`);
+    }
+    
+    // Если нашли элемент, получаем его позицию
+    if (messageElement) {
+      const rect = messageElement.getBoundingClientRect();
+      // Устанавливаем позицию меню выше середины сообщения
+      // Смещаем меню вверх на 30% высоты сообщения
+      menuPosition.value = rect.top + rect.height * 0.3;
+      
+      // Проверяем, чтобы меню не выходило за верхнюю границу экрана
+      if (menuPosition.value < 100) {
+        menuPosition.value = 100; // Минимальная позиция сверху
+      }
+      
+      // Проверяем, чтобы меню не выходило за нижнюю границу экрана
+      const maxPosition = window.innerHeight - 150;
+      if (menuPosition.value > maxPosition) {
+        menuPosition.value = maxPosition;
+      }
+    } else {
+      // Если не удалось найти элемент, используем позицию курсора
+      menuPosition.value = event && event.clientY ? event.clientY - 50 : window.innerHeight / 2;
+    }
+  } catch (error) {
+    // В случае ошибки используем центр экрана
+    console.error('Error getting message position:', error);
+    menuPosition.value = window.innerHeight / 2;
+  }
+  
+  // Закрываем все другие меню и показываем текущее
   contextMenuStore.openMenu(props.message._id);
   
   // Добавляем обработчик для закрытия меню при клике вне его
@@ -211,15 +561,66 @@ const showContextMenu = (event) => {
   }, 100);
 };
 
+// Флаг для предотвращения повторного открытия меню
+const isMenuActionInProgress = ref(false);
+
 // Обработчики действий меню
 const onEdit = (message) => {
-  emit('edit', message || props.message);
-  hideContextMenu();
+  console.log('Функция onEdit вызвана в Message.vue', message || props.message);
+  console.log('Детали сообщения в Message.vue:', {
+    id: (message || props.message)?._id,
+    text: (message || props.message)?.text,
+    sender: (message || props.message)?.sender?._id
+  });
+  
+  try {
+    // Устанавливаем флаг, чтобы предотвратить повторное открытие меню
+    isMenuActionInProgress.value = true;
+    
+    // Закрываем меню
+    console.log('Закрываем меню в Message.vue');
+    hideContextMenu();
+    
+    // Отправляем событие редактирования
+    console.log('Отправляем событие edit из Message.vue');
+    emit('edit', message || props.message);
+    
+    // Сбрасываем флаг через небольшую задержку
+    setTimeout(() => {
+      isMenuActionInProgress.value = false;
+    }, 300);
+  } catch (error) {
+    console.error('Ошибка в обработчике onEdit в Message.vue:', error);
+  }
 };
 
 const onDelete = (message) => {
-  emit('delete', message || props.message);
-  hideContextMenu();
+  console.log('Вызван обработчик onDelete в Message.vue', message);
+  console.log('Детали сообщения в Message.vue для удаления:', {
+    id: (message || props.message)?._id,
+    text: (message || props.message)?.text,
+    sender: (message || props.message)?.sender?._id
+  });
+  
+  try {
+    // Устанавливаем флаг, чтобы предотвратить повторное открытие меню
+    isMenuActionInProgress.value = true;
+    
+    // Закрываем меню
+    console.log('Закрываем меню в Message.vue перед удалением');
+    hideContextMenu();
+    
+    // Отправляем событие удаления
+    console.log('Отправляем событие delete из Message.vue');
+    emit('delete', message || props.message);
+    
+    // Сбрасываем флаг через небольшую задержку
+    setTimeout(() => {
+      isMenuActionInProgress.value = false;
+    }, 300);
+  } catch (error) {
+    console.error('Ошибка в обработчике onDelete в Message.vue:', error);
+  }
 };
 
 </script>
@@ -249,11 +650,20 @@ const onDelete = (message) => {
     font-size: 12px
     opacity: 0.7
 
+// Стили для текста сообщения с медиа-контентом
+.message__text-media
+  padding: 10px 45px 10px 10px
+  word-wrap: break-word
+  white-space: pre-wrap
+  color: $white
+
 .message
   display: flex
-  margin-bottom: 10px
+  margin-bottom: 12px
+  max-width: 80%
   width: max-content
-  max-width: 70%
+  position: relative
+  align-self: flex-start
   min-width: 12%  // Увеличиваем общую максимальную ширину
   position: relative
   align-items: flex-end  // Выравниваем элементы по нижнему краю
@@ -267,6 +677,7 @@ const onDelete = (message) => {
     display: flex
     flex-direction: column
     flex: 1  // Растягиваем контент на всю доступную ширину
+    position: relative
   
   &.own
     align-self: flex-end
@@ -305,6 +716,11 @@ const onDelete = (message) => {
     color: $white
     word-break: break-word
     
+    // Специальные стили для контейнеров файлов и изображений
+    &--image, &--file
+      padding: 0
+      overflow: hidden
+    
     .message__menu-btn
       position: absolute
       top: 5px
@@ -342,10 +758,30 @@ const onDelete = (message) => {
         font-size: 12px
         font-style: italic
 
+.message__time.media-time, .media-time
+  position: absolute !important
+  bottom: 10px !important
+  right: 10px !important
+  font-size: 12px !important
+  color: $white !important
+  display: flex !important
+  align-items: center !important
+  gap: 4px !important
+  background-color: transparent !important
+  padding: 0 !important
+  border-radius: 0 !important
+  z-index: 1 !important
+
 .image-container
   position: relative
-  margin: 5px 0
-  max-width: 300px
+  width: 100%
+  max-width: 100%
+  background-color: $message-bg
+  border-radius: $radius
+  overflow: hidden
+  
+  .message.own &
+    background-color: $purple
   
   .image-loading
     position: absolute
@@ -372,8 +808,10 @@ const onDelete = (message) => {
       will-change: transform // Оптимизация для анимации
     
   .message-image
+    display: block
     max-width: 100%
-    border-radius: 8px
+    width: 100%
+    border-radius: $radius
     opacity: 0.7
     transition: opacity 0.3s ease
     
@@ -395,23 +833,75 @@ const onDelete = (message) => {
     max-height: 120px
 
 .file-container
-  margin: 5px 0
+  width: 100%
+  max-width: 100%
+  position: relative
+  background-color: $message-bg
+  border-radius: $radius
+  overflow: hidden
+  
+  .message.own &
+    background-color: $purple
   
   .file-link
-    display: flex
-    align-items: center
+    display: block
+    width: 100%
     color: $white
     text-decoration: none
-    background-color: rgba(255, 255, 255, 0.1)
-    padding: 8px 12px
-    border-radius: 8px
+    transition: transform 0.2s ease
     
     &:hover
-      background-color: rgba(255, 255, 255, 0.2)
+      transform: scale(1.02)
     
-    .file-icon
-      margin-right: 8px
-      font-size: 16px
+    .file-preview
+      position: relative
+      display: flex
+      flex-direction: column
+      align-items: center
+      justify-content: center
+      background-color: rgba(255, 255, 255, 0.1)
+      border-radius: $radius
+      padding: 15px 10px
+      width: 100%
+      transition: background-color 0.3s ease
+      margin: 0
+      
+      &.downloading
+        background-color: rgba(255, 255, 255, 0.15)
+      
+      .file-info
+        display: flex
+        flex-direction: column
+        align-items: center
+        justify-content: center
+        width: 100%
+        min-height: 130px
+        min-width: 130px
+        gap: 5px
+        
+        .file-type-icon
+          width: 50px
+          height: 50px
+          color: $purple
+        
+        .loading-spinner
+          width: 40px
+          height: 40px
+          border: 3px solid rgba(255, 255, 255, 0.3)
+          border-radius: 50%
+          border-top-color: $purple
+          animation: spin 1s linear infinite
+        
+        .file-name
+          color: $white
+          font-size: 14px
+          text-align: center
+          display: block
+          width: 100%
+          max-width: 150px
+          overflow: hidden
+          text-overflow: ellipsis
+          padding: 0 5px
 
 @keyframes spin
   0%

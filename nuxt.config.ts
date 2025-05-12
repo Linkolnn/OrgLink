@@ -6,6 +6,11 @@ export default defineNuxtConfig({
   ssr: false, // Отключаем SSR для решения проблем с гидратацией
   modules: ['@pinia/nuxt', 'nuxt-svgo'],
   
+  // Добавляем глобальные стили
+  css: [
+    '@/assets/styles/disable-context-menu.sass',
+  ],
+  
   // Переменные окружения, доступные на клиенте
   runtimeConfig: {
     // Приватные ключи, доступны только на сервере

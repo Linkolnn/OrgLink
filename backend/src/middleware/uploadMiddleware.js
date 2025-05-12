@@ -132,7 +132,7 @@ export const uploadMessageFile = multer({
     fileSize: 50 * 1024 * 1024 // 50 МБ
   },
   fileFilter
-}).single('file');
+});
 
 // Обработчик ошибок для multer
 export const handleUploadError = (err, req, res, next) => {

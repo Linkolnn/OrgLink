@@ -3,6 +3,7 @@
     <div 
       v-if="isVisible" 
       class="context-menu"
+      :style="{ top: `${top}px` }"
     >
       <div class="menu-item" @click.stop="onEdit">
         <i class="fas fa-pencil-alt"></i>
@@ -25,6 +26,10 @@ const props = defineProps({
   message: {
     type: Object,
     default: () => ({})
+  },
+  top: {
+    type: Number,
+    default: 0
   }
 });
 
@@ -39,29 +44,92 @@ const handleClickOutside = (event) => {
 };
 
 // Обработчики действий
-const onEdit = () => {
-  // Сначала вызываем действие редактирования
-  emit('edit', props.message);
-  // Затем закрываем меню
-  emit('close');
+const onEdit = (event) => {
+  // Предотвращаем всплытие события
+  if (event) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+  
+  console.log('Нажата кнопка редактирования', props.message);
+  console.log('Детали сообщения:', {
+    id: props.message._id,
+    text: props.message.text,
+    sender: props.message.sender?._id
+  });
+  
+  try {
+    // Сначала вызываем действие редактирования
+    console.log('Отправляем событие edit из ContextMenu');
+    emit('edit', props.message);
+    
+    // Затем закрываем меню
+    console.log('Закрываем контекстное меню');
+    emit('close');
+  } catch (error) {
+    console.error('Ошибка в обработчике onEdit:', error);
+  }
 };
 
-const onDelete = () => {
-  // Сначала вызываем действие удаления
-  emit('delete', props.message);
-  // Затем закрываем меню
-  emit('close');
+const onDelete = (event) => {
+  // Предотвращаем всплытие события
+  if (event) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+  
+  console.log('Нажата кнопка удаления', props.message);
+  console.log('Детали сообщения для удаления:', {
+    id: props.message._id,
+    text: props.message.text,
+    sender: props.message.sender?._id
+  });
+  
+  try {
+    // Сначала вызываем действие удаления
+    console.log('Отправляем событие delete из ContextMenu');
+    emit('delete', props.message);
+    
+    // Затем закрываем меню
+    console.log('Закрываем контекстное меню после удаления');
+    emit('close');
+  } catch (error) {
+    console.error('Ошибка в обработчике onDelete:', error);
+  }
 };
+
+// Функция для управления скроллом
+const toggleScroll = (disable) => {
+  const messagesContainer = document.querySelector('.messages_container');
+  if (messagesContainer) {
+    messagesContainer.style.overflow = disable ? 'hidden' : 'auto';
+    console.log(`Скролл ${disable ? 'отключен' : 'включен'}`);
+  }
+};
+
+// Отслеживаем изменения видимости меню
+watch(() => props.isVisible, (newValue) => {
+  toggleScroll(newValue);
+  console.log(`Видимость меню изменилась: ${newValue}`);
+}, { immediate: true });
 
 // Добавляем и удаляем обработчик клика при монтировании/размонтировании компонента
 onMounted(() => {
   document.addEventListener('click', handleClickOutside);
   document.addEventListener('contextmenu', handleClickOutside);
+  
+  // Отключаем скролл при монтировании, если меню видимо
+  if (props.isVisible) {
+    toggleScroll(true);
+  }
 });
 
 onUnmounted(() => {
   document.removeEventListener('click', handleClickOutside);
   document.removeEventListener('contextmenu', handleClickOutside);
+  
+  // Включаем скролл при размонтировании
+  toggleScroll(false);
 });
 </script>
 
@@ -69,29 +137,30 @@ onUnmounted(() => {
 @import '~/assets/styles/variables'
 
 .context-menu
-  position: absolute
-  bottom: 0
-  left: -30%
-  border: 1px solid rgba(255, 255, 255, 0.1)
-  transform: translate(-100%, -50%)
+  position: fixed
+  left: 50%
+  transform: translate(-50%, -50%)
+  border: 1px solid rgba(255, 255, 255, 0.2)
   background-color: $primary-bg
   border-radius: $radius
-  min-width: 180px
-  z-index: 10
+  min-width: 220px
+  z-index: 1000
   overflow: hidden
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4)
   
   .menu-item
     display: flex
     align-items: center
-    padding: 10px 15px
+    padding: 16px 20px
     color: $white
     cursor: pointer
     transition: background-color 0.2s, color 0.2s
+    font-size: 16px
     
     > i
-      margin-right: 10px
-      font-size: 14px
-      width: 20px
+      margin-right: 12px
+      font-size: 18px
+      width: 24px
       text-align: center
       
     &:hover

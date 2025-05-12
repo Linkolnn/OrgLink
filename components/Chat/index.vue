@@ -46,7 +46,7 @@
       </div>
       
       <!-- Контейнер сообщений -->
-      <div class="messages_container" ref="messagesContainer" @scroll="checkIfAtBottom">
+      <div :class="['messages_container', isContextMenuOpen ? 'scroll-disabled' : '']" ref="messagesContainer" @scroll="checkIfAtBottom">
         
         <!-- Индикатор загрузки дополнительных сообщений -->
         <div v-if="chatStore.loadingMore" class="loading-indicator loading-more">
@@ -102,42 +102,15 @@
       </div>
       
       <!-- Input area -->
-      <div class="input_area" ref="inputArea" @click.stop>
-        <!-- Индикатор редактирования сообщения -->
-        <div v-if="isEditingMessage" class="editing-indicator">
-          <div class="editing-text">
-            <i class="fas fa-edit"></i> Редактирование: {{ originalMessageText.length > 30 ? originalMessageText.substring(0, 30) + '...' : originalMessageText }}
-          </div>
-          <button class="cancel-btn" @click="cancelEditingMessage">
-            x
-          </button>
-        </div>
-        
-        <div class="input_container" ref="inputContainer">
-          <textarea 
-            v-model="messageText" 
-            class="inp inp--textarea message_input" 
-            placeholder="Введите сообщение..." 
-            @keydown.enter.exact.prevent="handleEnterKey"
-            @keydown.shift.enter.prevent="addNewLine"
-            @input="adjustTextareaHeight"
-            @click.stop
-            @focus.stop="preventSidebarOnFocus"
-            @touchstart.stop
-            ref="messageInput"
-            rows="1"
-          ></textarea>
-          <div class="button_container" @click.stop>
-            <button 
-              type="button" 
-              class="send_button"
-              :disabled="!messageText.trim()"
-              @click.stop="sendMessage"
-            >
-              <i class="fas fa-paper-plane"></i>
-            </button>
-          </div>
-        </div>
+      <div class="chat-input-wrapper">
+        <ChatInputArea 
+          ref="inputArea"
+          :chatId="chatData._id" 
+          @message-sent="handleMessageSent" 
+          @editing-started="handleEditingStarted" 
+          @editing-cancelled="handleEditingCancelled" 
+          @editing-saved="handleEditingSaved" 
+        />
       </div>
     </div>
     </Transition>
@@ -182,6 +155,14 @@ const messages = computed(() => {
 const isAtBottom = ref(true);
 const messagesContainer = ref(null);
 const showNewMessageIndicator = ref(false);
+
+// Состояние контекстного меню
+const isContextMenuOpen = ref(false);
+
+// Импортируем хранилище контекстного меню
+import { useContextMenuStore } from '@/stores/contextMenu';
+
+// Состояние контекстного меню теперь управляется в компоненте ContextMenu.vue
 
 // Ссылки на элементы
 const inputArea = ref(null);
@@ -342,86 +323,90 @@ const scrollToBottom = (smooth = false) => {
   }
 };
 
-// Отправка сообщения
-const sendMessage = async () => {
+// Обработчики событий от компонента ChatInputArea
+// Обработчик отправки сообщения
+const handleMessageSent = async ({ chatId, text, files, audio }) => {
+  console.log('[Chat] Сообщение отправлено:', { chatId, text, files, audio });
+  
+  try {
+    // Проверяем, является ли чат превью-чатом
+    const isPreviewChat = chatId.startsWith('preview_');
+    
+    if (isPreviewChat && chatStore.isPreviewMode) {
+      console.log('[Chat] Отправка сообщения в режиме предпросмотра');
+      
+      // Создаем реальный чат и отправляем сообщение
+      console.log('[Chat] Создаем реальный чат из предпросмотра с сообщением:', text);
+      
+      // Вызываем метод sendMessageInPreviewMode, который создает чат и отправляет сообщение
+      const newChat = await chatStore.sendMessageInPreviewMode(text, files);
+      console.log('[Chat] Чат создан и сообщение отправлено:', newChat);
+      
+      // Обновляем данные чата в компоненте через хранилище
+      if (newChat) {
+        // Вместо прямого присваивания используем метод setActiveChat
+        chatStore.setActiveChat(newChat._id);
+        
+        // Прокручиваем вниз для отображения нового сообщения
+        nextTick(() => {
+          scrollToBottom(true);
+        });
+      }
+    } else {
+      // Обычная отправка сообщения в существующий чат
+      await chatStore.sendMessage({
+        chatId,
+        text,
+        files
+      });
+      
+      console.log('[Chat] Сообщение успешно отправлено');
+      
+      // Прокручиваем чат вниз
+      nextTick(() => {
+        scrollToBottom(true);
+      });
+    }
+  } catch (error) {
+    console.error('[Chat] Ошибка при отправке сообщения:', error);
+  }
+};
+
+// Обработчик начала редактирования сообщения
+const handleEditingStarted = ({ message, originalText }) => {
+  console.log('[Chat] Начато редактирование сообщения:', message);
+  selectedMessage.value = message;
+  isEditingMessage.value = true;
+  originalMessageText.value = originalText;
+};
+
+// Обработчик отмены редактирования сообщения
+const handleEditingCancelled = () => {
+  console.log('[Chat] Редактирование сообщения отменено');
+  selectedMessage.value = null;
+  isEditingMessage.value = false;
+  originalMessageText.value = '';
+};
+
+// Обработчик сохранения отредактированного сообщения
+const handleEditingSaved = ({ messageId, newText }) => {
+  console.log('[Chat] Сохранено отредактированное сообщение:', { messageId, newText });
+  selectedMessage.value = null;
+  isEditingMessage.value = false;
+  originalMessageText.value = '';
+};
+
+// Функция для редактирования сообщений
+const handleEditMessage = async () => {
   if (!messageText.value.trim()) return;
   
   if (isEditingMessage.value && selectedMessage.value) {
     await saveEditedMessage();
     return;
   }
-  
-  // Проверяем, находимся ли мы в режиме предпросмотра приватного чата
-  if (chatStore.isPreviewMode && chatData.value?.isPreview) {
-    console.log('[Chat] Отправка сообщения в режиме предпросмотра');
-    
-    try {
-      // Сохраняем текст сообщения перед очисткой
-      const messageContent = messageText.value;
-      messageText.value = '';
-      adjustTextareaHeight();
-      
-      // Прокручиваем вниз для отображения нового сообщения
-      nextTick(() => {
-        scrollToBottom(true);
-      });
-      
-      // Создаем реальный чат и отправляем сообщение
-      console.log('[Chat] Создаем реальный чат из предпросмотра с сообщением:', messageContent);
-      
-      try {
-        // Вызываем метод sendMessageInPreviewMode, который создает чат и отправляет сообщение
-        const newChat = await chatStore.sendMessageInPreviewMode(messageContent);
-        console.log('[Chat] Чат создан и сообщение отправлено:', newChat);
-        
-        
-        // Обновляем данные чата в компоненте через хранилище
-        if (newChat) {
-          // Вместо прямого присваивания используем метод setActiveChat
-          chatStore.setActiveChat(newChat._id);
-          
-          // Прокручиваем вниз для отображения нового сообщения
-          nextTick(() => {
-            scrollToBottom(true);
-          });
-        }
-      } catch (error) {
-        console.error('[Chat] Ошибка при создании чата из предпросмотра:', error);
-      }
-      
-      nextTick(() => {
-        console.log('[Chat] Прокрутка вниз после создания чата');
-        scrollToBottom(true);
-      });
-      
-      return;
-    } catch (error) {
-      console.error('[Chat] Ошибка при создании чата из предпросмотра:', error);
-    }
-  }
-  
-  // Обычная отправка сообщения в существующий чат
-  console.log('[WebSocket] Отправка сообщения в чат:', chatData.value._id);
-  
-  try {
-    await chatStore.sendMessage({
-      chatId: chatData.value._id,
-      text: messageText.value,
-      media_type: 'none'
-    });
-    
-    console.log('[WebSocket] Сообщение отправлено успешно');
-    messageText.value = '';
-    adjustTextareaHeight();
-    
-    nextTick(() => {
-      console.log('[Chat] Прокрутка вниз после отправки сообщения');
-      scrollToBottom(true);
-    });
-  } catch (error) {
-    console.error('[WebSocket] Ошибка при отправке сообщения:', error);
-  }
 };
+  
+// Функция для отправки сообщений теперь реализована в handleMessageSent
 
 // Форматирование даты сообщения
 const formatDate = (timestamp) => {
@@ -532,7 +517,25 @@ const stopVideo = () => {
 
 // Проверка, является ли сообщение собственным
 const isOwnMessage = (message) => {
-  return message.sender && authStore.user && message.sender._id === authStore.user._id;
+  const hasSender = Boolean(message?.sender);
+  const hasUser = Boolean(authStore.user);
+  const senderId = message?.sender?._id;
+  const userId = authStore.user?._id;
+  const isOwn = hasSender && hasUser && senderId === userId;
+  
+  console.log('Проверка isOwnMessage:', {
+    hasSender,
+    hasUser,
+    senderId,
+    userId,
+    isOwn
+  });
+  
+  // Временно всегда возвращаем true для отладки
+  return true;
+  
+  // Оригинальная проверка
+  // return isOwn;
 };
 
 // Получение инициалов из имени
@@ -554,19 +557,53 @@ const onChatLeft = () => {};
 
 // Функции для редактирования сообщений
 const startEditingMessage = (message) => {
-  if (!message || !isOwnMessage(message)) return;
-  
-  originalMessageText.value = message.text;
-  editingMessageText.value = message.text;
-  messageText.value = message.text;
-  selectedMessage.value = message;
-  isEditingMessage.value = true;
-  
-  nextTick(() => {
-    if (messageInput.value) {
-      messageInput.value.focus();
-    }
+  console.log('Вызвана функция startEditingMessage в Chat/index.vue', message);
+  console.log('Детали сообщения в Chat/index.vue:', {
+    id: message?._id,
+    text: message?.text,
+    sender: message?.sender?._id,
+    'authStore.user._id': authStore.user?._id,
+    'isOwnMessage': message && isOwnMessage(message)
   });
+  
+  try {
+    // Проверка на существование сообщения
+    if (!message) {
+      console.error('Невозможно редактировать: сообщение не передано');
+      return;
+    }
+    
+    // Проверка на собственное сообщение
+    if (!isOwnMessage(message)) {
+      console.error('Невозможно редактировать: это не ваше сообщение');
+      return;
+    }
+    
+    console.log('Начинаем редактирование сообщения в Chat/index.vue');
+    
+    // Вызываем функцию в InputArea
+    if (inputArea.value && typeof inputArea.value.startEditingMessage === 'function') {
+      console.log('Вызываем startEditingMessage в InputArea');
+      inputArea.value.startEditingMessage(message);
+    } else {
+      console.error('Не найдена функция startEditingMessage в InputArea');
+      
+      // Если не найдена функция в InputArea, устанавливаем режим редактирования напрямую
+      originalMessageText.value = message.text;
+      editingMessageText.value = message.text;
+      messageText.value = message.text;
+      selectedMessage.value = message;
+      isEditingMessage.value = true;
+      
+      console.log('Режим редактирования активирован напрямую:', {
+        isEditingMessage: isEditingMessage.value,
+        selectedMessage: selectedMessage.value?._id,
+        messageText: messageText.value
+      });
+    }
+  } catch (error) {
+    console.error('Ошибка в функции startEditingMessage:', error);
+  }
 };
 
 const cancelEditingMessage = () => {
@@ -596,13 +633,37 @@ const saveEditedMessage = async () => {
 };
 
 const deleteMessage = async (message) => {
-  if (!message || !isOwnMessage(message)) return;
+  console.log('Вызвана функция deleteMessage в Chat/index.vue', message);
+  console.log('Детали сообщения для удаления в Chat/index.vue:', {
+    id: message?._id,
+    text: message?.text,
+    sender: message?.sender?._id,
+    'authStore.user._id': authStore.user?._id,
+    'isOwnMessage': message && isOwnMessage(message)
+  });
   
   try {
+    // Проверка на существование сообщения
+    if (!message) {
+      console.error('Невозможно удалить: сообщение не передано');
+      return;
+    }
+    
+    // Проверка на собственное сообщение
+    if (!isOwnMessage(message)) {
+      console.error('Невозможно удалить: это не ваше сообщение');
+      return;
+    }
+    
+    console.log('Начинаем удаление сообщения в Chat/index.vue');
+    
+    // Вызываем API для удаления сообщения
     await chatStore.deleteMessage({
       messageId: message._id,
       chatId: chatData.value._id
     });
+    
+    console.log('Сообщение успешно удалено:', message._id);
   } catch (error) {
     console.error('Ошибка при удалении сообщения:', error);
   }
@@ -697,13 +758,11 @@ const adjustContainerHeight = (adjustTextarea = false) => {
   }
   
   // Проверяем наличие всех необходимых ref
-  if (!inputArea.value || !messagesContainer.value || !pageHeader.value || 
-      (adjustTextarea && !messageInput.value)) {
+  if (!inputArea.value || !messagesContainer.value || !pageHeader.value) {
     console.warn('Missing refs:', {
       inputArea: inputArea.value,
       messagesContainer: messagesContainer.value,
-      pageHeader: pageHeader.value,
-      messageInput: adjustTextarea ? messageInput.value : 'not required'
+      pageHeader: pageHeader.value
     });
     return;
   }
@@ -728,7 +787,8 @@ const adjustContainerHeight = (adjustTextarea = false) => {
   }
 
   // Получаем высоту .input_area после возможного изменения textarea
-  const inputAreaHeight = inputArea.value.offsetHeight;
+  // Теперь inputArea это компонент Vue, поэтому нужно получить его DOM-элемент
+  const inputAreaHeight = inputArea.value.$el ? inputArea.value.$el.offsetHeight : 0;
 
   // Получаем высоту .page_header
   const headerHeight = pageHeader.value.offsetHeight || 60; // Фоллбэк на 60px
@@ -1152,6 +1212,46 @@ const setupWebSocketListeners = () => {
       chatStore.updateMessagesReadStatus(chatId, userId);
     }
   });
+  
+  // Обработчик обновления сообщения
+  $socket.on('messageUpdated', ({ message, chatId }) => {
+    console.log('[WebSocket] Получено обновленное сообщение:', message, 'для чата:', chatId);
+    
+    if (chatData.value && chatData.value._id === chatId) {
+      // Находим индекс сообщения в массиве
+      const messageIndex = chatStore.messages.findIndex(m => m._id === message._id);
+      
+      if (messageIndex !== -1) {
+        // Создаем новый массив для реактивности
+        const updatedMessages = [...chatStore.messages];
+        // Обновляем сообщение, сохраняя свойства, которые могут отсутствовать в обновленном сообщении
+        updatedMessages[messageIndex] = {
+          ...updatedMessages[messageIndex],
+          ...message,
+          // Сохраняем статус загрузки изображения, если он был
+          imageLoaded: updatedMessages[messageIndex].imageLoaded || false
+        };
+        
+        console.log('[WebSocket] Обновление сообщения в хранилище');
+        chatStore.messages = updatedMessages;
+      }
+    }
+  });
+  
+  // Обработчик удаления сообщения
+  $socket.on('messageDeleted', ({ chatId, messageId }) => {
+    console.log('[WebSocket] Получено уведомление об удалении сообщения:', messageId, 'из чата:', chatId);
+    
+    if (chatData.value && chatData.value._id === chatId) {
+      // Фильтруем сообщения, исключая удаленное
+      const filteredMessages = chatStore.messages.filter(m => m._id !== messageId);
+      
+      if (filteredMessages.length !== chatStore.messages.length) {
+        console.log('[WebSocket] Удаление сообщения из хранилища');
+        chatStore.messages = filteredMessages;
+      }
+    }
+  });
 };
 
 // Открытие настроек чата
@@ -1326,8 +1426,19 @@ const getOtherParticipantName = (chat) => {
     padding: 0px 20px
     display: flex
     width: 100%
+    align-items: center
     flex-direction: column
     z-index: 1
+    @include custom-scrollbar
+    >*
+      max-width: 700px
+      width: 100%
+      
+  .chat-input-wrapper
+    width: 100%
+    padding: 10px 0px
+    max-width: 700px
+    align-self: center
     @include custom-scrollbar
     >*
       max-width: 700px;
@@ -1338,48 +1449,54 @@ const getOtherParticipantName = (chat) => {
       height: 20px
       margin-bottom: 10px
     
-    .loading-indicator 
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 10px;
-      color: $white;
-      
-      &.loading-more 
-        margin-bottom: 10px;
-        opacity: 0.7;
-      
-      
-      &.initial-loading 
-        height: 100px;
-        margin: auto;
-      
-      
-      .spinner 
-        width: 20px
-        height: 20px
-        border: 2px solid rgba(255, 255, 255, 0.3)
-        border-radius: 50%
-        border-top-color: $white
-        animation: spin 1s ease-in-out infinite
-        margin-right: 10px
-        will-change: transform; // Оптимизация для анимации
+  // Стили для индикаторов загрузки перемещены на уровень выше
     
-    .empty-chat
-      text-align: center
-      padding: 30px
-      color: rgba(255, 255, 255, 0.5)
+  // Стили для пустого чата перемещены на уровень выше
     
-    .date-header
-      text-align: center
-      margin: 15px 0
-      
-      span
-        background-color: rgba(255, 255, 255, 0.1)
-        color: $white
-        padding: 5px 10px
-        border-radius: 10px
-        font-size: 12px
+  .loading-indicator
+    display: flex
+    align-items: center
+    justify-content: center
+    padding: 10px
+    color: $white
+    
+    &.loading-more
+      margin-bottom: 10px
+      opacity: 0.7
+    
+    &.initial-loading
+      position: absolute
+      top: 50%
+      left: 50%
+      transform: translate(-50%, -50%)
+      height: 100px
+      margin: auto
+    
+    .spinner
+      width: 20px
+      height: 20px
+      border: 2px solid rgba(255, 255, 255, 0.3)
+      border-radius: 50%
+      border-top-color: $white
+      animation: spin 1s ease-in-out infinite
+      margin-right: 10px
+      will-change: transform // Оптимизация для анимации
+  
+  .empty-chat
+    text-align: center
+    padding: 30px
+    color: rgba(255, 255, 255, 0.5)
+    
+  .date-header
+    text-align: center
+    margin: 15px 0
+    
+    span
+      background-color: rgba(255, 255, 255, 0.1)
+      color: $white
+      padding: 5px 10px
+      border-radius: 10px
+      font-size: 12px
     
     // Стили для служебных сообщений перенесены в компонент Message.vue
     
@@ -1429,7 +1546,6 @@ const getOtherParticipantName = (chat) => {
     width: 100%
     flex: 0 0 auto
     position: relative
-    z-index: 2
     
     .editing-indicator
       display: flex

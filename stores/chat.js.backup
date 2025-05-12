@@ -190,7 +190,7 @@ export const useChatStore = defineStore('chat', {
         this.previewChat = null;
         
         // Загружаем сообщения для нового чата
-        await this.fetchMessages(newChat._id);
+        await this.loadMessages(newChat._id);
         
         // Устанавливаем новый чат как активный
         this.setActiveChat(newChat._id);
@@ -1910,119 +1910,78 @@ export const useChatStore = defineStore('chat', {
         // Проверяем, является ли чат превью-чатом
         const isPreviewChat = chatId.startsWith('preview_');
         
-        // Если это превью-чат, обрабатываем локально
+        // Если это превью-чат, напрямую используем sendMessageInPreviewMode
         if (isPreviewChat) {
           console.log('[WebSocket] Обработка сообщения для превью-чата');
           
-          // Вместо поиска в списке чатов, используем превью-чат из хранилища
-          if (this.previewChat && this.isPreviewMode) {
-            console.log('[WebSocket] Используем превью-чат из хранилища:', this.previewChat);
+          try {
+            // Получаем ID пользователя из ID превью-чата
+            const userId = chatId.replace('preview_', '');
             
-            // Вместо отправки сообщения в превью-чат, создаем реальный чат
-            console.log('[WebSocket] Создаем реальный чат из превью-чата с сообщением:', text);
+            // Получаем данные пользователя из активного чата или из списка чатов
+            const authStore = useAuthStore();
+            const currentUser = authStore.user;
             
-            // Вызываем метод sendMessageInPreviewMode, который создает реальный чат и отправляет сообщение
-            const newChat = await this.sendMessageInPreviewMode(text, files);
-            
-            if (newChat) {
-              console.log('[WebSocket] Чат успешно создан из превью-чата:', newChat);
-              return newChat; // Возвращаем созданный чат
-            }
-            
-            console.error('[WebSocket] Ошибка при создании чата из превью-чата');
-            return null;
-          }
-          
-          // Если нет превью-чата в хранилище, пробуем найти его в списке чатов
-          const previewChat = this.chats.find(chat => chat._id === chatId);
-          
-          if (!previewChat) {
-            console.error('[WebSocket] Превью-чат не найден:', chatId);
-            console.log('[WebSocket] Список доступных чатов:', this.chats.map(c => ({ id: c._id, name: c.name, type: c.type })));
-            
-            // Если чат не найден в списке, но установлен как активный, используем его
-            if (this.activeChat && this.activeChat._id === chatId) {
-              console.log('[WebSocket] Используем активный чат как превью-чат');
-              
-              // Добавляем активный чат в список чатов, если его там нет
-              if (!this.chats.some(c => c._id === chatId)) {
-                console.log('[WebSocket] Добавляем активный чат в список чатов');
-                this.chats.unshift(this.activeChat);
-              }
-              
-              // Получаем authStore
-              const authStore = useAuthStore();
-              
-              if (!authStore || !authStore.user) {
-                console.error('[WebSocket] Ошибка: authStore или authStore.user не определены');
-                throw new Error('Ошибка аутентификации: пользователь не определен');
-              }
-              
-              // Используем активный чат как превью-чат
-              const newMessage = {
-                _id: 'temp_' + Date.now(),
-                text,
-                sender: { _id: authStore.user._id, name: authStore.user.name },
-                timestamp: new Date().toISOString(),
-                chat: chatId,
-                media_type: 'none',
-                isLocal: true
-              };
-              
-              // Добавляем сообщение в список сообщений
-              this.messages.push(newMessage);
-              
-              // Обновляем последнее сообщение в чате
-              this.activeChat.lastMessage = newMessage;
-              this.activeChat.updatedAt = new Date().toISOString();
-              
-              return newMessage;
-            }
-            
-            throw new Error('Превью-чат не найден');
-          }
-          
-          // Получаем authStore
-          const authStore = useAuthStore();
-          
-          if (!authStore || !authStore.user) {
-            console.error('[WebSocket] Ошибка: authStore или authStore.user не определены');
-            throw new Error('Ошибка аутентификации: пользователь не определен');
-          }
-          
-          // Создаем локальное сообщение
-          const newMessage = {
-            _id: 'temp_' + Date.now(),
-            text,
-            sender: { _id: authStore.user._id, name: authStore.user.name },
-            timestamp: new Date().toISOString(),
-            chat: chatId,
-            media_type: 'none',
-            isLocal: true
-          };
-          
-          // Добавляем сообщение в список сообщений
-          this.messages.push(newMessage);
-          
-          // Обновляем последнее сообщение в чате
-          previewChat.lastMessage = newMessage;
-          previewChat.updatedAt = new Date().toISOString();
-          
-          // Всегда создаем реальный чат из превью-чата при отправке сообщения
-          if (true) {
-            console.log('[WebSocket] Создание реального чата из превью');
-            
-            // Получаем ID пользователя из превью-чата
-            let userId = previewChat.previewUserId;
-            
-            console.log('[WebSocket] ID пользователя из превью-чата:', userId);
-            
-            // Если ID пользователя не найден, пытаемся получить его из списка участников
-            if (!userId && previewChat.participants && previewChat.participants.length > 1) {
-              const authStore = useAuthStore();
-              const otherUser = previewChat.participants.find(p => {
-                return p._id !== authStore.user._id;
+            // Создаем превью-чат, если он еще не существует
+            if (!this.isPreviewMode || !this.previewChat) {
+              // Находим пользователя в списке чатов
+              const userChat = this.chats.find(chat => {
+                if (chat.type === 'private' && chat.participants && chat.participants.length === 2) {
+                  return chat.participants.some(p => p._id === userId || p.id === userId);
+                }
+                return false;
               });
+              
+              if (userChat) {
+                // Если чат с этим пользователем уже существует, используем его
+                console.log('[WebSocket] Найден существующий чат с пользователем:', userChat._id);
+                
+                // Отправляем сообщение в существующий чат
+                return this.sendMessage({
+                  chatId: userChat._id,
+                  text,
+                  files
+                });
+              }
+              
+              // Создаем новый превью-чат
+              console.log('[WebSocket] Создаем новый превью-чат для пользователя:', userId);
+              
+              // Запрашиваем данные пользователя с сервера
+              const userData = await this.searchUsers(userId);
+              if (userData && userData.length > 0) {
+                const user = userData[0];
+                // Создаем превью-чат
+                await this.setPreviewChat(user);
+              } else {
+            }
+            return false;
+          });
+          
+          if (userChat) {
+            // Если чат с этим пользователем уже существует, используем его
+            console.log('[WebSocket] Найден существующий чат с пользователем:', userChat._id);
+            
+            // Отправляем сообщение в существующий чат
+            return this.sendMessage({
+              chatId: userChat._id,
+              text,
+              files
+            });
+          }
+          
+          // Создаем новый превью-чат
+          console.log('[WebSocket] Создаем новый превью-чат для пользователя:', userId);
+          
+          // Запрашиваем данные пользователя с сервера
+          const userData = await this.searchUsers(userId);
+          if (userData && userData.length > 0) {
+            const user = userData[0];
+            // Создаем превью-чат
+            await this.setPreviewChat(user);
+          } else {
+            console.error('[WebSocket] Не удалось найти пользователя:', userId);
+            throw new Error('Не удалось найти пользователя');
               if (otherUser) {
                 userId = otherUser._id;
                 console.log('[WebSocket] Получен ID пользователя из списка участников:', userId);
@@ -2576,3 +2535,4 @@ export const useChatStore = defineStore('chat', {
     }
   }
 });
+
