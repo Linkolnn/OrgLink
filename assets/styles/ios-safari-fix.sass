@@ -1,0 +1,66 @@
+// Стили для адаптации под iOS Safari с учетом поискового блока
+
+// Переменные для высоты поискового блока и нижней панели Safari
+$safari-search-bar-height: 44px
+$safari-bottom-bar-height: 44px
+$safari-total-offset: calc(#{$safari-search-bar-height} + env(safe-area-inset-top))
+
+// Стили для iOS Safari
+.ios-safari
+  // Основной контейнер приложения
+  &.app
+    min-height: calc(100vh - #{$safari-search-bar-height})
+    height: calc(100vh - #{$safari-search-bar-height})
+    padding-top: env(safe-area-inset-top)
+    
+  // Боковая панель мессенджера
+  .messenger-sidebar
+    height: calc(100vh - #{$safari-search-bar-height})
+    max-height: calc(100vh - #{$safari-search-bar-height})
+    padding-top: env(safe-area-inset-top)
+    
+  // Основной контент
+  .main
+    height: calc(100vh - #{$safari-search-bar-height})
+    max-height: calc(100vh - #{$safari-search-bar-height})
+    
+  // Контейнер чата
+  .chat
+    height: calc(100vh - #{$safari-search-bar-height})
+    max-height: calc(100vh - #{$safari-search-bar-height})
+    
+  // Список чатов
+  .chat-list
+    height: calc(100vh - #{$safari-search-bar-height})
+    max-height: calc(100vh - #{$safari-search-bar-height})
+    
+  // Область ввода сообщений
+  .chat-input-area
+    bottom: env(safe-area-inset-bottom)
+    padding-bottom: env(safe-area-inset-bottom)
+    
+  // Админ-панель
+  .admin-panel
+    height: calc(100vh - #{$safari-search-bar-height})
+    max-height: calc(100vh - #{$safari-search-bar-height})
+    
+  // Модальные окна
+  .modal
+    max-height: calc(100vh - #{$safari-search-bar-height} - 20px)
+    
+  // Использование CSS-переменной для динамической высоты
+  .vh-fix
+    height: calc(var(--vh, 1vh) * 100 - #{$safari-search-bar-height})
+    max-height: calc(var(--vh, 1vh) * 100 - #{$safari-search-bar-height})
+    
+  // Дополнительные стили для устройств с "челкой"
+  @supports (padding-top: env(safe-area-inset-top))
+    .app
+      padding-top: env(safe-area-inset-top)
+      padding-bottom: env(safe-area-inset-bottom)
+      
+    .messenger-sidebar
+      padding-top: env(safe-area-inset-top)
+      
+    .chat-input-area
+      padding-bottom: env(safe-area-inset-bottom)

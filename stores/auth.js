@@ -337,7 +337,7 @@ export const useAuthStore = defineStore('auth', {
         const normalizedRailwayUrl = railwayBackendUrl.endsWith('/') ? railwayBackendUrl.slice(0, -1) : railwayBackendUrl;
         
         console.log('Отправка запроса на выход на Railway:', `${normalizedRailwayUrl}/api/auth/logout`);
-        await $fetch(`${normalizedRailwayUrl}/api/auth/logout`, {
+        await safeFetch(`${normalizedRailwayUrl}/api/auth/logout`, {
           method: 'POST',
           credentials: 'include',
           headers: {
@@ -349,9 +349,12 @@ export const useAuthStore = defineStore('auth', {
         if (typeof window !== 'undefined' && window.location.hostname.includes('vercel.app')) {
           console.log('Отправка запроса на выход на Vercel:', `/api/auth/logout`);
           try {
-            await $fetch(`/api/auth/logout`, {
+            await safeFetch(`/api/auth/logout`, {
               method: 'POST',
-              credentials: 'include'
+              credentials: 'include',
+              headers: {
+                'Authorization': `Bearer ${this.token}`
+              }
             });
           } catch (vercelError) {
             console.error('Ошибка при выходе на Vercel:', vercelError);

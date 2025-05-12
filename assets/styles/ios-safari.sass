@@ -1,0 +1,49 @@
+// Стили для адаптации под iOS Safari
+// Учитываем высоту поискового блока Safari на iPhone
+
+// Основные переменные
+$safari-search-bar-height: 44px
+$safari-bottom-bar-height: 44px
+
+// Класс для определения iOS устройств
+.ios-device
+  // Добавляем дополнительный отступ сверху для учета поискового блока Safari
+  .app
+    padding-top: env(safe-area-inset-top)
+    // Учитываем высоту поискового блока
+    height: calc(100vh - #{$safari-search-bar-height})
+    
+  // Адаптация для боковой панели
+  .messenger-sidebar
+    height: calc(100vh - #{$safari-search-bar-height})
+    padding-top: env(safe-area-inset-top)
+    
+  // Адаптация для основного контента
+  .main
+    height: calc(100vh - #{$safari-search-bar-height})
+    
+  // Адаптация для чата
+  .chat
+    height: calc(100vh - #{$safari-search-bar-height})
+    
+  // Адаптация для списка чатов
+  .chat-list
+    height: calc(100vh - #{$safari-search-bar-height})
+    
+  // Адаптация для админ-панели
+  .admin-panel
+    height: calc(100vh - #{$safari-search-bar-height})
+    
+  // Адаптация для модальных окон
+  .modal
+    max-height: calc(100vh - #{$safari-search-bar-height} - 40px)
+    
+  // Дополнительные адаптации для iPhone с "челкой"
+  @supports (padding-top: env(safe-area-inset-top))
+    .app
+      padding-top: env(safe-area-inset-top)
+      padding-bottom: env(safe-area-inset-bottom)
+      
+    .messenger-sidebar
+      padding-top: env(safe-area-inset-top)
+      padding-bottom: env(safe-area-inset-bottom)

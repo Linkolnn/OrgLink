@@ -1,6 +1,11 @@
 <template>
   <div class="pattern-container">
-    <div class="app" :class="{ 'sidebar-visible': showSidebar, 'mobile': isMobile && needsSidebar, 'initial-load': isInitialLoad }">
+    <div class="app" :class="{ 
+      'sidebar-visible': showSidebar, 
+      'mobile': isMobile && needsSidebar, 
+      'initial-load': isInitialLoad,
+      'ios-safari': isIOSSafari
+    }">
       <MessengerSideBar v-if="isAuthenticated" :class="{ 'visible': showSidebar }"/>
       <main class="main container">
         <NuxtPage>
@@ -41,6 +46,42 @@ const needsSidebar = computed(() => isMessengerPage.value || isAdminPage.value);
 // Состояние видимости боковой панели
 const sidebarVisibleState = computed(() => $sidebarVisible?.value || false);
 const isMobile = ref(false);
+const isIOSSafari = ref(false);
+
+// Функция для определения iOS устройств и Safari
+const detectIOSDevice = () => {
+  if (process.client) {
+    const userAgent = navigator.userAgent;
+    const isIOS = /iPad|iPhone|iPod/.test(userAgent) && !window.MSStream;
+    const isSafari = /^((?!chrome|android).)*safari/i.test(userAgent);
+    
+    isIOSSafari.value = isIOS && isSafari;
+    console.log('Определение устройства:', { isIOS, isSafari, isIOSSafari: isIOSSafari.value });
+    
+    if (isIOSSafari.value) {
+      // Устанавливаем высоту для учета поискового блока Safari
+      adjustIOSHeight();
+    }
+  }
+};
+
+// Функция для адаптации высоты на iOS устройствах
+const adjustIOSHeight = () => {
+  if (process.client && isIOSSafari.value) {
+    // Получаем реальную высоту видимой области
+    const vh = window.innerHeight * 0.01;
+    
+    // Устанавливаем CSS-переменную для использования в стилях
+    document.documentElement.style.setProperty('--vh', `${vh}px`);
+    document.documentElement.style.setProperty('--safari-height', `${window.innerHeight}px`);
+    
+    console.log('Адаптация высоты для iOS:', {
+      innerHeight: window.innerHeight,
+      vh: vh,
+      screenHeight: window.screen.height
+    });
+  }
+};
 
 // Получаем ссылку на хранилище чата
 const chatStore = useChatStore();
@@ -79,6 +120,11 @@ const checkMobile = () => {
     const { $showSidebar } = useNuxtApp();
     if ($showSidebar) $showSidebar();
   }
+  
+  // Также при изменении размера окна адаптируем высоту для iOS Safari
+  if (isIOSSafari.value) {
+    adjustIOSHeight();
+  }
 };
 
 // Следим за изменением маршрута и состоянием аутентификации
@@ -106,11 +152,24 @@ watch(
 onMounted(() => {
   console.log('[App] Монтирование компонента');
   
-  // Проверяем размер экрана при загрузке
-  checkMobile();
-  window.addEventListener('resize', checkMobile);
-  
-  // Вся логика проверки активного чата и наблюдения за DOM реализована в плагине sidebar-manager.js
+  if (process.client) {
+    // Проверяем размер экрана при загрузке
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    
+    // Определяем, является ли устройство iOS с Safari
+    detectIOSDevice();
+    
+    // Добавляем обработчики событий для iOS Safari
+    if (isIOSSafari.value) {
+      window.addEventListener('orientationchange', adjustIOSHeight);
+      window.addEventListener('resize', adjustIOSHeight);
+      // Вызываем сразу для установки правильной высоты
+      adjustIOSHeight();
+    }
+    
+    // Вся логика проверки активного чата и наблюдения за DOM реализована в плагине sidebar-manager.js
+  }
   
   // Если мы на странице мессенджера или админа и на мобильном устройстве,
   // показываем SideBar только при первой загрузке страницы
@@ -140,7 +199,15 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
-  window.removeEventListener('resize', checkMobile);
+  if (process.client) {
+    window.removeEventListener('resize', checkMobile);
+    
+    // Удаляем обработчики событий для iOS Safari
+    if (isIOSSafari.value) {
+      window.removeEventListener('orientationchange', adjustIOSHeight);
+      window.removeEventListener('resize', adjustIOSHeight);
+    }
+  }
 });
 
 // Используем методы из плагина sidebar-manager.js
@@ -166,6 +233,7 @@ provide('showSidebar', () => {
 </script>
 <style lang="sass">
 @import '@variables'
+@import '~/assets/styles/ios-safari-fix.sass'
 
 *
   margin: 0

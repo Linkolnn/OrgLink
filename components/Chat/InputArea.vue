@@ -202,8 +202,11 @@ const sendMessage = async () => {
         const previewUrl = isImageFile(file) ? URL.createObjectURL(file) : null;
         
         try {
-          // Загружаем файл на сервер
-          const response = await fetch(`${config.public.backendUrl}/api/upload`, {
+          // Импортируем safeFetch для совместимости с iOS
+          const { safeFetch } = await import('~/utils/api');
+          
+          // Загружаем файл на сервер используя safeFetch
+          const response = await safeFetch(`${config.public.backendUrl}/api/upload`, {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${authStore.token}`

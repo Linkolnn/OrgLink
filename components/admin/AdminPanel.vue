@@ -100,9 +100,11 @@
 <script setup>
 import { ref, onMounted } from 'vue';
 import AdminUserManagement from './AdminUserManagement.vue';
-import { useRuntimeConfig } from '#app';
+import { useRuntimeConfig, useNuxtApp } from '#app';
+import { useAuthStore } from '~/stores/auth';
 
 const config = useRuntimeConfig();
+const authStore = useAuthStore();
 
 // Состояние компонента
 const selectedUser = ref(null);
@@ -129,10 +131,27 @@ const selectUser = (user) => {
 // Загрузка чатов пользователя
 const loadUserChats = async (userId) => {
   try {
-    const response = await $fetch(`${config.public.backendUrl}/api/admin/users/${userId}/chats`, {
+    // Импортируем safeFetch и handleApiResponse для обработки ответа
+    const { safeFetch, handleApiResponse } = await import('~/utils/api');
+    
+    console.log('Запрос чатов пользователя:', userId, 'Токен:', authStore.token);
+    
+    // Используем handleApiResponse для обработки ответа
+    const response = await safeFetch(`${config.public.backendUrl}/api/admin/users/${userId}/chats`, {
+      method: 'GET',
       credentials: 'include',
-    });
-    userChats.value = response;
+      headers: {
+        'Authorization': `Bearer ${authStore.token}`
+      }
+    }).then(res => handleApiResponse(res, 'Ошибка загрузки чатов пользователя'));
+    
+    console.log('Получены чаты:', response);
+    if (Array.isArray(response)) {
+      userChats.value = response;
+    } else {
+      console.error('Неожиданный формат ответа:', response);
+      userChats.value = [];
+    }
   } catch (error) {
     console.error('Ошибка загрузки чатов пользователя:', error);
     userChats.value = [];
