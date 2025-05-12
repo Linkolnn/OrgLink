@@ -102,7 +102,6 @@ import { ref, onMounted } from 'vue';
 import AdminUserManagement from './AdminUserManagement.vue';
 import { useRuntimeConfig, useNuxtApp } from '#app';
 import { useAuthStore } from '~/stores/auth';
-import IconBottomArrow from '~/components/Icons/IconBottomArrow.vue';
 
 const config = useRuntimeConfig();
 const authStore = useAuthStore();
