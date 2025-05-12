@@ -177,36 +177,8 @@ const detectIOSDevice = () => {
       // Добавляем класс к body для глобальных стилей
       document.body.classList.add('ios-safari-body');
       
-      // Устанавливаем CSS-переменные для использования в стилях
+      // Устанавливаем CSS-переменную для использования в стилях
       document.documentElement.style.setProperty('--safari-bottom-padding', '44px');
-      
-      // Определяем высоту поискового поля Safari
-      const addressBarHeight = 44;
-      const bottomBarHeight = 44;
-      
-      // Устанавливаем переменные для высоты адресной строки и нижней панели
-      document.documentElement.style.setProperty('--safari-address-bar-height', `${addressBarHeight}px`);
-      document.documentElement.style.setProperty('--safari-bottom-bar-height', `${bottomBarHeight}px`);
-      
-      // Добавляем класс к контейнеру чата
-      nextTick(() => {
-        if (messagesContainer.value) {
-          messagesContainer.value.classList.add('ios-safari-messages');
-        }
-        
-        // Настраиваем высоту контейнера сообщений
-        adjustContainerHeight(true);
-      });
-      
-      // Добавляем обработчик ресайза для перерасчета высоты при повороте экрана
-      window.addEventListener('resize', () => {
-        adjustContainerHeight(true);
-      });
-      
-      // Добавляем обработчик скролла для перерасчета высоты при изменении видимости адресной строки
-      window.addEventListener('scroll', () => {
-        adjustContainerHeight(true);
-      });
     }
   }
 };
@@ -844,11 +816,14 @@ const adjustContainerHeight = (adjustTextarea = false) => {
     const scrollHeight = messageInput.value.scrollHeight;
 
     // Всегда вычисляем высоту в зависимости от содержимого
+    // Это позволит корректно обрабатывать как добавление, так и удаление переносов строк
     const newHeight = Math.min(maxHeight, Math.max(minHeight, scrollHeight));
     messageInput.value.style.height = `${newHeight}px`;
+
   }
 
   // Получаем высоту .input_area после возможного изменения textarea
+  // Теперь inputArea это компонент Vue, поэтому нужно получить его DOM-элемент
   const inputAreaHeight = inputArea.value.$el ? inputArea.value.$el.offsetHeight : 0;
 
   // Получаем высоту .page_header
@@ -859,50 +834,21 @@ const adjustContainerHeight = (adjustTextarea = false) => {
                 window.matchMedia('(display-mode: fullscreen)').matches || 
                 window.navigator.standalone === true; // Для iOS
   
-  // Дополнительные отступы для iOS Safari
-  let safariAddressBarOffset = 0;
-  let safariBottomBarOffset = 0;
-  
-  if (isIOSSafari.value) {
-    // Для iOS Safari учитываем высоту адресной и поисковой строки
-    safariAddressBarOffset = 44; // Высота адресной строки Safari
-    safariBottomBarOffset = 44; // Высота нижней панели Safari
-    
-    // Добавляем дополнительный отступ для поисковой строки
-    console.log('[Chat] Применяем отступы для iOS Safari:', { safariAddressBarOffset, safariBottomBarOffset });
-  }
-  
   // Выбираем значение vh в зависимости от типа устройства и режима приложения
   let viewportHeight;
   
   if (isMobile.value) {
-    if (isIOSSafari.value) {
-      // Для iOS Safari используем точные значения в px
-      viewportHeight = `calc(100vh - ${safariAddressBarOffset}px - ${safariBottomBarOffset}px)`;
-    } else {
-      // Для других мобильных устройств
-      viewportHeight = isPWA ? '99vh' : '90vh';
-    }
+    // Для мобильных устройств
+    viewportHeight = isPWA ? '99vh' : '90vh'; // Если PWA, то используем 99vh, иначе 90vh
   } else {
     // Для десктопа
     viewportHeight = '99vh';
   }
   
-  console.log(`[Chat] Using ${viewportHeight} for device type: ${isMobile.value ? 'mobile' : 'desktop'}, iOS Safari: ${isIOSSafari.value}`);
+  console.log(`[Chat] Using ${viewportHeight} for device type: ${isMobile.value ? 'mobile' : 'desktop'}, PWA mode: ${isPWA}`);
 
   // Обновляем max-height для .messages_container
-  if (isIOSSafari.value) {
-    // Для iOS Safari учитываем высоту поисковой строки и нижней панели
-    messagesContainer.value.style.maxHeight = `calc(${viewportHeight} - ${headerHeight}px - ${inputAreaHeight}px - env(safe-area-inset-bottom))`;
-    
-    // Также устанавливаем отступ снизу для области ввода
-    if (inputArea.value.$el) {
-      inputArea.value.$el.style.paddingBottom = `calc(env(safe-area-inset-bottom) + ${safariBottomBarOffset}px)`;
-    }
-  } else {
-    // Для других устройств
-    messagesContainer.value.style.maxHeight = `calc(${viewportHeight} - ${headerHeight}px - ${inputAreaHeight}px)`;
-  }
+  messagesContainer.value.style.maxHeight = `calc(${viewportHeight} - ${headerHeight}px - ${inputAreaHeight}px)`;
 };
 
 // Алиас для обратной совместимости
