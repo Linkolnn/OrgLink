@@ -457,4 +457,38 @@ const updateProfile = async (req, res) => {
   }
 };
 
-export { registerUser, loginUser, getUserProfile, logoutUser, createAdmin, createAdminIfNotExists, getAllUsers, updateUser, updateProfile }; 
+// @desc    Удаление пользователя
+// @route   DELETE /api/auth/users/:id
+// @access  Private (только администраторы)
+const deleteUser = async (req, res) => {
+  try {
+    const userId = req.params.id;
+
+    // Проверяем, что ID валидный
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({ message: 'Неверный ID пользователя' });
+    }
+
+    // Находим пользователя по ID
+    const user = await User.findById(userId);
+
+    if (!user) {
+      return res.status(404).json({ message: 'Пользователь не найден' });
+    }
+
+    // Проверяем, что пользователь не является суперадмином
+    if (user.role === 'superadmin') {
+      return res.status(403).json({ message: 'Нельзя удалить суперадминистратора' });
+    }
+
+    // Удаляем пользователя
+    await User.findByIdAndDelete(userId);
+
+    res.status(200).json({ message: 'Пользователь успешно удален' });
+  } catch (error) {
+    console.error('Ошибка при удалении пользователя:', error);
+    res.status(500).json({ message: 'Ошибка сервера при удалении пользователя' });
+  }
+};
+
+export { registerUser, loginUser, getUserProfile, logoutUser, createAdmin, createAdminIfNotExists, getAllUsers, updateUser, updateProfile, deleteUser }; 

@@ -1,5 +1,5 @@
 <template>
-  <div class="chat-page">
+  <div class="chat-page" :class="{ 'ios-safari-chat': isIOSSafari }">
     <!-- Если чат выбран -->
     <Transition name="chat-fade" mode="out-in" :duration="{ leave: 2000 }">
       <div v-if="chatData && chatData._id" class="chat-content" key="chat-content">
@@ -133,6 +133,7 @@
 <script setup>
 import { useChatStore } from '~/stores/chat';
 import { useAuthStore } from '~/stores/auth';
+import { ref, computed, nextTick, watch, onMounted, onBeforeUnmount } from 'vue';
 import { secureUrl, safeFetch, handleApiResponse } from '~/utils/api';
 // Nuxt.js автоматически регистрирует компоненты, поэтому импорт не нужен
 
@@ -158,6 +159,29 @@ const showNewMessageIndicator = ref(false);
 
 // Состояние контекстного меню
 const isContextMenuOpen = ref(false);
+
+// Определение iOS Safari
+const isIOSSafari = ref(false);
+
+// Функция для определения iOS устройств и Safari
+const detectIOSDevice = () => {
+  if (process.client) {
+    const userAgent = navigator.userAgent;
+    const isIOS = /iPad|iPhone|iPod/.test(userAgent) && !window.MSStream;
+    const isSafari = /^((?!chrome|android).)*safari/i.test(userAgent);
+    
+    isIOSSafari.value = isIOS && isSafari;
+    console.log('Определение устройства в чате:', { isIOS, isSafari, isIOSSafari: isIOSSafari.value });
+    
+    if (isIOSSafari.value) {
+      // Добавляем класс к body для глобальных стилей
+      document.body.classList.add('ios-safari-body');
+      
+      // Устанавливаем CSS-переменную для использования в стилях
+      document.documentElement.style.setProperty('--safari-bottom-padding', '44px');
+    }
+  }
+};
 
 // Импортируем хранилище контекстного меню
 import { useContextMenuStore } from '@/stores/contextMenu';
@@ -311,7 +335,6 @@ const loadMoreMessages = async () => {
       container.scrollTop = container.scrollHeight - scrollHeight + scrollTop;
     }
   });
-};
 
 // Прокрутка к последнему сообщению
 const scrollToBottom = (smooth = false) => {
@@ -322,6 +345,19 @@ const scrollToBottom = (smooth = false) => {
     });
   }
 };
+
+// При монтировании компонента
+onMounted(() => {
+  // Определяем, является ли устройство iOS с Safari
+  if (process.client) {
+    detectIOSDevice();
+  }
+  
+  // Добавляем обработчик события прокрутки
+  if (messagesContainer.value) {
+    messagesContainer.value.addEventListener('scroll', handleScroll);
+  }
+});
 
 // Обработчики событий от компонента ChatInputArea
 // Обработчик отправки сообщения

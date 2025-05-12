@@ -1,10 +1,11 @@
 <template>
   <button class="sidebar__button sidebar__button--new" @click="$emit('create-chat')">
-    <span>+</span>
+    <PlusIcon :size="28" color="white" />
   </button>
 </template>
 
 <script setup>
+import PlusIcon from '~/components/Icons/PlusIcon.vue';
 defineEmits(['create-chat']);
 </script>
 

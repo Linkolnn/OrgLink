@@ -2,6 +2,9 @@
   <div class="user-management">
     <div class="user-management__header">
       <h2 class="user-management__title">Управление пользователями</h2>
+      <button class="user-management__add-btn" @click="showAddUserForm = true">
+        <i class="fas fa-plus"></i> Добавить пользователя
+      </button>
     </div>
     
     <!-- Таблица пользователей -->
@@ -175,17 +178,38 @@ const deleteUser = async (userId) => {
   }
   
   try {
-    await $fetch(`${config.public.backendUrl}/api/auth/users/${userId}`, {
+    // Импортируем safeFetch и handleApiResponse для обработки ответа
+    const { safeFetch, handleApiResponse } = await import('~/utils/api');
+    
+    // Используем safeFetch вместо $fetch для совместимости с iOS
+    await safeFetch(`${config.public.backendUrl}/api/auth/users/${userId}`, {
       method: 'DELETE',
       credentials: 'include',
-    });
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('token')}`
+      }
+    }).then(res => handleApiResponse(res, 'Ошибка при удалении пользователя'));
     
     showNotification('Пользователь успешно удален');
     await loadUsers();
   } catch (error) {
     console.error('Ошибка удаления пользователя:', error);
-    showNotification('Не удалось удалить пользователя', 'error');
+    showNotification(error.message || 'Не удалось удалить пользователя', 'error');
   }
+};
+
+// Функция для валидации пароля
+const validatePassword = (password) => {
+  // Проверяем длину пароля
+  if (!password || password.length < 6) {
+    return {
+      valid: false,
+      message: 'Пароль должен содержать не менее 6 символов'
+    };
+  }
+  
+  return { valid: true };
 };
 
 // Функция для отправки формы
@@ -204,11 +228,18 @@ const submitUserForm = async () => {
         updateData.password = userForm.password;
       }
       
-      await $fetch(`${config.public.backendUrl}/api/auth/users/${editingUser.value._id}`, {
+      // Импортируем safeFetch и handleApiResponse для обработки ответа
+      const { safeFetch, handleApiResponse } = await import('~/utils/api');
+      
+      await safeFetch(`${config.public.backendUrl}/api/auth/users/${editingUser.value._id}`, {
         method: 'PUT',
-        body: updateData,
+        body: JSON.stringify(updateData),
         credentials: 'include',
-      });
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      }).then(res => handleApiResponse(res, 'Ошибка при сохранении пользователя'));
       
       showNotification('Пользователь успешно обновлен');
       
@@ -224,16 +255,31 @@ const submitUserForm = async () => {
       }
     } else {
       // Создание нового пользователя
-      const newUser = await $fetch(`${config.public.backendUrl}/api/auth/register`, {
+      
+      // Проверяем пароль перед отправкой
+      const passwordValidation = validatePassword(userForm.password);
+      if (!passwordValidation.valid) {
+        showNotification(passwordValidation.message, 'error');
+        return;
+      }
+      
+      // Импортируем safeFetch и handleApiResponse, если еще не импортированы
+      const { safeFetch, handleApiResponse } = await import('~/utils/api');
+      
+      const newUser = await safeFetch(`${config.public.backendUrl}/api/auth/register`, {
         method: 'POST',
-        body: {
+        body: JSON.stringify({
           name: userForm.name,
           email: userForm.email,
           password: userForm.password,
           role: userForm.role
-        },
+        }),
         credentials: 'include',
-      });
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      }).then(res => handleApiResponse(res, 'Ошибка при создании пользователя'));
       
       // Добавляем нового пользователя в список
       if (newUser._id) {

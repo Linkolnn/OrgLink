@@ -7,7 +7,8 @@ import {
   createAdmin, 
   getAllUsers,
   updateUser,
-  updateProfile
+  updateProfile,
+  deleteUser
 } from '../controllers/authController.js';
 import { protect, admin } from '../middleware/authMiddleware.js';
 import { uploadUserAvatar, handleUploadError } from '../middleware/uploadMiddleware.js';
@@ -31,6 +32,9 @@ router.post('/register', protect, admin, registerUser);
 
 // Маршрут для обновления пользователя (только для админа)
 router.put('/users/:id', protect, admin, updateUser);
+
+// Маршрут для удаления пользователя (только для админа)
+router.delete('/users/:id', protect, admin, deleteUser);
 
 // Маршрут для обновления своего профиля
 router.post('/update-profile', protect, uploadUserAvatar, handleUploadError, updateProfile);

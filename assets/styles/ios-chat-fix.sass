@@ -1,0 +1,57 @@
+// Специальные стили для адаптации чата под iOS Safari
+
+// Переменные для высоты поискового блока и нижней панели Safari
+$safari-search-bar-height: 44px
+$safari-bottom-bar-height: 44px
+$safari-total-offset: calc(#{$safari-search-bar-height} + env(safe-area-inset-top))
+
+// Стили для iOS Safari чата
+.ios-safari-chat
+  // Основной контейнер чата
+  &.chat-page
+    padding-bottom: env(safe-area-inset-bottom)
+    
+  // Область ввода сообщений
+  .input_area
+    padding-bottom: calc(env(safe-area-inset-bottom) + 15px)
+    margin-bottom: env(safe-area-inset-bottom)
+    
+    // Текстовая область ввода
+    .input_field
+      padding-bottom: calc(env(safe-area-inset-bottom) / 2)
+      max-height: 150px
+      
+    // Кнопка отправки
+    .send_button
+      margin-bottom: calc(env(safe-area-inset-bottom) / 2)
+      
+    // Контейнер кнопок
+    .button_container
+      padding-bottom: env(safe-area-inset-bottom)
+      
+  // Контейнер сообщений
+  .messages-container
+    padding-bottom: calc(env(safe-area-inset-bottom) + 60px)
+    
+  // Чат контент
+  .chat-content
+    padding-bottom: env(safe-area-inset-bottom)
+    
+  // Контейнер для ввода
+  .chat-input-wrapper
+    padding-bottom: env(safe-area-inset-bottom)
+    margin-bottom: env(safe-area-inset-bottom)
+    
+// Глобальные стили для iOS Safari
+.ios-safari-body
+  // Добавляем отступ внизу для учета нижней панели Safari
+  .app
+    padding-bottom: env(safe-area-inset-bottom)
+    
+  // Добавляем отступ для всех модальных окон
+  .modal
+    padding-bottom: env(safe-area-inset-bottom)
+    
+  // Добавляем отступ для всех всплывающих меню
+  .dropdown-menu
+    margin-bottom: env(safe-area-inset-bottom)

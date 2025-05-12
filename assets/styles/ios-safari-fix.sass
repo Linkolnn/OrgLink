@@ -34,9 +34,27 @@ $safari-total-offset: calc(#{$safari-search-bar-height} + env(safe-area-inset-to
     height: calc(100vh - #{$safari-search-bar-height})
     max-height: calc(100vh - #{$safari-search-bar-height})
     
-  // Область ввода сообщений
-  .chat-input-area
-    bottom: env(safe-area-inset-bottom)
+  // Область ввода сообщений в чате
+  .input_area
+    padding-bottom: calc(env(safe-area-inset-bottom) + 10px)
+    margin-bottom: env(safe-area-inset-bottom)
+    position: relative
+    z-index: 10
+    
+    // Текстовая область ввода
+    .input_field
+      padding-bottom: calc(env(safe-area-inset-bottom) / 2)
+      
+    // Кнопка отправки
+    .send_button
+      margin-bottom: calc(env(safe-area-inset-bottom) / 2)
+      
+  // Контейнер сообщений
+  .messages-container
+    padding-bottom: calc(env(safe-area-inset-bottom) + 60px)
+    
+  // Чат контент
+  .chat-content
     padding-bottom: env(safe-area-inset-bottom)
     
   // Админ-панель

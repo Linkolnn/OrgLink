@@ -169,9 +169,19 @@ const selectChat = async (chat) => {
 // Загрузка сообщений чата
 const loadChatMessages = async (chatId) => {
   try {
-    const response = await $fetch(`${config.public.backendUrl}/api/admin/chats/${chatId}/messages`, {
+    // Импортируем safeFetch и handleApiResponse для обработки ответа
+    const { safeFetch, handleApiResponse } = await import('~/utils/api');
+    
+    console.log('Загрузка сообщений чата:', chatId, 'Токен:', authStore.token);
+    
+    const response = await safeFetch(`${config.public.backendUrl}/api/admin/chats/${chatId}/messages`, {
+      method: 'GET',
       credentials: 'include',
-    });
+      headers: {
+        'Authorization': `Bearer ${authStore.token}`
+      }
+    }).then(res => handleApiResponse(res, 'Ошибка загрузки сообщений чата'));
+    
     console.log('Полученные сообщения чата:', response);
     
     // Проверяем структуру сообщений
