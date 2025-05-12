@@ -17,12 +17,7 @@ $safari-bottom-offset: calc(#{$safari-bottom-bar-height} + env(safe-area-inset-b
     
   // Область ввода сообщений
   .input_area
-    padding-bottom: calc(env(safe-area-inset-bottom) + 15px)
-    margin-bottom: calc(env(safe-area-inset-bottom) + #{$safari-bottom-bar-height})
-    position: relative
-    z-index: 10
-    background-color: var(--chat-bg)
-    
+
     // Текстовая область ввода
     .input_field
       padding-bottom: calc(env(safe-area-inset-bottom) / 2)
@@ -38,8 +33,9 @@ $safari-bottom-offset: calc(#{$safari-bottom-bar-height} + env(safe-area-inset-b
       
   // Контейнер сообщений
   .messages-container
-    padding-bottom: calc(env(safe-area-inset-bottom) + 60px + #{$safari-bottom-bar-height})
-    max-height: calc(100vh - 60px - #{$safari-address-bar-height} - #{$safari-bottom-bar-height} - 60px)
+    padding-bottom: 150px
+    max-height: calc(100vh - 60px - #{$safari-address-bar-height} - #{$safari-bottom-bar-height})
+    margin-bottom: 60px
     
   // Чат контент
   .chat-content
