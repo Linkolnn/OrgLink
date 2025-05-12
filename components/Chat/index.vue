@@ -847,8 +847,11 @@ const adjustContainerHeight = (adjustTextarea = false) => {
   
   console.log(`[Chat] Using ${viewportHeight} for device type: ${isMobile.value ? 'mobile' : 'desktop'}, PWA mode: ${isPWA}`);
 
+  // Дополнительный отступ для Safari на iPhone
+  const safariAdjustment = (isIOSSafari.value) ? 20 : 0;
+  
   // Обновляем max-height для .messages_container
-  messagesContainer.value.style.maxHeight = `calc(${viewportHeight} - ${headerHeight}px - ${inputAreaHeight}px)`;
+  messagesContainer.value.style.maxHeight = `calc(${viewportHeight} - ${headerHeight}px - ${inputAreaHeight}px - ${safariAdjustment}px)`;
 };
 
 // Алиас для обратной совместимости
