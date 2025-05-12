@@ -2,7 +2,7 @@ import { defineStore } from 'pinia';
 import { nextTick } from 'vue';
 import { useRuntimeConfig } from '#imports';
 import { useNuxtApp } from '#app';
-import { safeFetch } from '~/utils/safeFetch';
+import { safeFetch, handleApiResponse } from '~/utils/api';
 import { useCookie } from '#imports';
 import { useAuthStore } from '~/stores/auth';
 
@@ -2201,6 +2201,9 @@ export const useChatStore = defineStore('chat', {
       
       try {
         const config = useRuntimeConfig();
+        // Импортируем функцию safeFetch из наших утилит
+        const { safeFetch, handleApiResponse } = await import('~/utils/api');
+        
         // Подготавливаем данные для запроса
         const requestBody = { edited: true };
         
@@ -2234,11 +2237,14 @@ export const useChatStore = defineStore('chat', {
           }));
         }
         
-        const response = await $fetch(`${config.public.backendUrl}/api/chats/${chatId}/messages/${messageId}`, {
+        // Используем safeFetch вместо $fetch для совместимости с Safari/iOS
+        const response = await safeFetch(`${config.public.backendUrl}/api/chats/${chatId}/messages/${messageId}`, {
           method: 'PUT',
-          body: requestBody,
-          credentials: 'include'
-        });
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(requestBody)
+        }).then(res => handleApiResponse(res, 'Ошибка при обновлении сообщения'));
         
         // Обновляем сообщение в локальном списке
         const messageIndex = this.messages.findIndex(msg => msg._id === messageId);

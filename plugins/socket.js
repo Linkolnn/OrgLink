@@ -1,6 +1,7 @@
 import { io } from 'socket.io-client';
 import { defineNuxtPlugin } from '#app';
 import { useCookie, useAuthStore, useRuntimeConfig, watch } from '#imports';
+import { useChatStore } from '~/stores/chat';
 
 export default defineNuxtPlugin((nuxtApp) => {
   const config = useRuntimeConfig();
@@ -47,16 +48,17 @@ export default defineNuxtPlugin((nuxtApp) => {
   console.log('Socket.IO connecting to:', backendUrl, 'with path:', socketPath);
   
   // Создаем соединение Socket.IO
-  // Для совместимости с Safari на iOS, сначала используем polling, затем websocket
-  const transports = ['polling', 'websocket'];
+  // Используем только polling для надежности и совместимости со всеми устройствами
+  // Это решает проблемы с подтормаживанием при переключении между транспортами
+  const transports = ['polling'];
   console.log(`Socket.IO: Используем транспорты: ${transports.join(', ')}`);
   
   // Определяем, используется ли Safari
   const isSafari = typeof navigator !== 'undefined' && /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
   const isIOS = typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
   
-  // Увеличиваем таймаут для Safari и iOS
-  const connectionTimeout = (isSafari || isIOS) ? 30000 : 20000;
+  // Уменьшаем таймаут для более быстрого обнаружения проблем с соединением
+  const connectionTimeout = 10000; // 10 секунд для всех браузеров
   
   console.log('Browser detection:', { isSafari, isIOS, connectionTimeout });
   
@@ -73,18 +75,23 @@ export default defineNuxtPlugin((nuxtApp) => {
     withCredentials: true,
     reconnection: true,        // Включаем автоматическое переподключение
     reconnectionAttempts: Infinity,  // Бесконечное количество попыток переподключения
-    reconnectionDelay: 1000,   // Задержка между попытками переподключения
-    timeout: connectionTimeout, // Увеличенный таймаут для Safari/iOS
-    transports: transports,    // Используем транспорты в зависимости от окружения
+    reconnectionDelay: 500,    // Уменьшаем задержку между попытками переподключения
+    timeout: connectionTimeout, // Оптимизированный таймаут для быстрого обнаружения проблем
+    transports: transports,    // Используем только polling для стабильности
     path: socketPath,          // Используем путь в зависимости от окружения
     forceNew: true,            // Создаем новое соединение
+    upgrade: false,            // Отключаем автоматическое обновление транспорта
+    pingInterval: 10000,       // Уменьшаем интервал пинга для более быстрого обнаружения проблем
+    pingTimeout: 5000,         // Уменьшаем таймаут пинга
     auth: {
       token: token // Инициализируем с токеном
     },
     // Добавляем заголовки для лучшей совместимости
     extraHeaders: {
       "X-Client-Info": "iOS-Safari-Compatible",
-      "Authorization": token ? `Bearer ${token}` : undefined
+      "Authorization": token ? `Bearer ${token}` : undefined,
+      "Cache-Control": "no-cache",
+      "Pragma": "no-cache"
     }
   });
   
@@ -105,80 +112,188 @@ export default defineNuxtPlugin((nuxtApp) => {
   // Обработчики событий сокета
   socket.on('connect', () => {
     // WebSocket соединение установлено
+    console.log('Socket.IO: Соединение установлено');
+    
+    // При успешном подключении сбрасываем задержку переподключения на стандартную
+    socket.io.reconnectionDelay = 500;
+    socket.io.reconnectionDelayMax = 1000;
+    
+    // Автоматически подключаемся к активному чату, если он есть
+    const chatStore = useChatStore();
+    if (chatStore.activeChat && chatStore.activeChat._id) {
+      socket.emit('join-chat', chatStore.activeChat._id);
+    }
+    
+    // Отправляем событие о подключении для обновления интерфейса
+    nuxtApp.hook('socket:connected');
   });
 
   socket.on('connect_error', (error) => {
     // Логируем ошибку подключения
     console.error('Socket.io connection error:', error.message, error);
     
-    // Проверка на ошибки CORS
-    if (error.message.includes('CORS') || error.message.includes('Access-Control')) {
-      console.log('Ошибка CORS, пробуем использовать только polling');
-      // Пробуем использовать только polling для Safari/iOS
-      socket.io.opts.transports = ['polling'];
-      setTimeout(() => {
-        socket.connect();
-      }, 1000);
-      return;
+    // Получаем свежий токен
+    const token = getToken();
+    
+    // Обновляем токен в настройках соединения
+    if (token) {
+      socket.auth.token = token;
+      
+      // Обновляем токен в URL для следующего подключения
+      const socketUrl = `${backendUrl}?token=${token}`;
+      socket.io.uri = socketUrl;
+      
+      // Обновляем заголовки
+      socket.io.opts.extraHeaders = {
+        ...socket.io.opts.extraHeaders,
+        "Authorization": `Bearer ${token}`
+      };
     }
     
-    // Проверка на ошибки транспорта
-    if (error.message.includes('transport') || error.message.includes('xhr')) {
-      console.log('Ошибка транспорта, пробуем использовать только polling');
+    // Убеждаемся, что используем только polling
+    if (socket.io.opts.transports.includes('websocket')) {
+      console.log('Переключаемся на использование только polling для стабильности');
       socket.io.opts.transports = ['polling'];
-      setTimeout(() => {
-        socket.connect();
-      }, 1000);
-      return;
     }
     
-    // Если ошибка связана с аутентификацией, попробуем обновить токен и переподключиться
-    if (error.message.includes('Authentication') || error.message.includes('auth')) {
-      console.log('Ошибка аутентификации, пробуем обновить токен');
-      const token = getToken();
-      if (token) {
-        socket.auth.token = token;
-        setTimeout(() => {
-          socket.connect();
-        }, 1000);
-      }
-    }
-    // Если ошибка связана с транспортом, попробуем другой транспорт
-    else if (error.message.includes('transport') || error.message.includes('xhr poll error')) {
-      console.log('Ошибка транспорта, переключаемся на polling');
-      // Переключаемся на polling, если websocket не работает
-      socket.io.opts.transports = ['polling'];
-      setTimeout(() => {
-        socket.connect();
-      }, 1000);
-    } else {
-      // Для других ошибок просто пробуем переподключиться
-      console.log('Неизвестная ошибка, пробуем переподключиться');
-      setTimeout(() => {
-        socket.connect();
-      }, 2000);
+    // Уменьшаем задержку переподключения для более быстрого восстановления
+    socket.io.reconnectionDelay = 300;
+    socket.io.reconnectionDelayMax = 1000;
+    
+    // Устанавливаем отключение автоматического обновления транспорта
+    socket.io.opts.upgrade = false;
+    
+    // Определяем тип ошибки и выбираем оптимальную стратегию восстановления
+    const errorType = getErrorType(error);
+    
+    switch (errorType) {
+      case 'auth':
+        // Ошибка аутентификации
+        console.log('Ошибка аутентификации, пробуем переподключиться с новым токеном');
+        setTimeout(() => socket.connect(), 300);
+        break;
+      
+      case 'cors':
+        // Ошибка CORS
+        console.log('Ошибка CORS, пробуем использовать альтернативный метод подключения');
+        
+        // Добавляем токен в URL для обхода проблем с CORS
+        if (token && !socket.io.uri.includes('token=')) {
+          socket.io.uri = `${backendUrl}?token=${token}`;
+        }
+        
+        setTimeout(() => socket.connect(), 300);
+        break;
+      
+      case 'transport':
+        // Ошибка транспорта
+        console.log('Ошибка транспорта, пробуем использовать только polling');
+        socket.io.opts.transports = ['polling'];
+        setTimeout(() => socket.connect(), 300);
+        break;
+      
+      default:
+        // Неизвестная ошибка
+        console.log('Неизвестная ошибка, пробуем переподключиться');
+        setTimeout(() => socket.connect(), 500);
     }
   });
+  
+  // Функция для определения типа ошибки
+  const getErrorType = (error) => {
+    const errorMsg = error.message || '';
+    
+    if (errorMsg.includes('Authentication') || errorMsg.includes('auth') || errorMsg.includes('401')) {
+      return 'auth';
+    }
+    
+    if (errorMsg.includes('CORS') || errorMsg.includes('Access-Control')) {
+      return 'cors';
+    }
+    
+    if (errorMsg.includes('transport') || errorMsg.includes('xhr') || errorMsg.includes('poll')) {
+      return 'transport';
+    }
+    
+    return 'unknown';
+  };
 
   socket.on('disconnect', (reason) => {
     // WebSocket соединение разорвано
+    console.log('Socket.IO: Соединение разорвано, причина:', reason);
+    
+    // Если соединение разорвано из-за ошибки аутентификации, обновляем токен
+    if (reason === 'io server disconnect' || reason.includes('auth')) {
+      const token = getToken();
+      if (token) {
+        socket.auth.token = token;
+        socket.io.opts.extraHeaders['Authorization'] = `Bearer ${token}`;
+        
+        // Быстрое переподключение
+        setTimeout(() => socket.connect(), 100);
+      }
+    }
+    
+    // Отправляем событие о отключении для обновления интерфейса
+    nuxtApp.hook('socket:disconnected', { reason });
   });
   
   socket.on('reconnect', (attemptNumber) => {
     // WebSocket переподключен
+    console.log('Socket.IO: Успешное переподключение после', attemptNumber, 'попыток');
+    
+    // Автоматически подключаемся к активному чату, если он есть
+    const chatStore = useChatStore();
+    if (chatStore.activeChat && chatStore.activeChat._id) {
+      socket.emit('join-chat', chatStore.activeChat._id);
+    }
+    
+    // Обновляем список чатов и сообщений
+    chatStore.loadChats();
+    if (chatStore.activeChat && chatStore.activeChat._id) {
+      chatStore.loadMessages(chatStore.activeChat._id);
+    }
+    
+    // Отправляем событие о переподключении для обновления интерфейса
+    nuxtApp.hook('socket:reconnected');
   });
   
   socket.on('reconnect_attempt', (attemptNumber) => {
     // Попытка переподключения WebSocket
-    socket.auth.token = getToken();
+    console.log('Socket.IO: Попытка переподключения #', attemptNumber);
+    
+    // Обновляем токен перед каждой попыткой переподключения
+    const token = getToken();
+    if (token) {
+      socket.auth.token = token;
+      socket.io.opts.extraHeaders['Authorization'] = `Bearer ${token}`;
+      
+      // Обновляем URL с токеном
+      if (!socket.io.uri.includes('token=')) {
+        socket.io.uri = `${backendUrl}?token=${token}`;
+      }
+    }
+    
+    // Если много попыток, убеждаемся что используем только polling
+    if (attemptNumber > 2 && socket.io.opts.transports.includes('websocket')) {
+      socket.io.opts.transports = ['polling'];
+    }
   });
   
   socket.on('connection-established', (data) => {
     // Сервер подтвердил соединение
+    console.log('Socket.IO: Сервер подтвердил соединение', data);
+    
+    // Отправляем событие о подтверждении соединения для обновления интерфейса
+    nuxtApp.hook('socket:established', data);
   });
   
   socket.on('joined-chat', ({ chatId, success }) => {
     // Подключение к комнате чата
+    console.log('Socket.IO: ' + (success ? 'Успешное подключение к чату' : 'Ошибка подключения к чату'), chatId);
+    
+    // Отправляем событие о подключении к чату для обновления интерфейса
+    nuxtApp.hook('socket:joined-chat', { chatId, success });
   });
   
   // Метод для подключения к комнате чата

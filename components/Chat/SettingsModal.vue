@@ -272,7 +272,7 @@ import { ref, computed, watch, onMounted } from 'vue';
 import { useChatStore } from '~/stores/chat';
 import { useAuthStore } from '~/stores/auth';
 import { useDebounce } from '@vueuse/core';
-import { secureUrl } from '~/utils/secureUrl';
+import { secureUrl } from '~/utils/api';
 
 const chatStore = useChatStore();
 const authStore = useAuthStore();

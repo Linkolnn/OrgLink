@@ -160,7 +160,7 @@ import { useAuthStore } from '~/stores/auth';
 import { useChatStore } from '~/stores/chat';
 import { useNuxtApp } from '#app';
 import { useRoute, useRouter } from 'vue-router';
-import { secureUrl } from '~/utils/secureUrl';
+import { secureUrl } from '~/utils/api';
 
 const props = defineProps({
   userData: {

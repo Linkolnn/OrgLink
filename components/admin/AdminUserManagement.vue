@@ -138,10 +138,15 @@ onMounted(async () => {
 // Функция загрузки пользователей
 const loadUsers = async () => {
   try {
-    const response = await $fetch(`${config.public.backendUrl}/api/auth/users`, {
-      credentials: 'include',
-    });
+    // Импортируем функцию safeFetch из наших утилит
+    const { safeFetch, handleApiResponse } = await import('~/utils/api');
+    
+    // Используем safeFetch вместо $fetch для совместимости с Safari/iOS
+    const response = await safeFetch(`${config.public.backendUrl}/api/auth/users`)
+      .then(res => handleApiResponse(res, 'Ошибка загрузки пользователей'));
+    
     users.value = response;
+    console.log('Пользователи успешно загружены:', response.length);
   } catch (error) {
     console.error('Ошибка загрузки пользователей:', error);
     showNotification('Не удалось загрузить список пользователей', 'error');

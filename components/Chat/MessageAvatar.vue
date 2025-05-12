@@ -34,7 +34,7 @@
 
 <script setup>
 import { ref } from 'vue';
-import { secureUrl } from '~/utils/secureUrl';
+import { secureUrl } from '~/utils/api';
 
 const props = defineProps({
   userId: {

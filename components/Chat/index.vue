@@ -133,7 +133,7 @@
 <script setup>
 import { useChatStore } from '~/stores/chat';
 import { useAuthStore } from '~/stores/auth';
-import { secureUrl } from '~/utils/secureUrl';
+import { secureUrl, safeFetch, handleApiResponse } from '~/utils/api';
 // Nuxt.js автоматически регистрирует компоненты, поэтому импорт не нужен
 
 // Хранилища

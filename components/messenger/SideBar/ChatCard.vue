@@ -50,7 +50,7 @@
 </template>
 
 <script setup>
-import { secureUrl } from '~/utils/secureUrl';
+import { secureUrl } from '~/utils/api';
 import { useChatStore } from '~/stores/chat';
 import { useAuthStore } from '~/stores/auth';
 import { computed } from 'vue';

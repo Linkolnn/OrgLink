@@ -3,7 +3,7 @@ import { useRuntimeConfig } from '#app';
 import { useCookie } from '#app';
 import { useRouter } from '#app';
 import { jwtDecode } from 'jwt-decode';
-import { safeFetch } from '~/utils/safeFetch';
+import { safeFetch, handleApiResponse } from '~/utils/api';
 
 export const useAuthStore = defineStore('auth', {
   state: () => {
