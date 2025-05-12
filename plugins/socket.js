@@ -296,6 +296,124 @@ export default defineNuxtPlugin((nuxtApp) => {
     nuxtApp.hook('socket:joined-chat', { chatId, success });
   });
   
+  // Обработчик события удаления чата
+  socket.on('chat-deleted', (data) => {
+    console.log('Socket.IO: Чат удален', data);
+    
+    const chatStore = useChatStore();
+    const { chatId, chatName, deletedBy, deletedByName } = data;
+    
+    // Удаляем чат из списка чатов
+    chatStore.removeChatFromList(chatId);
+    
+    // Если это активный чат, переключаемся на первый чат в списке
+    if (chatStore.activeChat && chatStore.activeChat._id === chatId) {
+      chatStore.setActiveChat(null);
+      
+      // Переключаемся на первый чат в списке, если он есть
+      if (chatStore.chats.length > 0) {
+        chatStore.setActiveChat(chatStore.chats[0]);
+      }
+    }
+    
+    // Показываем уведомление об удалении чата
+    let notificationText = '';
+    
+    // Формируем текст уведомления в зависимости от типа чата
+    if (data.chatType === 'private') {
+      // Для приватных чатов
+      notificationText = deletedByName 
+        ? `Личный чат с ${chatName} был удален` 
+        : `Личный чат с ${chatName} был удален`;
+    } else {
+      // Для групповых чатов
+      notificationText = deletedByName 
+        ? `Групповой чат "${chatName}" был удален пользователем ${deletedByName}` 
+        : `Групповой чат "${chatName}" был удален`;
+    }
+    
+    // Используем плагин уведомлений, если он доступен
+    if (nuxtApp.$notify) {
+      nuxtApp.$notify(notificationText, 'warning');
+    } else {
+      // Иначе используем стандартный alert
+      alert(notificationText);
+    }
+    
+    // Отправляем событие об удалении чата для обновления интерфейса
+    nuxtApp.hook('socket:chat-deleted', data);
+  });
+  
+  // Обработчик события удаления участника из чата
+  socket.on('participant-removed', (data) => {
+    console.log('Socket.IO: Участник удален из чата', data);
+    
+    const chatStore = useChatStore();
+    const authStore = useAuthStore();
+    const { chatId, chatName, removedBy, removedByName, removedUser, removedUserName } = data;
+    
+    // Если удаленный пользователь - это текущий пользователь
+    if (removedUser === authStore.user._id) {
+      // Удаляем чат из списка чатов
+      chatStore.removeChatFromList(chatId);
+      
+      // Если это активный чат, переключаемся на первый чат в списке
+      if (chatStore.activeChat && chatStore.activeChat._id === chatId) {
+        chatStore.setActiveChat(null);
+        
+        // Переключаемся на первый чат в списке, если он есть
+        if (chatStore.chats.length > 0) {
+          chatStore.setActiveChat(chatStore.chats[0]);
+        }
+      }
+      
+      // Показываем уведомление об удалении из чата
+      let notificationText = '';
+      
+      if (chatName) {
+        notificationText = `Вы были удалены из чата "${chatName}" пользователем ${removedByName || 'администратором'}`;
+      } else {
+        notificationText = `Вы были удалены из чата пользователем ${removedByName || 'администратором'}`;
+      }
+      
+      // Используем плагин уведомлений, если он доступен
+      if (nuxtApp.$notify) {
+        nuxtApp.$notify(notificationText, 'warning');
+      } else {
+        // Иначе используем стандартный alert
+        alert(notificationText);
+      }
+    } else {
+      // Если удален другой пользователь, обновляем список участников в активном чате
+      if (chatStore.activeChat && chatStore.activeChat._id === chatId) {
+        // Обновляем список участников чата
+        chatStore.loadChatParticipants(chatId);
+        
+        // Показываем уведомление об удалении участника
+        let notificationText = '';
+        
+        if (chatName && removedUserName && removedByName) {
+          notificationText = `Пользователь ${removedUserName} был удален из чата "${chatName}" пользователем ${removedByName}`;
+        } else if (removedUserName) {
+          notificationText = `Пользователь ${removedUserName} был удален из чата`;
+        } else {
+          notificationText = `Участник был удален из чата`;
+        }
+        
+        // Используем плагин уведомлений, если он доступен
+        if (nuxtApp.$notify) {
+          nuxtApp.$notify(notificationText, 'info');
+        }
+      } else {
+        // Обновляем список чатов
+        chatStore.loadChats();
+      }
+    }
+    
+    // Отправляем событие об удалении участника для обновления интерфейса
+    nuxtApp.hook('socket:participant-removed', data);
+  });
+  
   // Метод для подключения к комнате чата
   const joinChat = (chatId) => {
     const token = getToken();

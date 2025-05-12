@@ -538,18 +538,27 @@ const removeChatParticipant = async (req, res) => {
       }
     });
     
+    // Создаем объект с данными о удалении участника
+    const removalData = {
+      chatId,
+      chatName,
+      removedBy: removedByUserId,
+      removedByName: removedByUserName,
+      removedUser: removedUserId,
+      removedUserName: removedUserName
+    };
+    
     // Отправляем уведомление удаленному пользователю
     if (req.app.locals.userSockets[removedUserId]) {
       const socketId = req.app.locals.userSockets[removedUserId].id;
-      req.app.locals.io.to(socketId).emit('participant-removed', {
-        chatId,
-        chatName,
-        removedBy: removedByUserId,
-        removedByName: removedByUserName,
-        removedUser: removedUserId,
-        removedUserName: removedUserName
-      });
+      req.app.locals.io.to(socketId).emit('participant-removed', removalData);
     }
+    
+    // Отправляем уведомление всем участникам чата
+    const roomName = `chat:${chatId}`;
+    req.app.locals.io.to(roomName).emit('participant-removed', removalData);
+    
+    console.log(`Отправлено уведомление об удалении участника ${removedUserName} из чата ${chatName} всем участникам`);
     
     res.json(updatedChat);
   } catch (error) {
@@ -712,7 +721,23 @@ const deleteChat = async (req, res) => {
     // Удаляем сам чат
     await Chat.deleteOne({ _id: chatId });
     
-    // Отправляем уведомление всем участникам чата через WebSocket
+    // Создаем объект с данными о удалении чата
+    const deletionData = {
+      chatId,
+      chatName,
+      chatType,
+      deletedBy: deletedBy.toString(),
+      deletedByName: req.user.name,
+      message: chatType === 'private' ? 'Личный чат был удален' : `Групповой чат "${chatName}" был удален`
+    };
+    
+    // Отправляем уведомление в комнату чата (всем подключенным участникам)
+    const roomName = `chat:${chatId}`;
+    req.app.locals.io.to(roomName).emit('chat-deleted', deletionData);
+    
+    console.log(`Отправлено уведомление об удалении чата ${chatName} в комнату ${roomName}`);
+    
+    // Дополнительно отправляем уведомление каждому участнику лично (для надежности)
     chatParticipants.forEach(participantId => {
       // Проверяем, подключен ли пользователь через WebSocket
       if (req.app.locals.userSockets && 
@@ -721,14 +746,8 @@ const deleteChat = async (req, res) => {
         // Получаем ID сокета пользователя
         const socketId = req.app.locals.userSockets[participantId.toString()].id;
         
-        // Отправляем событие удаления чата
-        req.app.locals.io.to(socketId).emit('chat-deleted', {
-          chatId,
-          chatName,
-          chatType,
-          deletedBy: deletedBy.toString(),
-          message: chatType === 'private' ? 'Личный чат был удален' : `Групповой чат "${chatName}" был удален`
-        });
+        // Отправляем событие удаления чата напрямую пользователю
+        req.app.locals.io.to(socketId).emit('chat-deleted', deletionData);
       }
     });
     
