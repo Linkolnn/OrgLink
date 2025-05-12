@@ -2,19 +2,26 @@
 
 // Переменные для высоты поискового блока и нижней панели Safari
 $safari-search-bar-height: 44px
+$safari-address-bar-height: 44px // Высота адресной строки Safari
 $safari-bottom-bar-height: 44px
 $safari-total-offset: calc(#{$safari-search-bar-height} + env(safe-area-inset-top))
+$safari-bottom-offset: calc(#{$safari-bottom-bar-height} + env(safe-area-inset-bottom))
 
 // Стили для iOS Safari чата
 .ios-safari-chat
   // Основной контейнер чата
   &.chat-page
     padding-bottom: env(safe-area-inset-bottom)
+    height: calc(100vh - #{$safari-address-bar-height} - #{$safari-bottom-bar-height})
+    max-height: calc(100vh - #{$safari-address-bar-height} - #{$safari-bottom-bar-height})
     
   // Область ввода сообщений
   .input_area
     padding-bottom: calc(env(safe-area-inset-bottom) + 15px)
-    margin-bottom: env(safe-area-inset-bottom)
+    margin-bottom: calc(env(safe-area-inset-bottom) + #{$safari-bottom-bar-height})
+    position: relative
+    z-index: 10
+    background-color: var(--chat-bg)
     
     // Текстовая область ввода
     .input_field
@@ -31,16 +38,22 @@ $safari-total-offset: calc(#{$safari-search-bar-height} + env(safe-area-inset-to
       
   // Контейнер сообщений
   .messages-container
-    padding-bottom: calc(env(safe-area-inset-bottom) + 60px)
+    padding-bottom: calc(env(safe-area-inset-bottom) + 60px + #{$safari-bottom-bar-height})
+    max-height: calc(100vh - 60px - #{$safari-address-bar-height} - #{$safari-bottom-bar-height} - 60px)
     
   // Чат контент
   .chat-content
     padding-bottom: env(safe-area-inset-bottom)
+    height: calc(100vh - #{$safari-address-bar-height} - #{$safari-bottom-bar-height})
+    max-height: calc(100vh - #{$safari-address-bar-height} - #{$safari-bottom-bar-height})
     
   // Контейнер для ввода
   .chat-input-wrapper
-    padding-bottom: env(safe-area-inset-bottom)
-    margin-bottom: env(safe-area-inset-bottom)
+    padding-bottom: calc(env(safe-area-inset-bottom) + #{$safari-bottom-bar-height})
+    margin-bottom: calc(env(safe-area-inset-bottom) + #{$safari-bottom-bar-height})
+    position: relative
+    z-index: 10
+    background-color: var(--chat-bg)
     
 // Глобальные стили для iOS Safari
 .ios-safari-body

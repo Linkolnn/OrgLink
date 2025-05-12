@@ -64,10 +64,21 @@ export const safeFetch = async (url, options = {}) => {
     fullUrl = `${backendUrl}${url.startsWith('/') ? url : `/${url}`}`;
   }
   
-  // Получаем токен из cookie
+  // Получаем токен из разных источников
   const tokenCookie = useCookie('token');
   const clientTokenCookie = useCookie('client_token');
-  const token = tokenCookie.value || clientTokenCookie.value;
+  // Проверяем localStorage, если мы в браузере
+  let localStorageToken = '';
+  if (typeof window !== 'undefined' && window.localStorage) {
+    try {
+      localStorageToken = window.localStorage.getItem('token');
+    } catch (e) {
+      console.error('API Utils: Ошибка при получении токена из localStorage:', e);
+    }
+  }
+  
+  // Используем первый доступный токен
+  const token = tokenCookie.value || clientTokenCookie.value || localStorageToken;
   
   // Определяем, используется ли Safari или iOS
   const isSafari = typeof navigator !== 'undefined' && /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
@@ -78,6 +89,7 @@ export const safeFetch = async (url, options = {}) => {
   // Устанавливаем заголовки по умолчанию
   const headers = {
     ...(options.headers || {}),
+    'Content-Type': options.headers?.['Content-Type'] || 'application/json'
   };
   
   // Добавляем заголовок Authorization, если есть токен
@@ -90,6 +102,14 @@ export const safeFetch = async (url, options = {}) => {
     delete headers['Origin'];
   }
   
+  // Для iOS и Safari сразу добавляем токен в URL
+  let requestUrl = fullUrl;
+  if ((isSafari || isIOS) && token) {
+    const separator = fullUrl.includes('?') ? '&' : '?';
+    requestUrl = `${fullUrl}${separator}token=${token}`;
+    console.log('API Utils: Используем URL с токеном для iOS/Safari:', requestUrl);
+  }
+  
   // Создаем новые опции с обновленными заголовками
   const updatedOptions = {
     ...options,
@@ -99,24 +119,34 @@ export const safeFetch = async (url, options = {}) => {
   
   try {
     // Выполняем запрос
-    const response = await fetch(fullUrl, updatedOptions);
+    const response = await fetch(requestUrl, updatedOptions);
     
-    // Если получили 401 Unauthorized и есть токен, пробуем запрос с токеном в URL
-    if (response.status === 401 && token && (isSafari || isIOS)) {
-      console.log('API Utils: Получили 401, пробуем запрос с токеном в URL для Safari/iOS');
+    // Если получили 401 Unauthorized и есть токен, пробуем альтернативный метод
+    if (response.status === 401 && token) {
+      console.log('API Utils: Получили 401, пробуем альтернативный метод авторизации');
       
-      // Добавляем токен в URL
-      const separator = fullUrl.includes('?') ? '&' : '?';
-      const urlWithToken = `${fullUrl}${separator}token=${token}`;
-      
-      // Создаем новые опции без заголовка Authorization
-      const newOptions = { ...updatedOptions };
-      if (newOptions.headers && newOptions.headers['Authorization']) {
-        delete newOptions.headers['Authorization'];
+      // Если мы уже использовали URL с токеном, пробуем другой метод
+      if (requestUrl.includes('token=')) {
+        // Пробуем использовать только заголовок без URL параметра
+        console.log('API Utils: Пробуем использовать только заголовок Authorization');
+        
+        const headerOnlyOptions = {
+          ...updatedOptions,
+          headers: {
+            ...updatedOptions.headers,
+            'Authorization': `Bearer ${token}`
+          }
+        };
+        
+        return fetch(fullUrl, headerOnlyOptions);
+      } else {
+        // Добавляем токен в URL
+        const separator = fullUrl.includes('?') ? '&' : '?';
+        const urlWithToken = `${fullUrl}${separator}token=${token}`;
+        
+        console.log('API Utils: Пробуем запрос с токеном в URL');
+        return fetch(urlWithToken, updatedOptions);
       }
-      
-      // Выполняем повторный запрос с токеном в URL
-      return fetch(urlWithToken, newOptions);
     }
     
     return response;
@@ -194,6 +224,18 @@ export const handleApiResponse = async (response, errorMessage = 'Ошибка �
       errorText = errorData.message || errorData.error || errorMessage;
     } catch (e) {
       // Если не удалось получить JSON, используем текст ошибки по умолчанию
+      console.error('Ошибка при парсинге JSON ответа:', e);
+      
+      // Добавляем статус в текст ошибки для более информативного сообщения
+      if (response.status === 401) {
+        errorText = 'Не авторизован, токен отсутствует';
+      } else if (response.status === 403) {
+        errorText = 'Доступ запрещен';
+      } else if (response.status === 404) {
+        errorText = 'Ресурс не найден';
+      } else {
+        errorText = `${errorMessage} (${response.status})`;
+      }
     }
     
     // Создаем и выбрасываем ошибку с текстом и статусом
@@ -203,7 +245,20 @@ export const handleApiResponse = async (response, errorMessage = 'Ошибка �
   }
   
   // Для успешного ответа возвращаем данные
-  return await response.json();
+  try {
+    const data = await response.json();
+    
+    // Проверяем, что данные не null
+    if (data === null) {
+      console.warn('Получен null в ответе API');
+      return {}; // Возвращаем пустой объект вместо null
+    }
+    
+    return data;
+  } catch (e) {
+    console.error('Ошибка при парсинге JSON успешного ответа:', e);
+    return {}; // Возвращаем пустой объект в случае ошибки
+  }
 };
 
 /**
