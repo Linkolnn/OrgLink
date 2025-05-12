@@ -131,7 +131,7 @@
 </template>
 
 <script setup>
-import { useChatStore } from '~/stores/chat';
+  import { useChatStore } from '~/stores/chat';
 import { useAuthStore } from '~/stores/auth';
 import { ref, computed, nextTick, watch, onMounted, onBeforeUnmount } from 'vue';
 import { secureUrl, safeFetch, handleApiResponse } from '~/utils/api';
@@ -329,13 +329,13 @@ const loadMoreMessages = async () => {
   const scrollTop = container.scrollTop;
   
   await chatStore.loadMoreMessages();
-  
+
   nextTick(() => {
     if (container) {
       container.scrollTop = container.scrollHeight - scrollHeight + scrollTop;
     }
   });
-
+};
 // Прокрутка к последнему сообщению
 const scrollToBottom = (smooth = false) => {
   if (messagesContainer.value) {
@@ -395,7 +395,7 @@ const handleMessageSent = async ({ chatId, text, files, audio }) => {
         text,
         files
       });
-      
+
       console.log('[Chat] Сообщение успешно отправлено');
       
       // Прокручиваем чат вниз
@@ -904,8 +904,6 @@ const setupDisplayModeListener = () => {
   };
 };
 
-
-
 // Жизненный цикл компонента
 onMounted(() => {
   console.log('[Chat] Монтирование компонента');
@@ -1325,7 +1323,6 @@ const getOtherParticipantName = (chat) => {
   return otherParticipant?.name || chat.name || 'Чат';
 };
 </script>
-
 <style lang="sass" scoped>
 @import '~/assets/styles/variables.sass'
 // Анимация для плавного исчезновения чата
