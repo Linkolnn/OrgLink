@@ -110,6 +110,7 @@
           @editing-started="handleEditingStarted" 
           @editing-cancelled="handleEditingCancelled" 
           @editing-saved="handleEditingSaved" 
+          @height-changed="handleInputAreaHeightChanged" 
         />
       </div>
     </div>
@@ -442,6 +443,13 @@ const handleEditMessage = async () => {
   }
 };
   
+// Обработчик изменения высоты InputArea
+const handleInputAreaHeightChanged = (newHeight) => {
+  console.log('[Chat] InputArea height changed:', newHeight);
+  // Вызываем adjustContainerHeight для обновления высоты контейнера сообщений
+  adjustContainerHeight(false);
+};
+
 // Функция для отправки сообщений теперь реализована в handleMessageSent
 
 // Форматирование даты сообщения
@@ -803,6 +811,46 @@ const adjustContainerHeight = (adjustTextarea = false) => {
     return;
   }
 
+  // Определяем, запущено ли приложение в режиме PWA или в полноэкранном режиме
+  const isPWA = window.matchMedia('(display-mode: standalone)').matches || 
+                window.matchMedia('(display-mode: fullscreen)').matches || 
+                window.navigator.standalone === true; // Для iOS
+  
+  // Получаем высоту .page_header
+  const headerHeight = pageHeader.value.offsetHeight || 60; // Фоллбэк на 60px
+
+  // Выбираем значение vh в зависимости от типа устройства и режима приложения
+  let viewportHeight;
+  
+  if (isMobile.value) {
+    // Для мобильных устройств
+    viewportHeight = isPWA ? '99vh' : '92vh'; // Увеличиваем до 92vh для мобильных браузеров
+  } else {
+    // Для десктопа
+    viewportHeight = '99vh';
+  }
+  
+  // Сохраняем предыдущую высоту области ввода, если она была измерена ранее
+  const prevInputAreaHeight = inputArea.value._prevHeight || 0;
+  
+  // Получаем текущую высоту области ввода
+  const inputAreaEl = inputArea.value.$el;
+  const currentInputAreaHeight = inputAreaEl ? inputAreaEl.offsetHeight : 0;
+  
+  // Сохраняем текущую высоту для следующего вызова
+  inputArea.value._prevHeight = currentInputAreaHeight;
+  
+  // Вычисляем разницу в высоте области ввода
+  const inputAreaHeightDiff = currentInputAreaHeight - prevInputAreaHeight;
+  
+  // Дополнительный отступ для мобильных браузеров
+  const mobileAdjustment = (isMobile.value && !isPWA) ? 20 : 0;
+  // Дополнительный отступ для Safari на iPhone
+  const safariAdjustment = (isIOSSafari.value) ? 20 : 0;
+  
+  console.log(`[Chat] Using ${viewportHeight} for device type: ${isMobile.value ? 'mobile' : 'desktop'}, PWA mode: ${isPWA}`);
+  console.log(`[Chat] Input area height: previous=${prevInputAreaHeight}px, current=${currentInputAreaHeight}px, diff=${inputAreaHeightDiff}px`);
+
   // Если нужно адаптировать textarea (для ввода текста)
   if (adjustTextarea && messageInput.value) {
     // Важно: сначала полностью сбрасываем высоту
@@ -816,42 +864,24 @@ const adjustContainerHeight = (adjustTextarea = false) => {
     const scrollHeight = messageInput.value.scrollHeight;
 
     // Всегда вычисляем высоту в зависимости от содержимого
-    // Это позволит корректно обрабатывать как добавление, так и удаление переносов строк
     const newHeight = Math.min(maxHeight, Math.max(minHeight, scrollHeight));
     messageInput.value.style.height = `${newHeight}px`;
-
+    
+    // Логируем изменение высоты
+    console.log(`[Chat] Adjusted textarea height to ${newHeight}px, scrollHeight: ${scrollHeight}px`);
   }
-
-  // Получаем высоту .input_area после возможного изменения textarea
-  // Теперь inputArea это компонент Vue, поэтому нужно получить его DOM-элемент
-  const inputAreaHeight = inputArea.value.$el ? inputArea.value.$el.offsetHeight : 0;
-
-  // Получаем высоту .page_header
-  const headerHeight = pageHeader.value.offsetHeight || 60; // Фоллбэк на 60px
-  
-  // Определяем, запущено ли приложение в режиме PWA или в полноэкранном режиме
-  const isPWA = window.matchMedia('(display-mode: standalone)').matches || 
-                window.matchMedia('(display-mode: fullscreen)').matches || 
-                window.navigator.standalone === true; // Для iOS
-  
-  // Выбираем значение vh в зависимости от типа устройства и режима приложения
-  let viewportHeight;
-  
-  if (isMobile.value) {
-    // Для мобильных устройств
-    viewportHeight = isPWA ? '99vh' : '90vh'; // Если PWA, то используем 99vh, иначе 90vh
-  } else {
-    // Для десктопа
-    viewportHeight = '99vh';
-  }
-  
-  console.log(`[Chat] Using ${viewportHeight} for device type: ${isMobile.value ? 'mobile' : 'desktop'}, PWA mode: ${isPWA}`);
-
-  // Дополнительный отступ для Safari на iPhone
-  const safariAdjustment = (isIOSSafari.value) ? 30 : 0;
   
   // Обновляем max-height для .messages_container
-  messagesContainer.value.style.maxHeight = `calc(${viewportHeight} - ${headerHeight}px - ${inputAreaHeight}px - ${safariAdjustment}px)`;
+  // При изменении высоты inputArea, соответственно уменьшаем/увеличиваем высоту messagesContainer
+  messagesContainer.value.style.maxHeight = `calc(${viewportHeight} - ${headerHeight}px - ${currentInputAreaHeight}px - ${safariAdjustment}px - ${mobileAdjustment}px)`;
+  
+  // Если мы на мобильном устройстве, убедимся, что inputArea остается на месте
+  if (isMobile.value && inputAreaEl) {
+    inputAreaEl.style.position = 'relative';
+    inputAreaEl.style.bottom = '0';
+  }
+  
+  console.log(`[Chat] Высота контейнера обновлена: viewport=${viewportHeight}, header=${headerHeight}px, input=${currentInputAreaHeight}px, diff=${inputAreaHeightDiff}px, safari=${safariAdjustment}px, mobile=${mobileAdjustment}px`);
 };
 
 // Алиас для обратной совместимости
@@ -922,12 +952,32 @@ onMounted(() => {
     });
   }
   
+  // Проверяем тип устройства и настраиваем слушатели
   checkMobile();
+  
+  // Добавляем слушатель изменения размера окна
   window.addEventListener('resize', checkMobile);
+  
+  // Добавляем слушатель для события прокрутки
+  window.addEventListener('scroll', () => {
+    // Пересчитываем высоту при прокрутке
+    if (isMobile.value) {
+      setTimeout(adjustContainerHeight, 100);
+    }
+  }, { passive: true });
+  
+  // Добавляем слушатель для события фокуса на поле ввода
+  if (messageInput.value) {
+    messageInput.value.addEventListener('focus', () => {
+      // При фокусе на поле ввода пересчитываем высоту с задержкой
+      setTimeout(adjustContainerHeight, 100);
+    });
+  }
   
   // Настраиваем отслеживание режима отображения (PWA или браузер)
   const removeDisplayModeListener = setupDisplayModeListener();
   
+  // Настраиваем бесконечную прокрутку
   setupInfiniteScroll();
   
   visibleMessages.value = Array.isArray(messages.value) ? messages.value : [];
@@ -955,13 +1005,26 @@ onMounted(() => {
   
   // Сохраняем функцию удаления слушателя для использования при размонтировании
   onUnmounted(() => {
+    // Удаляем слушатель режима отображения
     removeDisplayModeListener();
+    
+    // Удаляем слушатель изменения размера окна
     window.removeEventListener('resize', checkMobile);
     
+    // Удаляем слушатель события прокрутки
+    window.removeEventListener('scroll', () => {});
+    
+    // Удаляем слушатель события фокуса на поле ввода
+    if (messageInput.value) {
+      messageInput.value.removeEventListener('focus', () => {});
+    }
+    
+    // Отключаем наблюдатель IntersectionObserver
     if (observer.value) {
       observer.value.disconnect();
     }
     
+    // Отключаем WebSocket слушатели
     const { $socket } = useNuxtApp();
     if ($socket) {
       $socket.off('connect');
