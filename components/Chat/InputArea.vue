@@ -910,7 +910,6 @@ onMounted(() => {
     stroke-width: 2
     display: block
     margin: 0 auto
-    transform: translate(-1px)
     animation: fadeIn 0.5s ease
 
     

@@ -824,7 +824,7 @@ const adjustContainerHeight = (adjustTextarea = false) => {
   
   if (isMobile.value) {
     // Для мобильных устройств
-    viewportHeight = isPWA ? '99vh' : '92vh'; // Увеличиваем до 92vh для мобильных браузеров
+    viewportHeight = isPWA ? '99vh' : '90vh'; // Увеличиваем до 92vh для мобильных браузеров
   } else {
     // Для десктопа
     viewportHeight = '99vh';
