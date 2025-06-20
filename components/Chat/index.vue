@@ -376,7 +376,8 @@ const handleMessageSent = async ({ chatId, text, files, audio }) => {
       console.log('[Chat] Создаем реальный чат из предпросмотра с сообщением:', text);
       
       // Вызываем метод sendMessageInPreviewMode, который создает чат и отправляет сообщение
-      const newChat = await chatStore.sendMessageInPreviewMode(text, files);
+      console.log('[Chat] Отправка сообщения в предпросмотре:', { text, files, hasFiles: !!files });
+      const newChat = await chatStore.sendMessageInPreviewMode(text, files || []);
       console.log('[Chat] Чат создан и сообщение отправлено:', newChat);
       
       // Обновляем данные чата в компоненте через хранилище
@@ -391,11 +392,16 @@ const handleMessageSent = async ({ chatId, text, files, audio }) => {
       }
     } else {
       // Обычная отправка сообщения в существующий чат
-      await chatStore.sendMessage({
+      console.log('[Chat] Подготовка к отправке сообщения:', { chatId, text, files, hasFiles: !!files });
+      
+      // Убедимся, что files не null и не undefined, если это пустой массив
+      const messageData = {
         chatId,
         text,
-        files
-      });
+        files: files || []
+      };
+      
+      await chatStore.sendMessage(messageData);
 
       console.log('[Chat] Сообщение успешно отправлено');
       

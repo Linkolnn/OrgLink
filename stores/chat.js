@@ -85,16 +85,24 @@ export const useChatStore = defineStore('chat', {
     },
     
     // Отправка сообщения в режиме предпросмотра (создает реальный чат)
-    async sendMessageInPreviewMode(text, files = null) {
-      console.log('ChatStore: sendMessageInPreviewMode вызван с параметрами:', { text, files });
+    async sendMessageInPreviewMode(text, files = []) {
+      console.log('ChatStore: sendMessageInPreviewMode вызван с параметрами:', { 
+        text, 
+        files,
+        hasFiles: Array.isArray(files) && files.length > 0,
+        filesType: Array.isArray(files) ? typeof files[0] : 'нет файлов'
+      });
       
       if (!this.isPreviewMode || !this.previewChat) {
         console.error('ChatStore: Попытка отправить сообщение в предпросмотре, но режим предпросмотра не активен');
         return null;
       }
       
+      // Убедимся, что files всегда массив
+      const normalizedFiles = Array.isArray(files) ? files : [];
+      
       // Проверяем, что есть текст или файлы
-      if ((!text || text.trim() === '') && (!files || files.length === 0)) {
+      if ((!text || text.trim() === '') && normalizedFiles.length === 0) {
         console.error('ChatStore: Нельзя отправить пустое сообщение без файлов');
         return null;
       }
@@ -116,13 +124,13 @@ export const useChatStore = defineStore('chat', {
         
         // Определяем тип медиа на основе файлов
         let media_type = 'none';
-        if (files && files.length > 0) {
-          const firstFile = files[0];
-          if (firstFile.type && firstFile.type.startsWith('image/')) {
+        if (normalizedFiles && normalizedFiles.length > 0) {
+          const firstFile = normalizedFiles[0];
+          if (firstFile && firstFile.type && firstFile.type.startsWith('image/')) {
             media_type = 'image';
-          } else if (firstFile.type && firstFile.type.startsWith('video/')) {
+          } else if (firstFile && firstFile.type && firstFile.type.startsWith('video/')) {
             media_type = 'video';
-          } else {
+          } else if (firstFile) {
             media_type = 'file';
           }
         }
@@ -139,14 +147,14 @@ export const useChatStore = defineStore('chat', {
           createdAt: new Date().toISOString(),
           read_by: [currentUser._id],
           media_type: media_type,
-          files: files || [],
+          files: normalizedFiles,
           isTemp: true // Метка, что это временное сообщение
         };
         
         // Если есть файлы, добавляем их во временное сообщение
-        if (media_type === 'image' && files && files.length > 0) {
-          tempMessage.file = files[0].url || files[0].file_url;
-          tempMessage.file_name = files[0].name || files[0].file_name;
+        if (media_type === 'image' && normalizedFiles.length > 0 && normalizedFiles[0]) {
+          tempMessage.file = normalizedFiles[0].url || normalizedFiles[0].file_url;
+          tempMessage.file_name = normalizedFiles[0].name || normalizedFiles[0].file_name;
         }
         
         // Создаем реальный чат с первым сообщением
@@ -160,15 +168,15 @@ export const useChatStore = defineStore('chat', {
         };
         
         // Если есть файлы, добавляем их в запрос
-        if (files && files.length > 0) {
+        if (normalizedFiles.length > 0) {
           // Подготавливаем файлы для отправки на сервер
-          chatData.files = files.map(file => ({
-            file_url: file.file_url || file.url,
-            file_name: file.file_name || file.name || 'File',
-            mime_type: file.mime_type || file.type || 'application/octet-stream',
-            media_type: file.media_type || 
-                      (file.type && file.type.startsWith('image/') ? 'image' : 
-                      file.type && file.type.startsWith('video/') ? 'video' : 'file')
+          chatData.files = normalizedFiles.map(file => ({
+            file_url: file?.file_url || file?.url || '',
+            file_name: file?.file_name || file?.name || 'File',
+            mime_type: file?.mime_type || file?.type || 'application/octet-stream',
+            media_type: file?.media_type || 
+                      (file?.type && file.type.startsWith('image/') ? 'image' : 
+                      file?.type && file.type.startsWith('video/') ? 'video' : 'file')
           }));
         }
         
@@ -1884,11 +1892,21 @@ export const useChatStore = defineStore('chat', {
     },
     
     // Отправка сообщения
-    async sendMessage({ chatId, text, files = null }) {
+    async sendMessage({ chatId, text, files = [] }) {
       if (!chatId) return;
       
+      // Нормализуем массив файлов
+      const normalizedFiles = Array.isArray(files) ? files : [];
+      
+      console.log('[WebSocket] Проверка данных сообщения:', { 
+        text, 
+        hasText: !!text && text.trim() !== '', 
+        files: normalizedFiles,
+        hasFiles: normalizedFiles.length > 0
+      });
+      
       // Проверяем, что есть текст или файлы
-      if ((!text || text.trim() === '') && (!files || files.length === 0)) {
+      if ((!text || text.trim() === '') && normalizedFiles.length === 0) {
         console.error('[WebSocket] Ошибка: Сообщение должно содержать текст или медиа');
         throw new Error('Сообщение должно содержать текст или медиа');
       }
@@ -1922,7 +1940,7 @@ export const useChatStore = defineStore('chat', {
             console.log('[WebSocket] Создаем реальный чат из превью-чата с сообщением:', text);
             
             // Вызываем метод sendMessageInPreviewMode, который создает реальный чат и отправляет сообщение
-            const newChat = await this.sendMessageInPreviewMode(text, files);
+            const newChat = await this.sendMessageInPreviewMode(text, normalizedFiles);
             
             if (newChat) {
               console.log('[WebSocket] Чат успешно создан из превью-чата:', newChat);

@@ -35,11 +35,6 @@
           {{ message.sender?.name }}
         </div>
         
-        <!-- Кнопка меню для сообщения (только для своих сообщений) -->
-        <div v-if="isOwnMessage" class="message__menu-btn" @click.stop="toggleContextMenu($event)">
-          <i class="fas fa-ellipsis-v"></i>
-        </div>
-        
         <!-- Контекстное меню (только для своих сообщений) -->
         <ChatContextMenu 
           v-if="contextMenuVisible && isOwnMessage" 
@@ -63,7 +58,76 @@
           </p>
         </div>
         
-        <!-- Изображение -->
+        <!-- Проверка на наличие множественных файлов -->
+        <div v-if="hasMultipleFiles" :class="['multi-files-container', {'files-container': hasOnlyFiles, 'has-text-and-images': hasTextAndImages}]">
+          <!-- Отдельно обрабатываем изображения для сетки -->
+          <div 
+            v-if="imageFiles.length > 0" 
+            :class="['images-grid', `grid-${imageFiles.length}`]"
+          >
+            <div 
+              v-for="(file, index) in imageFiles" 
+              :key="`img-${index}`"
+              class="file-item file-item-image"
+            >
+              <img 
+                :src="file.file_url" 
+                :class="['message-image']" 
+                alt="Изображение" 
+                @load="$emit('image-loaded', message._id)"
+                @click.stop="openImageModalForFileUrl(file.file_url, $event)"
+              />
+            </div>
+          </div>
+          
+          <!-- Отдельно обрабатываем видео -->
+          <div 
+            v-for="(file, index) in videoFiles" 
+            :key="`video-${index}`"
+            class="file-item file-item-video"
+          >
+            <video 
+              :id="`${message._id}-video-${index}`"
+              class="video-message-player" 
+              controls 
+              :src="file.file_url"
+              @play="$emit('video-play', message._id)"
+            ></video>
+          </div>
+
+          <!-- Отдельно обрабатываем другие файлы в строку/сетку -->
+          <div 
+            v-if="otherFiles.length > 0"
+            :class="['files-row', `files-${otherFiles.length}`]"
+          >
+            <div 
+              v-for="(file, index) in otherFiles" 
+              :key="`file-${index}`"
+              class="file-item file-item-other"
+            >
+              <a href="javascript:void(0)" class="file-link" @click.stop="downloadFileFromUrl(file.file_url, file.file_name, $event)">
+                <div class="file-preview">
+                  <div class="file-info">
+                    <component :is="getFileIconComponent(file.file_name)" class="file-type-icon" />
+                    <span class="file-name">{{ file.file_name ? decodeFileName(file.file_name) : 'Файл' }}</span>
+                  </div>
+                </div>
+              </a>
+            </div>
+          </div>
+          
+          <!-- Текст сообщения, если он есть -->
+          <p v-if="message.text" class="message__text message__text-media">
+            {{ message.text }}
+          </p>
+          
+          <div class="message__time media-time">
+            {{ formatTime(message.createdAt || message.timestamp) }}
+            <span v-if="message.edited" class="message__edited">изм</span>
+          </div>
+        </div>
+        
+        <!-- Изображение (обратная совместимость) -->
         <div v-else-if="message.media_type === 'image'" class="image-container">
           <div v-if="!message.imageLoaded" class="image-loading">
             <div class="loading-spinner"></div>
@@ -87,7 +151,7 @@
           </div>
         </div>
         
-        <!-- Видео -->
+        <!-- Видео (обратная совместимость) -->
         <div v-else-if="message.media_type === 'video'" class="video-container">
           <video 
             :id="message._id" 
@@ -108,7 +172,7 @@
           </div>
         </div>
         
-        <!-- Стикер -->
+        <!-- Стикер (обратная совместимость) -->
         <div v-else-if="message.media_type === 'sticker'" class="sticker-container">
           <img :src="message.file" alt="Sticker" class="message-sticker" />
           <div class="message__time media-time">
@@ -117,7 +181,7 @@
           </div>
         </div>
         
-        <!-- Файл -->
+        <!-- Файл (обратная совместимость) -->
         <div v-else-if="message.media_type === 'file'" class="file-container">
           <a href="javascript:void(0)" class="file-link" @click.stop="handleFileClick($event)">
             <div class="file-preview" :class="{ 'downloading': isDownloading }">
@@ -220,6 +284,81 @@ const closeImageModal = () => {
 
 // Состояние для отслеживания загрузки файла
 const isDownloading = ref(false);
+
+// Проверяем наличие нескольких файлов в сообщении
+const hasMultipleFiles = computed(() => {
+  return props.message.files && Array.isArray(props.message.files) && props.message.files.length > 0;
+});
+
+// Разделяем файлы по типам
+const imageFiles = computed(() => {
+  if (!hasMultipleFiles.value) return [];
+  return props.message.files.filter(file => file.media_type === 'image');
+});
+
+const videoFiles = computed(() => {
+  if (!hasMultipleFiles.value) return [];
+  return props.message.files.filter(file => file.media_type === 'video');
+});
+
+const otherFiles = computed(() => {
+  if (!hasMultipleFiles.value) return [];
+  return props.message.files.filter(file => file.media_type !== 'image' && file.media_type !== 'video');
+});
+
+// Проверяем, содержит ли сообщение только файлы (без изображений)
+const hasOnlyFiles = computed(() => {
+  return hasMultipleFiles.value && imageFiles.value.length === 0 && otherFiles.value.length > 0;
+});
+
+// Проверяем, содержит ли сообщение и изображения, и текст
+const hasTextAndImages = computed(() => {
+  return hasMultipleFiles.value && imageFiles.value.length > 0 && props.message.text && props.message.text.trim().length > 0;
+});
+
+// Функция для определения класса контейнера в зависимости от типа файла
+const getFileContainerClass = (mediaType) => {
+  if (!mediaType) return 'file-item-other';
+  
+  switch (mediaType) {
+    case 'image':
+      return 'file-item-image';
+    case 'video':
+      return 'file-item-video';
+    default:
+      return 'file-item-other';
+  }
+};
+
+// Функция для открытия модального окна с изображением по URL
+const openImageModalForFileUrl = (fileUrl, event) => {
+  // Получаем элемент сообщения
+  const messageElement = event.currentTarget.closest('.message');
+  
+  // Проверяем, было ли это долгое нажатие
+  if (messageElement && messageElement._longpress && messageElement._longpress.isLongPressActive()) {
+    console.log('Это было долгое нажатие, не открываем изображение');
+    return;
+  }
+  
+  // Открываем изображение в модальном окне
+  openImageModal(fileUrl, event);
+};
+
+// Функция для скачивания файла по URL
+const downloadFileFromUrl = (fileUrl, fileName, event) => {
+  // Получаем элемент сообщения
+  const messageElement = event.currentTarget.closest('.message');
+  
+  // Проверяем, было ли это долгое нажатие
+  if (messageElement && messageElement._longpress && messageElement._longpress.isLongPressActive()) {
+    console.log('Это было долгое нажатие, не скачиваем файл');
+    return;
+  }
+  
+  // Скачиваем файл
+  downloadFile(fileUrl, fileName, event);
+};
 
 // Функция для скачивания файла
 const downloadFile = async (fileUrl, fileName, event) => {
@@ -655,6 +794,10 @@ const onDelete = (message) => {
   padding: 10px 45px 10px 10px
   word-wrap: break-word
   white-space: pre-wrap
+  word-break: break-word
+  overflow-wrap: break-word
+  width: 100%
+  max-width: 100%
   color: $white
 
 .message
@@ -721,23 +864,10 @@ const onDelete = (message) => {
       padding: 0
       overflow: hidden
     
-    .message__menu-btn
-      position: absolute
-      top: 5px
-      right: 5px
-      cursor: pointer
-      color: rgba(255, 255, 255, 0.5)
-      font-size: 14px
-      opacity: 0
-      transition: opacity 0.2s, color 0.2s
-      z-index: 2
-      
-      &:hover
-        color: $white
-    
     .message__text
       margin-bottom: 5px
       white-space: pre-wrap
+      word-break: keep-all;
       padding-right: 35px  // Добавляем отступ справа для времени
       
       // Увеличиваем отступ для отредактированных сообщений
@@ -809,8 +939,9 @@ const onDelete = (message) => {
     
   .message-image
     display: block
-    max-width: 100%
     width: 100%
+    max-width: 550px
+    max-height: 550px
     border-radius: $radius
     opacity: 0.7
     transition: opacity 0.3s ease
@@ -847,6 +978,135 @@ const onDelete = (message) => {
     display: block
     width: 100%
     color: $white
+    
+// Стили для контейнера с несколькими файлами
+.multi-files-container
+  display: flex
+  flex-direction: column
+  width: 100%
+  max-width: 100%
+  position: relative
+  border-radius: 15px
+  overflow: hidden
+  
+  // По умолчанию контейнер прозрачный (для изображений без текста)
+  background-color: transparent
+  
+  // Если есть только файлы (без изображений), применяем фон
+  &.files-container
+    background-color: $purple
+    max-width: 370px
+    
+  // Если есть изображения и текст, применяем фиолетовый фон
+  &.has-text-and-images
+    background-color: $purple
+    max-width: 550px
+    
+    .message__text-media
+      width: 100%
+      max-width: 100%
+    
+    // Применяем фиолетовый фон для собственных сообщений с файлами
+    .message.own &
+      background-color: $purple
+  
+  // Применяем border-radius для собственных сообщений
+  .message.own &
+    border-radius: 15px 15px 0 15px
+    
+  // Применяем другой border-radius для сообщений других пользователей
+  .message.other &
+    border-radius: 15px 15px 15px 0
+  
+  // Контейнер для изображений в сетке
+  .images-grid
+    display: grid
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr))
+    grid-gap: 5px
+    max-width: 550px
+    max-height: 550px
+    
+    // Для двух изображений - два столбца
+    &.grid-2
+      grid-template-columns: repeat(2, 1fr)
+      
+    // Для трех изображений - специальная сетка
+    &.grid-3
+      grid-template-columns: repeat(2, 1fr)
+      
+      .file-item:first-child
+        grid-column: span 2
+        
+    // Для четырех изображений - сетка 2x2
+    &.grid-4
+      grid-template-columns: repeat(2, 1fr)
+  
+  .file-item
+    margin-bottom: 5px
+    border-radius: 8px
+    overflow: hidden
+    
+    &:last-child
+      margin-bottom: 0
+      
+  .file-item-image
+    width: 100%
+    height: 100%
+    min-height: 100px
+    max-width: 550px
+    max-height: 550px
+    
+    img
+      width: 100%
+      height: 100%
+      max-width: 550px
+      max-height: 550px
+      object-fit: cover
+      border-radius: 8px
+      display: block
+      
+  .file-item-video
+    width: 100%
+    
+    video
+      width: 100%
+      border-radius: 8px
+      display: block
+      
+  // Контейнер для файлов в строку/сетку
+  .files-row
+    display: flex
+    flex-wrap: wrap
+    gap: 10px
+    margin-bottom: 5px
+    width: 100%ф
+    
+    // Если файл один, он занимает всю ширину
+    &.files-1
+      flex-direction: column
+      
+      .file-item-other
+        width: 100%
+    
+    // Если файлов 2, они идут в строку
+    &.files-2
+      flex-direction: row
+      
+      .file-item-other
+        width: calc(50% - 5px)
+        
+    // Если файлов больше 2, они идут в 2 столбца
+    &.files-3, &.files-4
+      flex-direction: row
+      flex-wrap: wrap
+      
+      .file-item-other
+        width: calc(50% - 5px)
+        
+  .file-item-other
+
+    border-radius: 8px
+    padding: 5px
     text-decoration: none
     transition: transform 0.2s ease
     
@@ -914,7 +1174,7 @@ const onDelete = (message) => {
     max-width: 85%
     
     &.other
-      max-width: 70%  // Для мобильных устройств делаем сообщения от других пользователей шире
+      max-width: 95%  // Для мобильных устройств делаем сообщения от других пользователей шире
 
 // Стили контекстного меню перемещены в компонент ContextMenu.vue
 </style>

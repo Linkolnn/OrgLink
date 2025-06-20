@@ -87,10 +87,15 @@ export const safeFetch = async (url, options = {}) => {
   console.log('API Utils: safeFetch вызван для URL:', fullUrl, { isSafari, isIOS, hasToken: !!token });
   
   // Устанавливаем заголовки по умолчанию
-  const headers = {
-    ...(options.headers || {}),
-    'Content-Type': options.headers?.['Content-Type'] || 'application/json'
-  };
+  const headers = { ...(options.headers || {}) };
+  
+  // Проверяем, является ли тело FormData
+  const isFormData = options.body instanceof FormData;
+  
+  // Устанавливаем Content-Type только если это не FormData
+  if (!isFormData && !headers['Content-Type']) {
+    headers['Content-Type'] = 'application/json';
+  }
   
   // Добавляем заголовок Authorization, если есть токен
   if (token && !headers['Authorization']) {

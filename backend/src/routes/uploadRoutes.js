@@ -5,7 +5,7 @@ import path from 'path';
 
 const router = express.Router();
 
-// Маршрут для загрузки файла
+// Маршрут для загрузки одного файла
 router.post('/', protect, uploadMessageFile.single('file'), handleUploadError, (req, res) => {
   try {
     if (!req.file) {
@@ -25,6 +25,32 @@ router.post('/', protect, uploadMessageFile.single('file'), handleUploadError, (
   } catch (error) {
     console.error('Ошибка при загрузке файла:', error);
     res.status(500).json({ error: 'Ошибка при загрузке файла' });
+  }
+});
+
+// Маршрут для загрузки нескольких файлов одновременно
+router.post('/multiple', protect, uploadMessageFile.array('files', 10), handleUploadError, (req, res) => {
+  try {
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({ error: 'Файлы не были загружены' });
+    }
+    
+    // Обрабатываем каждый загруженный файл
+    const uploadedFiles = req.files.map(file => {
+      const fileUrl = getFileUrl(file.filename, 'message-file');
+      return {
+        fileUrl,
+        fileName: file.originalname,
+        fileSize: file.size,
+        mimeType: file.mimetype
+      };
+    });
+    
+    // Возвращаем информацию о загруженных файлах
+    res.status(200).json({ files: uploadedFiles });
+  } catch (error) {
+    console.error('Ошибка при загрузке файлов:', error);
+    res.status(500).json({ error: 'Ошибка при загрузке файлов' });
   }
 });
 

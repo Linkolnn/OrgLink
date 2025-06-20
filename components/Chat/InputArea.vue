@@ -190,61 +190,124 @@ const sendMessage = async () => {
     if (!files || files.length === 0) return [];
     
     const config = useRuntimeConfig();
-    const uploadedFiles = [];
     
     try {
-      // Создаем массив промисов для параллельной загрузки файлов
-      const uploadPromises = files.map(async (file) => {
-        const formData = new FormData();
-        formData.append('file', file);
-        
-        // Создаем временный URL для предпросмотра
-        const previewUrl = isImageFile(file) ? URL.createObjectURL(file) : null;
-        
-        try {
-          // Импортируем safeFetch для совместимости с iOS
-          const { safeFetch } = await import('~/utils/api');
-          
-          // Загружаем файл на сервер используя safeFetch
-          const response = await safeFetch(`${config.public.backendUrl}/api/upload`, {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${authStore.token}`
-            },
-            body: formData
-          });
-          
-          if (!response.ok) {
-            throw new Error(`Ошибка загрузки файла: ${response.status}`);
-          }
-          
-          const result = await response.json();
-          
-          return {
-            file_url: result.fileUrl,
-            file_name: file.name,
-            mime_type: file.type,
-            media_type: file.type && file.type.startsWith('image/') ? 'image' : 
-                       file.type && file.type.startsWith('video/') ? 'video' : 'file',
-            thumbnail: result.fileUrl,
-            // Добавляем временный URL для предпросмотра
-            previewUrl
-          };
-        } catch (error) {
-          console.error(`Ошибка при загрузке файла ${file.name}:`, error);
-          // Возвращаем нулевой результат для этого файла
-          return null;
+      // Получаем временные URL для предпросмотра изображений
+      const previewUrls = {};
+      files.forEach(file => {
+        if (isImageFile(file)) {
+          previewUrls[file.name] = URL.createObjectURL(file);
         }
       });
       
-      // Ждем завершения всех загрузок
-      const results = await Promise.all(uploadPromises);
+      console.log(`[Загрузка] Начинаем загрузку ${files.length} файлов одним запросом`);
       
-      // Фильтруем нулевые результаты (ошибки загрузки)
-      return results.filter(result => result !== null);
+      // Создаем одну FormData для всех файлов
+      const formData = new FormData();
+      files.forEach(file => {
+        formData.append('files', file);  // Используем одно и то же имя поля для всех файлов
+      });
+      
+      // Импортируем safeFetch для совместимости с iOS
+      const { safeFetch } = await import('~/utils/api');
+      
+      // Загружаем все файлы одним запросом
+      const response = await safeFetch(`${config.public.backendUrl}/api/upload/multiple`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${authStore.token}`
+          // Не указываем Content-Type для multipart/form-data
+        },
+        body: formData
+      });
+      
+      if (!response.ok) {
+        console.error(`[Загрузка] Ошибка загрузки файлов: ${response.status}`);
+        throw new Error(`Ошибка загрузки файлов: ${response.status}`);
+      }
+      
+      // Обрабатываем ответ сервера
+      const result = await response.json();
+      console.log('[Загрузка] Результат загрузки файлов:', result);
+      
+      // Если сервер вернул массив файлов, возвращаем его
+      if (result.files && Array.isArray(result.files)) {
+        // Преобразуем файлы в нужный формат
+        return result.files.map((file, index) => {
+          // Определяем тип файла
+          const originalFile = files[index];
+          const mediaType = originalFile.type && originalFile.type.startsWith('image/') ? 'image' : 
+                           originalFile.type && originalFile.type.startsWith('video/') ? 'video' : 'file';
+          
+          return {
+            file_url: file.fileUrl,
+            file_name: file.fileName || originalFile.name,
+            mime_type: file.mimeType || originalFile.type,
+            media_type: mediaType,
+            thumbnail: file.fileUrl,
+            // Добавляем временный URL для предпросмотра
+            previewUrl: previewUrls[originalFile.name]
+          };
+        });
+      }
+      
+      // Если что-то пошло не так, возвращаем пустой массив
+      console.error('[Загрузка] Сервер вернул неправильный формат ответа:', result);
+      return [];
     } catch (error) {
       console.error('[Загрузка] Ошибка при загрузке файлов:', error);
-      throw error;
+      
+      // В случае ошибки при массовой загрузке попробуем загружать по одному (резервный метод)
+      console.log('[Загрузка] Пробуем загрузить файлы по одному (резервный метод)');
+      
+      try {
+        // Создаем массив промисов для последовательной загрузки файлов
+        const uploadedFiles = [];
+        
+        for (const file of files) {
+          const formData = new FormData();
+          formData.append('file', file);
+          
+          // Создаем временный URL для предпросмотра
+          const previewUrl = isImageFile(file) ? URL.createObjectURL(file) : null;
+          
+          try {
+            // Импортируем safeFetch для совместимости с iOS
+            const { safeFetch } = await import('~/utils/api');
+            
+            // Загружаем файл на сервер используя safeFetch
+            const response = await safeFetch(`${config.public.backendUrl}/api/upload`, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${authStore.token}`
+              },
+              body: formData
+            });
+            
+            if (response.ok) {
+              const result = await response.json();
+              
+              uploadedFiles.push({
+                file_url: result.fileUrl,
+                file_name: file.name,
+                mime_type: file.type,
+                media_type: file.type && file.type.startsWith('image/') ? 'image' : 
+                           file.type && file.type.startsWith('video/') ? 'video' : 'file',
+                thumbnail: result.fileUrl,
+                previewUrl
+              });
+            }
+          } catch (uploadError) {
+            console.error(`[Загрузка] Ошибка при загрузке файла ${file.name}:`, uploadError);
+          }
+        }
+        
+        console.log(`[Загрузка] Успешно загружено ${uploadedFiles.length} из ${files.length} файлов резервным методом`);
+        return uploadedFiles;
+      } catch (fallbackError) {
+        console.error('[Загрузка] Резервный метод загрузки также не сработал:', fallbackError);
+        return [];
+      }
     }
   };
   
@@ -295,8 +358,11 @@ const sendMessage = async () => {
       emit('message-sent', { 
         chatId: newChat._id, 
         text: messageContent,
-        files: uploadedFiles.length > 0 ? uploadedFiles : null
+        files: uploadedFiles.length > 0 ? uploadedFiles : null,
+        // Убедимся, что files не null, если есть загруженные файлы
+        ...(uploadedFiles.length > 0 && { files: uploadedFiles })
       });
+      console.log('[InputArea] Отправлено сообщение с файлами:', { files: uploadedFiles });
     } catch (error) {
       console.error('[InputArea] Ошибка при создании чата из предпросмотра:', error);
     }
@@ -317,10 +383,12 @@ const sendMessage = async () => {
       emit('message-sent', { 
         chatId: props.chatId, 
         text: messageContent,
-        files: uploadedFiles.length > 0 ? uploadedFiles : null
+        files: uploadedFiles.length > 0 ? uploadedFiles : null,
+        // Убедимся, что files не null, если есть загруженные файлы
+        ...(uploadedFiles.length > 0 && { files: uploadedFiles })
       });
       
-      console.log('[WebSocket] Сообщение отправлено успешно');
+      console.log('[WebSocket] Сообщение отправлено успешно', { files: uploadedFiles });
     } catch (error) {
       console.error('[WebSocket] Ошибка при отправке сообщения:', error);
     }

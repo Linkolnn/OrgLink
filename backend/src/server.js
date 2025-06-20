@@ -103,7 +103,20 @@ app.use((req, res, next) => {
   
   next();
 });
-app.use(express.json());
+// Добавляем парсер JSON только для определенных эндпоинтов
+const jsonParser = express.json();
+
+// Промежуточное ПО для определения правильного парсера
+app.use((req, res, next) => {
+  // Пропускаем маршруты загрузки файлов без парсинга JSON
+  if (req.path.includes('/api/upload') && req.method === 'POST') {
+    console.log('Пропуск JSON парсера для маршрута загрузки файла');
+    return next();
+  }
+  // Для всех остальных запросов используем JSON парсер
+  return jsonParser(req, res, next);
+});
+
 app.use(cookieParser());
 
 // Добавление защитных HTTP-заголовков
