@@ -1,7 +1,10 @@
 <template>
   <section class="login">
     <div class="login__container">
-      <h1 class="login__title">Вход в систему</h1>
+      <h1 class="login__title">
+        <IconLogoLight class="login__logo" filled/>
+        OrgLink
+      </h1>
       <Form :login="true" @submit="handleFormSubmit" class="login__form"/>
       <p v-if="error" class="login__error">{{ error }}</p>
     </div>
@@ -63,6 +66,10 @@ const handleFormSubmit = async ({ email, password }) => {
   position: relative
   overflow: hidden
 
+  &__logo
+    width: 60px
+    height: 80px
+
   &__container
     width: 100%
     max-width: 480px
@@ -99,7 +106,7 @@ const handleFormSubmit = async ({ email, password }) => {
       padding: 0 16px
 
     &__title
-      font-size: 24px
+      font-size: 30px
       margin-bottom: 16px
 
 </style>

@@ -68,6 +68,10 @@ const messageSchema = new mongoose.Schema(
       size: {
         type: Number,
         default: 0
+      },
+      duration: {
+        type: Number,
+        default: 0
       }
     }],
     read_by: [{

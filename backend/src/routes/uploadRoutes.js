@@ -15,12 +15,20 @@ router.post('/', protect, uploadMessageFile.single('file'), handleUploadError, (
     // Получаем URL загруженного файла
     const fileUrl = getFileUrl(req.file.filename, 'message-file');
     
+    // Проверяем, есть ли информация о длительности для аудиофайлов
+    let duration = 0;
+    if (req.file.mimetype.startsWith('audio/') && req.body.duration) {
+      duration = parseInt(req.body.duration) || 0;
+      console.log('Получена длительность аудио:', duration, 'секунд');
+    }
+    
     // Возвращаем информацию о загруженном файле
     res.status(200).json({
       fileUrl,
       fileName: req.file.originalname,
       fileSize: req.file.size,
-      mimeType: req.file.mimetype
+      mimeType: req.file.mimetype,
+      duration: duration
     });
   } catch (error) {
     console.error('Ошибка при загрузке файла:', error);

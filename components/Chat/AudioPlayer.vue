@@ -15,6 +15,7 @@
       @error="handleAudioError"
       @loadstart="isLoading = true"
       @loadeddata="isLoading = false"
+      @durationchange="handleDurationChange"
     ></audio>
 
     <!-- Play/pause button -->
@@ -61,7 +62,7 @@
 
       <!-- Отображение времени -->
       <div class="time-display">
-        {{ formatTime(currentTime) }} / {{ formatTime(duration) }}
+        {{ formatTime(currentTime) }} / {{ formatTime(displayDuration) }}
       </div>
     </div>
   </div>
@@ -75,6 +76,10 @@ const props = defineProps({
   src: {
     type: String,
     required: true
+  },
+  initialDuration: {
+    type: Number,
+    default: 0
   }
 });
 const emit = defineEmits(['update:time', 'update:playing', 'audio-ended']);
@@ -86,6 +91,13 @@ const isPlaying = ref(false);
 const isLoading = ref(true);
 const currentTime = ref(0);
 const duration = ref(0);
+const displayDuration = computed(() => {
+  // Используем initialDuration, если duration еще не установлена или некорректна
+  if (!duration.value || !isFinite(duration.value) || duration.value <= 0) {
+    return props.initialDuration > 0 ? props.initialDuration : 30; // Default to 30 seconds if no duration available
+  }
+  return duration.value;
+});
 const progressPercentage = ref(0);
 const isAudioReady = ref(false);
 const durationCheckAttempts = ref(0);
@@ -115,6 +127,28 @@ const getRandomHeight = (index) => {
   return baseHeight + Math.floor(randomValue * maxAdditionalHeight);
 };
 
+// Обработчик события изменения длительности
+const handleDurationChange = () => {
+  if (!audioEl.value) return;
+  
+  const audioDuration = audioEl.value.duration;
+  if (isFinite(audioDuration) && audioDuration > 0) {
+    duration.value = audioDuration;
+    console.log('Duration changed event:', duration.value);
+    isLoading.value = false;
+    
+    // Обновляем прогресс, если он был рассчитан с неверной длительностью
+    if (currentTime.value > 0) {
+      progressPercentage.value = (currentTime.value / duration.value) * 100;
+    }
+  } else if (props.initialDuration > 0 && (!duration.value || !isFinite(duration.value))) {
+    // Если событие не предоставило корректную длительность, но есть initialDuration
+    duration.value = props.initialDuration;
+    console.log('Using initialDuration in durationchange event:', duration.value);
+    isLoading.value = false;
+  }
+};
+
 // Обновление прогресса воспроизведения
 const updateProgress = () => {
   if (audioEl.value && !isDragging.value) {
@@ -129,19 +163,10 @@ const updateProgress = () => {
       }
     }
     
-    if (duration.value > 0 && isFinite(duration.value)) {
-      progressPercentage.value = (currentTime.value / duration.value) * 100;
-    } else {
-      // Если длительность все еще некорректна, используем приближенное значение для прогресса
-      // Предполагаем, что длительность около 30 секунд (стандартное голосовое сообщение)
-      const estimatedDuration = 30;
-      progressPercentage.value = (currentTime.value / estimatedDuration) * 100;
-      
-      // Если длительность еще не установлена, пробуем получить ее снова
-      if (durationCheckAttempts.value === 0) {
-        checkDuration();
-      }
-    }
+    // Используем displayDuration для расчета процента прогресса
+    const durationToUse = displayDuration.value > 0 ? displayDuration.value : 30;
+    progressPercentage.value = (currentTime.value / durationToUse) * 100;
+    
     emit('update:time', currentTime.value);
   }
 };
@@ -159,6 +184,17 @@ const initProgress = () => {
     duration.value = audioDuration;
     console.log('Audio duration set immediately:', duration.value);
     isLoading.value = false;
+  } else if (props.initialDuration > 0) {
+    // Используем предоставленную длительность, если она есть
+    duration.value = props.initialDuration;
+    console.log('Using provided initial duration:', duration.value);
+    isLoading.value = false;
+    
+    // Даже если используем initialDuration, попробуем загрузить метаданные для получения точной длительности
+    audioEl.value.preload = "metadata";
+    if (audioEl.value.readyState < 2) { // HAVE_CURRENT_DATA = 2
+      audioEl.value.load();
+    }
   } else {
     // Если не удалось получить длительность сразу, запускаем проверку
     nextTick(() => {
@@ -181,6 +217,14 @@ const checkDuration = () => {
   
   // Если уже есть валидная длительность, не продолжаем
   if (duration.value > 0 && isFinite(duration.value)) {
+    return;
+  }
+  
+  // Если есть предоставленная длительность, используем её
+  if (props.initialDuration > 0) {
+    duration.value = props.initialDuration;
+    console.log('Using provided initial duration after check:', duration.value);
+    isLoading.value = false;
     return;
   }
   
@@ -289,7 +333,7 @@ const handleCanPlayThrough = () => {
       duration.value = audioDuration;
       console.log('Audio duration set from canplaythrough event:', duration.value);
     } else {
-    checkDuration();
+      checkDuration();
     }
   }
 };
@@ -424,11 +468,8 @@ const seekAudio = (event) => {
       return;
     }
     
-    // Если длительность не установлена или некорректна, не выполняем перемотку
-    if (duration.value <= 0 || !isFinite(duration.value)) {
-      console.warn('Cannot seek: invalid duration', duration.value);
-      return;
-    }
+    // Используем displayDuration для перемотки, если обычная длительность не доступна
+    const durationToUse = displayDuration.value > 0 ? displayDuration.value : 30;
     
     // Проверяем, что аудио готово к воспроизведению
     if (audioEl.value.readyState === 0) {
@@ -453,21 +494,21 @@ const seekAudio = (event) => {
     }
     
     // Вычисляем новое время и проверяем его
-    const newTime = clickPosition * duration.value;
+    const newTime = clickPosition * durationToUse;
     if (!isFinite(newTime) || newTime < 0) {
       console.error('Invalid new time value:', newTime);
       return;
     }
     
     // Ограничиваем время в пределах длительности
-    const clampedTime = Math.min(Math.max(0, newTime), duration.value);
+    const clampedTime = Math.min(Math.max(0, newTime), durationToUse);
     
     // Устанавливаем новое время воспроизведения
     audioEl.value.currentTime = clampedTime;
     
     // Обновляем прогресс
     currentTime.value = clampedTime;
-    progressPercentage.value = (clampedTime / duration.value) * 100;
+    progressPercentage.value = (clampedTime / durationToUse) * 100;
     emit('update:time', currentTime.value);
   } catch (error) {
     console.error('Error during audio seeking:', error);
@@ -479,7 +520,8 @@ const startDrag = (event) => {
   // Если аудио загружается, не делаем ничего
   if (isLoading.value) return;
   
-  if (!audioEl.value || (duration.value <= 0 || !isFinite(duration.value))) {
+  // Используем displayDuration для проверки
+  if (!audioEl.value || displayDuration.value <= 0) {
     return;
   }
   
@@ -537,12 +579,15 @@ const handleDrag = (event) => {
   // Ограничиваем позицию в пределах от 0 до 1
   dragPosition = Math.min(Math.max(0, dragPosition), 1);
   
+  // Используем displayDuration для расчетов
+  const durationToUse = displayDuration.value > 0 ? displayDuration.value : 30;
+  
   // Вычисляем новое время
-  const newTime = dragPosition * duration.value;
+  const newTime = dragPosition * durationToUse;
   
   // Обновляем прогресс
   currentTime.value = newTime;
-  progressPercentage.value = (newTime / duration.value) * 100;
+  progressPercentage.value = (newTime / durationToUse) * 100;
   
   // Устанавливаем новое время воспроизведения
   audioEl.value.currentTime = newTime;
@@ -591,22 +636,36 @@ watch(() => props.src, (newSrc, oldSrc) => {
   }
 });
 
+// Наблюдаем за изменением initialDuration и обновляем duration, если она не установлена
+watch(() => props.initialDuration, (newDuration) => {
+  if (newDuration > 0) {
+    console.log('Updating duration from initialDuration prop change:', newDuration);
+    if (!duration.value || !isFinite(duration.value) || duration.value <= 0) {
+      duration.value = newDuration;
+    }
+    // Force update display immediately
+    nextTick(() => {
+      if (audioEl.value && isFinite(audioEl.value.duration) && audioEl.value.duration > 0) {
+        duration.value = audioEl.value.duration;
+      }
+    });
+  }
+}, { immediate: true });
+
 // Lifecycle hooks
 onMounted(() => {
   if (!audioEl.value) {
     console.warn('Audio element ref is not initialized on mount');
   } else {
     // Устанавливаем обработчики событий для лучшей обработки аудио
-    audioEl.value.addEventListener('durationchange', () => {
-      const audioDuration = audioEl.value.duration;
-      if (isFinite(audioDuration) && audioDuration > 0) {
-        duration.value = audioDuration;
-        console.log('Duration changed:', duration.value);
-      }
-    });
-    
-    // Загружаем метаданные принудительно
     audioEl.value.preload = "metadata";
+    
+    // Если есть initialDuration, используем ее сразу
+    if (props.initialDuration > 0) {
+      duration.value = props.initialDuration;
+      console.log('Using initialDuration on mount:', duration.value);
+      isLoading.value = false;
+    }
     
     // Запускаем проверку длительности после монтирования
     setTimeout(() => {
@@ -615,10 +674,15 @@ onMounted(() => {
       if (isFinite(audioDuration) && audioDuration > 0) {
         duration.value = audioDuration;
         console.log('Audio duration set from mount timeout:', duration.value);
+      } else if (props.initialDuration > 0) {
+        // Если есть initialDuration, используем её
+        duration.value = props.initialDuration;
+        console.log('Using initialDuration after timeout:', duration.value);
       } else {
-      checkDuration();
+        // Только если initialDuration не предоставлена, запускаем проверку
+        checkDuration();
       }
-    }, 300);
+    }, 100); // Reduce timeout for faster initialization
   }
 });
 

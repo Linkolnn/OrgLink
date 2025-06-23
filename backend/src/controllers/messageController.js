@@ -89,13 +89,20 @@ const sendMessage = async (req, res) => {
         // Генерируем URL для файла
         const fileUrl = getFileUrl(uploadedFile.filename, 'message-file');
         
+        // Проверяем, есть ли информация о длительности для аудиофайлов
+        let duration = 0;
+        if (file_media_type === 'audio' && req.body.duration) {
+          duration = parseInt(req.body.duration) || 0;
+        }
+        
         // Добавляем файл в массив
         files.push({
           file_url: fileUrl,
           file_name: decodedFileName,
           mime_type: mime_type,
           media_type: file_media_type,
-          size: uploadedFile.size
+          size: uploadedFile.size,
+          duration: duration
         });
         
         // Логируем детали файла

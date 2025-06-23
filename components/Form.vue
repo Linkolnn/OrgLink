@@ -141,7 +141,7 @@ const handleSubmit = () => {
         padding: 12px 24px
         border: none
         border-radius: $radius
-        background: transparent
+        background: #00000021
         color: $purple
         font-size: 16px
         font-weight: 600

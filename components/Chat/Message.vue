@@ -101,7 +101,7 @@
             :key="`audio-${index}`"
             class="file-item file-item-audio"
           >
-            <AudioPlayer :src="file.file_url" />
+            <AudioPlayer :src="file.file_url" :initial-duration="file.duration" />
           </div>
 
           <!-- Отдельно обрабатываем другие файлы в строку/сетку -->
@@ -183,7 +183,7 @@
 
         <!-- Аудио (голосовое сообщение) -->
         <div v-else-if="message.media_type === 'audio'" class="audio-container">
-          <AudioPlayer :src="message.file" />
+          <AudioPlayer :src="message.file" :initial-duration="getAudioDuration(message)" />
           
           <!-- Текст сообщения, если он есть -->
           <p v-if="message.text" class="message__text message__text-media">
@@ -794,6 +794,28 @@ const onDelete = (message) => {
   } catch (error) {
     console.error('Ошибка в обработчике onDelete в Message.vue:', error);
   }
+};
+
+// Функция для получения длительности аудио из сообщения
+const getAudioDuration = (message) => {
+  // Проверяем наличие длительности в самом сообщении
+  if (message.duration && typeof message.duration === 'number' && message.duration > 0) {
+    console.log('Found audio duration in message:', message.duration);
+    return message.duration;
+  }
+  
+  // Проверяем наличие длительности в первом файле массива files
+  if (message.files && Array.isArray(message.files) && message.files.length > 0) {
+    const audioFile = message.files.find(file => file.media_type === 'audio');
+    if (audioFile && audioFile.duration && typeof audioFile.duration === 'number' && audioFile.duration > 0) {
+      console.log('Found audio duration in files array:', audioFile.duration);
+      return audioFile.duration;
+    }
+  }
+  
+  // Если длительность не найдена, возвращаем 0
+  console.log('No audio duration found for message:', message._id);
+  return 0;
 };
 
 </script>

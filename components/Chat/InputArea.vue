@@ -17,10 +17,10 @@
       </div>
       <div class="recording-actions">
         <button class="cancel-recording-btn" @click="cancelRecording">
-          <i class="fas fa-times"></i>
+          <CloseIcon />
         </button>
         <button class="send-recording-btn" @click="stopAndSendRecording">
-          <i class="fas fa-check"></i>
+          <SendIcon class="send-recording-icon" />
         </button>
       </div>
     </div>
@@ -861,6 +861,9 @@ const stopAndSendRecording = () => {
       // Создаем аудиофайл из частей
       const audioBlob = new Blob(audioChunks.value, { type: 'audio/webm' });
       
+      // Вычисляем длительность записи в секундах
+      const recordingDurationSec = Math.round((Date.now() - recordingStartTime.value) / 1000);
+      
       // Создаем файл для отправки
       const audioFile = new File([audioBlob], `voice_message_${Date.now()}.webm`, { type: 'audio/webm' });
       
@@ -879,13 +882,17 @@ const stopAndSendRecording = () => {
       const formData = new FormData();
       formData.append('file', audioFile); // Используем 'file' вместо 'files' для одиночного файла
       
+      // Добавляем метаданные о длительности
+      formData.append('duration', recordingDurationSec.toString());
+      
       // Импортируем safeFetch для совместимости с iOS
       const { safeFetch } = await import('~/utils/api');
       
       console.log('[Запись] Отправка аудиофайла на сервер:', {
         fileName: audioFile.name,
         fileType: audioFile.type,
-        fileSize: audioFile.size
+        fileSize: audioFile.size,
+        duration: recordingDurationSec
       });
       
       // Загружаем файл на сервер используя safeFetch
@@ -914,7 +921,8 @@ const stopAndSendRecording = () => {
         media_type: 'audio',
         previewUrl: audioURL,
         size: audioFile.size || 0,
-        type: 'audio'
+        type: 'audio',
+        duration: recordingDurationSec // Добавляем длительность аудио
       };
       
       // Отправляем голосовое сообщение через стандартный метод отправки сообщений
@@ -1096,6 +1104,9 @@ onMounted(() => {
     &:hover
       background-color: darken($purple, 10%)
   
+.send-recording-icon
+  width: 18px
+  transform: translate(-1px, 1px)
   // Стили для иконок
   .icon
     width: 20px
@@ -1151,7 +1162,7 @@ onMounted(() => {
   align-items: center
   justify-content: space-between
   padding: 5px 10px
-  background-color: rgba(255, 0, 0, 0.2)
+  background-color: rgba(255, 255, 255, 0.1)
   border-radius: $radius
   margin-bottom: 10px
   
