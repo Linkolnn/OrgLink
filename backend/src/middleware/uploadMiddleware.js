@@ -79,15 +79,18 @@ const fileFilter = (req, file, cb) => {
   const allowedTypes = [
     'image/jpeg', 'image/png', 'image/gif', 'image/webp', // изображения
     'video/mp4', 'video/webm', // видео
+    'audio/webm', 'audio/mp3', 'audio/wav', 'audio/ogg', 'audio/mpeg', 'audio/mp4', 'audio/*', // аудио
     'application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // документы
     'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // таблицы
     'application/zip', 'application/x-rar-compressed' // архивы
   ];
   
-  if (allowedTypes.includes(file.mimetype)) {
+  console.log('Проверка типа файла:', file.mimetype, 'в списке разрешенных:', allowedTypes.includes(file.mimetype));
+  
+  if (allowedTypes.includes(file.mimetype) || file.mimetype.startsWith('audio/')) {
     cb(null, true);
   } else {
-    cb(new Error('Неподдерживаемый тип файла'), false);
+    cb(new Error(`Неподдерживаемый тип файла: ${file.mimetype}`), false);
   }
 };
 

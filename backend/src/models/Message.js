@@ -23,7 +23,7 @@ const messageSchema = new mongoose.Schema(
     },
     media_type: {
       type: String,
-      enum: ['none', 'image', 'video', 'video_message', 'sticker', 'file'],
+      enum: ['none', 'image', 'video', 'video_message', 'sticker', 'file', 'audio'],
       default: 'none'
     },
     file: {
@@ -58,7 +58,7 @@ const messageSchema = new mongoose.Schema(
       },
       media_type: {
         type: String,
-        enum: ['image', 'video', 'file'],
+        enum: ['image', 'video', 'file', 'audio'],
         default: 'file'
       },
       thumbnail: {

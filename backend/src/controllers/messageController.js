@@ -82,6 +82,8 @@ const sendMessage = async (req, res) => {
           file_media_type = 'image';
         } else if (mime_type.startsWith('video/')) {
           file_media_type = 'video';
+        } else if (mime_type.startsWith('audio/') || mime_type === 'audio/webm') {
+          file_media_type = 'audio';
         }
         
         // Генерируем URL для файла
@@ -121,6 +123,8 @@ const sendMessage = async (req, res) => {
           media_type = 'image';
         } else if (files[0].media_type === 'video') {
           media_type = 'video';
+        } else if (files[0].media_type === 'audio') {
+          media_type = 'audio';
         } else {
           media_type = 'file';
         }
@@ -134,6 +138,8 @@ const sendMessage = async (req, res) => {
         media_type = 'image';
       } else if (files[0].media_type === 'video') {
         media_type = 'video';
+      } else if (files[0].media_type === 'audio') {
+        media_type = 'audio';
       } else {
         media_type = 'file';
       }
@@ -193,6 +199,8 @@ const sendMessage = async (req, res) => {
         lastMessageText = 'Фото';
       } else if (media_type === 'video') {
         lastMessageText = 'Видео';
+      } else if (media_type === 'audio') {
+        lastMessageText = 'Аудиосообщение';
       } else if (media_type === 'file') {
         lastMessageText = 'Файл';
       } else {

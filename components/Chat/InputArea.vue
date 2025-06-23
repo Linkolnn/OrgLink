@@ -237,7 +237,8 @@ const sendMessage = async () => {
           // Определяем тип файла
           const originalFile = files[index];
           const mediaType = originalFile.type && originalFile.type.startsWith('image/') ? 'image' : 
-                           originalFile.type && originalFile.type.startsWith('video/') ? 'video' : 'file';
+                           originalFile.type && originalFile.type.startsWith('video/') ? 'video' : 
+                           originalFile.type && originalFile.type.startsWith('audio/') ? 'audio' : 'file';
           
           return {
             file_url: file.fileUrl,
@@ -688,22 +689,96 @@ const sendFiles = async () => {
   if (selectedFiles.value.length === 0) return;
   
   try {
-    // Создаем FormData для отправки файлов
-    const formData = new FormData();
-    formData.append('chatId', props.chatId);
+    // Загрузка файлов на сервер
+    const uploadFiles = async (files) => {
+      if (!files || files.length === 0) return [];
+      
+      const config = useRuntimeConfig();
+      
+      try {
+        // Получаем временные URL для предпросмотра изображений
+        const previewUrls = {};
+        files.forEach(file => {
+          if (isImageFile(file)) {
+            previewUrls[file.name] = URL.createObjectURL(file);
+          }
+        });
+        
+        console.log(`[Загрузка] Начинаем загрузку ${files.length} файлов одним запросом`);
+        
+        // Создаем одну FormData для всех файлов
+        const formData = new FormData();
+        files.forEach(file => {
+          formData.append('files', file);  // Используем одно и то же имя поля для всех файлов
+        });
+        
+        // Импортируем safeFetch для совместимости с iOS
+        const { safeFetch } = await import('~/utils/api');
+        
+        // Загружаем все файлы одним запросом
+        const response = await safeFetch(`${config.public.backendUrl}/api/upload/multiple`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${authStore.token}`
+            // Не указываем Content-Type для multipart/form-data
+          },
+          body: formData
+        });
+        
+        if (!response.ok) {
+          console.error(`[Загрузка] Ошибка загрузки файлов: ${response.status}`);
+          throw new Error(`Ошибка загрузки файлов: ${response.status}`);
+        }
+        
+        // Обрабатываем ответ сервера
+        const result = await response.json();
+        console.log('[Загрузка] Результат загрузки файлов:', result);
+        
+        // Если сервер вернул массив файлов, возвращаем его
+        if (result.files && Array.isArray(result.files)) {
+          // Преобразуем файлы в нужный формат
+          return result.files.map((file, index) => {
+            // Определяем тип файла
+            const originalFile = files[index];
+            const mediaType = originalFile.type && originalFile.type.startsWith('image/') ? 'image' : 
+                            originalFile.type && originalFile.type.startsWith('video/') ? 'video' : 
+                            originalFile.type && originalFile.type.startsWith('audio/') ? 'audio' : 'file';
+            
+            return {
+              file_url: file.fileUrl,
+              file_name: file.fileName || originalFile.name,
+              mime_type: file.mimeType || originalFile.type,
+              media_type: mediaType,
+              thumbnail: file.fileUrl,
+              // Добавляем временный URL для предпросмотра
+              previewUrl: previewUrls[originalFile.name]
+            };
+          });
+        }
+        
+        // Если что-то пошло не так, возвращаем пустой массив
+        console.error('[Загрузка] Сервер вернул неправильный формат ответа:', result);
+        return [];
+      } catch (error) {
+        console.error('[Загрузка] Ошибка при загрузке файлов:', error);
+        throw error;
+      }
+    };
     
-    // Добавляем все файлы в FormData
-    selectedFiles.value.forEach((file, index) => {
-      formData.append('files', file);
-    });
+    // Загружаем файлы
+    const uploadedFiles = await uploadFiles(selectedFiles.value);
     
-    // Добавляем текст сообщения, если он есть
-    if (messageText.value.trim()) {
-      formData.append('text', messageText.value.trim());
+    if (uploadedFiles.length === 0) {
+      console.error('[Файлы] Не удалось загрузить файлы');
+      return;
     }
     
-    // Отправляем файлы на сервер
-    await chatStore.sendFiles(formData);
+    // Отправляем сообщение с файлами
+    await chatStore.sendMessage({
+      chatId: props.chatId,
+      text: messageText.value.trim(),
+      files: uploadedFiles
+    });
     
     // Очищаем список выбранных файлов и поле ввода
     selectedFiles.value = [];
@@ -721,7 +796,7 @@ const sendFiles = async () => {
     });
     
     // Оповещаем родительский компонент
-    emit('message-sent', { chatId: props.chatId, files: true });
+    emit('message-sent', { chatId: props.chatId, files: uploadedFiles });
   } catch (error) {
     console.error('[Файлы] Ошибка при отправке файлов:', error);
   }
@@ -789,14 +864,65 @@ const stopAndSendRecording = () => {
       // Создаем файл для отправки
       const audioFile = new File([audioBlob], `voice_message_${Date.now()}.webm`, { type: 'audio/webm' });
       
-      // Создаем FormData для отправки файла
-      const formData = new FormData();
-      formData.append('chatId', props.chatId);
-      formData.append('files', audioFile);
-      formData.append('media_type', 'audio');
+      // Создаем объект файла для отправки через sendMessage
+      const audioFileObj = {
+        name: audioFile.name,
+        type: audioFile.type,
+        size: audioFile.size
+      };
       
-      // Отправляем голосовое сообщение на сервер
-      await chatStore.sendFiles(formData);
+      // Создаем URL для предпросмотра
+      const audioURL = URL.createObjectURL(audioBlob);
+      
+      // Загружаем файл на сервер
+      const config = useRuntimeConfig();
+      const formData = new FormData();
+      formData.append('file', audioFile); // Используем 'file' вместо 'files' для одиночного файла
+      
+      // Импортируем safeFetch для совместимости с iOS
+      const { safeFetch } = await import('~/utils/api');
+      
+      console.log('[Запись] Отправка аудиофайла на сервер:', {
+        fileName: audioFile.name,
+        fileType: audioFile.type,
+        fileSize: audioFile.size
+      });
+      
+      // Загружаем файл на сервер используя safeFetch
+      const response = await safeFetch(`${config.public.backendUrl}/api/upload`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${authStore.token}`
+        },
+        body: formData
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`[Запись] Ошибка загрузки аудио (${response.status}):`, errorText);
+        throw new Error(`Ошибка загрузки аудио: ${response.status}`);
+      }
+      
+      const result = await response.json();
+      console.log('[Запись] Аудиофайл успешно загружен:', result);
+      
+      // Создаем объект файла с URL для отправки
+      const processedAudioFile = {
+        file_url: result.fileUrl,
+        file_name: audioFile.name,
+        mime_type: audioFile.type,
+        media_type: 'audio',
+        previewUrl: audioURL,
+        size: audioFile.size || 0,
+        type: 'audio'
+      };
+      
+      // Отправляем голосовое сообщение через стандартный метод отправки сообщений
+      await chatStore.sendMessage({
+        chatId: props.chatId,
+        text: '', // Пустой текст для голосового сообщения
+        files: [processedAudioFile]
+      });
       
       console.log('[Запись] Голосовое сообщение отправлено');
       

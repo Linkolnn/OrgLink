@@ -95,6 +95,15 @@
             ></video>
           </div>
 
+          <!-- Отдельно обрабатываем аудио -->
+          <div 
+            v-for="(file, index) in audioFiles" 
+            :key="`audio-${index}`"
+            class="file-item file-item-audio"
+          >
+            <AudioPlayer :src="file.file_url" />
+          </div>
+
           <!-- Отдельно обрабатываем другие файлы в строку/сетку -->
           <div 
             v-if="otherFiles.length > 0"
@@ -171,6 +180,21 @@
             <span v-if="message.edited" class="message__edited">изм</span>
           </div>
         </div>
+
+        <!-- Аудио (голосовое сообщение) -->
+        <div v-else-if="message.media_type === 'audio'" class="audio-container">
+          <AudioPlayer :src="message.file" />
+          
+          <!-- Текст сообщения, если он есть -->
+          <p v-if="message.text" class="message__text message__text-media">
+            {{ message.text }}
+          </p>
+          
+          <div class="message__time media-time">
+            {{ formatTime(message.createdAt || message.timestamp) }}
+            <span v-if="message.edited" class="message__edited">изм</span>
+          </div>
+        </div>
         
         <!-- Стикер (обратная совместимость) -->
         <div v-else-if="message.media_type === 'sticker'" class="sticker-container">
@@ -227,6 +251,7 @@ import ImageIcon from '../Icons/ImageIcon.vue';
 import VideoIcon from '../Icons/VideoIcon.vue';
 import AudioIcon from '../Icons/AudioIcon.vue';
 import ContextMenu from './ContextMenu.vue';
+import AudioPlayer from './AudioPlayer.vue';
 // Директива longpress теперь зарегистрирована глобально через плагин
 
 const authStore = useAuthStore();
@@ -301,9 +326,18 @@ const videoFiles = computed(() => {
   return props.message.files.filter(file => file.media_type === 'video');
 });
 
+const audioFiles = computed(() => {
+  if (!hasMultipleFiles.value) return [];
+  return props.message.files.filter(file => file.media_type === 'audio');
+});
+
 const otherFiles = computed(() => {
   if (!hasMultipleFiles.value) return [];
-  return props.message.files.filter(file => file.media_type !== 'image' && file.media_type !== 'video');
+  return props.message.files.filter(file => 
+    file.media_type !== 'image' && 
+    file.media_type !== 'video' && 
+    file.media_type !== 'audio'
+  );
 });
 
 // Проверяем, содержит ли сообщение только файлы (без изображений)
@@ -957,6 +991,29 @@ const onDelete = (message) => {
     border-radius: 8px
     background-color: #000
     will-change: transform // Оптимизация для анимации
+
+// Контейнер для аудио сообщений
+.audio-container
+  width: 100%
+  max-width: 300px
+  position: relative
+  border-radius: $radius
+  overflow: hidden
+  margin: 5px 0
+  
+  .message.own &
+    background-color: $purple
+  
+  .message.other &
+    background-color: $message-bg
+
+// Стили для аудио элементов в сетке файлов
+.file-item-audio
+  width: 100%
+  margin-bottom: 10px
+  
+  &:last-child
+    margin-bottom: 0
 
 .sticker-container
   .message-sticker

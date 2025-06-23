@@ -788,8 +788,13 @@ export const useChatStore = defineStore('chat', {
         setTimeout(() => {
           if (window.$showNotification) {
             window.$showNotification(message, 'info');
+          } else {
+            console.log('Глобальный метод $showNotification недоступен, используем запасной вариант');
+            
+            // Запасной вариант - просто выводим в консоль
+            console.log(`Уведомление: Чат удален - ${message}`);
           }
-        }, 100); // Добавляем небольшую задержку для гарантии показа боковой панели
+        }, 50); // Добавляем небольшую задержку для гарантии показа боковой панели
       });
       
       // Добавляем обработчик события подключения
@@ -1905,10 +1910,20 @@ export const useChatStore = defineStore('chat', {
         hasFiles: normalizedFiles.length > 0
       });
       
+      // Проверка на аудиофайлы
+      const hasAudioFiles = normalizedFiles.some(file => 
+        file.media_type === 'audio' || 
+        file.type === 'audio' || 
+        (file.mime_type && file.mime_type.startsWith('audio/'))
+      );
+      
+      // Если есть аудиофайлы, считаем их как медиа
+      const hasMedia = normalizedFiles.length > 0 || hasAudioFiles;
+      
       // Проверяем, что есть текст или файлы
-      if ((!text || text.trim() === '') && normalizedFiles.length === 0) {
-        console.error('[WebSocket] Ошибка: Сообщение должно содержать текст или медиа');
-        throw new Error('Сообщение должно содержать текст или медиа');
+      if ((!text || text.trim() === '') && !hasMedia) {
+          console.error('[WebSocket] Ошибка: Сообщение должно содержать текст или медиа');
+          throw new Error('Сообщение должно содержать текст или медиа');
       }
       
       try {
@@ -2100,6 +2115,55 @@ export const useChatStore = defineStore('chat', {
           // Используем локальный прокси для обхода ограничений CORS и аутентификации
           const proxyUrl = '/api/chat-message-proxy';
           
+          // Определяем тип медиа для отправки через прокси
+          let proxyMediaType = 'none';
+          let processedFiles = [];
+          
+          if (normalizedFiles && normalizedFiles.length > 0) {
+            // Определяем тип медиа на основе первого файла
+            const firstFile = normalizedFiles[0];
+            if (firstFile && firstFile.type && firstFile.type.startsWith('image/')) {
+              proxyMediaType = 'image';
+            } else if (firstFile && firstFile.type && firstFile.type.startsWith('video/')) {
+              proxyMediaType = 'video';
+            } else if ((firstFile && firstFile.type && firstFile.type.startsWith('audio/')) || 
+                       (firstFile && firstFile.name && (
+                         firstFile.name.startsWith('voice_message_') || 
+                         firstFile.name.endsWith('.mp3') || 
+                         firstFile.name.endsWith('.wav') || 
+                         firstFile.name.endsWith('.ogg') || 
+                         firstFile.name.endsWith('.webm')
+                       ))) {
+              proxyMediaType = 'audio';
+            } else if (firstFile) {
+              proxyMediaType = 'file';
+            }
+            
+            // Преобразуем файлы в формат для отправки
+            processedFiles = normalizedFiles.map(file => {
+              // Проверяем, является ли файл аудио
+              const isAudio = 
+                (file.type && file.type.startsWith('audio/')) ||
+                (file.name && (
+                  file.name.startsWith('voice_message_') || 
+                  file.name.endsWith('.mp3') || 
+                  file.name.endsWith('.wav') || 
+                  file.name.endsWith('.ogg') || 
+                  file.name.endsWith('.webm')
+                ));
+              
+              return {
+                file_url: file.file_url || file.url || '',
+                file_name: file.file_name || file.name || 'File',
+                mime_type: file.mime_type || file.type || 'application/octet-stream',
+                media_type: file.media_type || 
+                          (file.type && file.type.startsWith('image/') ? 'image' : 
+                          file.type && file.type.startsWith('video/') ? 'video' : 
+                          isAudio ? 'audio' : 'file')
+              };
+            });
+          }
+          
           response = await fetch(proxyUrl, {
             method: 'POST',
             headers: {
@@ -2108,9 +2172,43 @@ export const useChatStore = defineStore('chat', {
             body: JSON.stringify({ 
               chatId, 
               text, 
-              token 
+              token,
+              media_type: proxyMediaType,
+              files: processedFiles,
+              sender: {
+                _id: useAuthStore()?.user?._id,
+                name: useAuthStore()?.user?.name
+              }
             })
-          }).then(res => res.json()).catch(err => {
+          }).then(async (res) => {
+            try {
+              if (!res.ok) {
+                const errorText = await res.text();
+                console.error('[WebSocket] Ошибка при использовании прокси:', errorText);
+                throw new Error(`Ошибка ${res.status}: ${errorText}`);
+              }
+              
+              // Получаем текст ответа
+              const responseText = await res.text();
+              
+              try {
+                // Проверяем, что ответ похож на JSON
+                if (responseText && responseText.trim() && 
+                   (responseText.trim().startsWith('{') || responseText.trim().startsWith('['))) {
+                  return JSON.parse(responseText);
+                } else {
+                  console.warn('[WebSocket] Прокси вернул не JSON:', responseText.substring(0, 100));
+                  throw new Error('Некорректный формат ответа');
+                }
+              } catch (parseErr) {
+                console.error('[WebSocket] Ошибка парсинга ответа:', parseErr);
+                throw parseErr;
+              }
+            } catch (e) {
+              console.error('[WebSocket] Ошибка при обработке ответа:', e);
+              throw e;
+            }
+          }).catch(err => {
             console.error('[WebSocket] Ошибка при использовании прокси:', err);
             
             // Если прокси не сработал, пробуем прямой запрос с токеном в URL
@@ -2125,7 +2223,11 @@ export const useChatStore = defineStore('chat', {
                 'Content-Type': 'application/json',
                 'Authorization': token ? `Bearer ${token}` : undefined
               },
-              body: JSON.stringify({ text, media_type: 'none' })
+              body: JSON.stringify({ 
+                text, 
+                media_type: proxyMediaType, 
+                files: processedFiles 
+              })
             }).then(res => res.json());
           });
         } else {
@@ -2155,20 +2257,43 @@ export const useChatStore = defineStore('chat', {
                 media_type = 'image';
               } else if (firstFile.type && firstFile.type.startsWith('video/')) {
                 media_type = 'video';
+              } else if ((firstFile.type && firstFile.type.startsWith('audio/')) || 
+                         (firstFile.name && (
+                           firstFile.name.startsWith('voice_message_') || 
+                           firstFile.name.endsWith('.mp3') || 
+                           firstFile.name.endsWith('.wav') || 
+                           firstFile.name.endsWith('.ogg') || 
+                           firstFile.name.endsWith('.webm')
+                         ))) {
+                media_type = 'audio';
               } else {
                 media_type = 'file';
               }
               
               // Преобразуем файлы в формат, ожидаемый сервером
-              processedFiles = validFiles.map(file => ({
-                file_url: file.file_url || file.url,
-                file_name: file.file_name || file.name || 'File',
-                mime_type: file.mime_type || file.type || 'application/octet-stream',
-                media_type: file.media_type || 
-                          (file.type && file.type.startsWith('image/') ? 'image' : 
-                          file.type && file.type.startsWith('video/') ? 'video' : 'file'),
-                thumbnail: file.thumbnail || null
-              }));
+              processedFiles = validFiles.map(file => {
+                // Проверяем, является ли файл аудио
+                const isAudio = 
+                  (file.type && file.type.startsWith('audio/')) ||
+                  (file.name && (
+                    file.name.startsWith('voice_message_') || 
+                    file.name.endsWith('.mp3') || 
+                    file.name.endsWith('.wav') || 
+                    file.name.endsWith('.ogg') || 
+                    file.name.endsWith('.webm')
+                  ));
+                
+                return {
+                  file_url: file.file_url || file.url,
+                  file_name: file.file_name || file.name || 'File',
+                  mime_type: file.mime_type || file.type || 'application/octet-stream',
+                  media_type: file.media_type || 
+                            (file.type && file.type.startsWith('image/') ? 'image' : 
+                            file.type && file.type.startsWith('video/') ? 'video' : 
+                            isAudio ? 'audio' : 'file'),
+                  thumbnail: file.thumbnail || null
+                };
+              });
             }
           }
           
