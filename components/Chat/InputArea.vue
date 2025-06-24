@@ -1022,16 +1022,22 @@ onMounted(() => {
 
 .input_area
   position: relative
-  width: 100%
-  max-width: 700px
-  align-self: center
-
-.input_container
   display: flex
-  align-items: flex-end
-  border-radius: $radius
-  position: relative
+  flex-direction: column
+  width: 100%
+  padding: 10px
   
+  .input_container
+    display: flex
+    align-items: center
+    width: 100%
+    border-radius: $radius
+    padding: 5px 0px
+    position: relative
+    z-index: 1
+    box-sizing: border-box
+    flex-shrink: 0
+
 .message_input
   flex: 1
   background: transparent
@@ -1133,6 +1139,8 @@ onMounted(() => {
   background-color: rgba(255, 255, 255, 0.1)
   border-radius: $radius
   margin-bottom: 10px
+  position: relative
+  z-index: 2
   
   .editing-text
     color: $white
@@ -1165,6 +1173,8 @@ onMounted(() => {
   background-color: rgba(255, 255, 255, 0.1)
   border-radius: $radius
   margin-bottom: 10px
+  position: relative
+  z-index: 2
   
   .recording-text
     color: $white
@@ -1312,6 +1322,13 @@ onMounted(() => {
 @include mobile
   .input_area
     padding: 8px
+    display: flex
+    flex-direction: column
+  
+  .input_container
+    position: relative
+    flex-shrink: 0
+    margin-top: 0
   
   .message_input
     font-size: 16px // Увеличиваем размер шрифта на мобильных
@@ -1319,4 +1336,12 @@ onMounted(() => {
   .send_button
     width: 40px
     height: 40px
+    
+  .recording-indicator,
+  .editing-indicator
+    position: relative
+    width: 100%
+    box-sizing: border-box
+    margin-bottom: 8px
+    flex-shrink: 0
 </style>
