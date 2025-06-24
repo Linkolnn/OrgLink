@@ -1059,8 +1059,8 @@ onMounted(() => {
 // Кнопка для загрузки файлов (скрепка)
 .attachment_button
   position: absolute
-  right: 65px
-  bottom: 12px
+  right: 60px
+  bottom: 16px
   width: 20px
   height: 20px
   border-radius: 50%
@@ -1337,11 +1337,10 @@ onMounted(() => {
     width: 40px
     height: 40px
     
-  .recording-indicator,
-  .editing-indicator
+  .recording-indicator
     position: relative
     width: 100%
     box-sizing: border-box
-    margin-bottom: 8px
+    margin-bottom: 18px
     flex-shrink: 0
 </style>
