@@ -565,6 +565,12 @@ const adjustContainerHeight = (adjustTextarea = false) => {
     messageInput.value.style.height = `${newHeight}px`;
   }
   
+  // Убедимся, что input_container остается на своем месте на мобильных устройствах
+  if (isMobile.value && inputContainer.value) {
+    inputContainer.value.style.position = 'relative';
+    inputContainer.value.style.bottom = '0';
+  }
+  
   // Оповещаем родительский компонент об изменении высоты
   emit('height-changed', inputArea.value.offsetHeight);
 };
@@ -626,12 +632,22 @@ const handleFileSelected = (event) => {
     }
     // Сбрасываем значение инпута, чтобы можно было выбрать тот же файл снова
     event.target.value = '';
+    
+    // Вызываем adjustContainerHeight для обновления высоты после добавления файлов
+    nextTick(() => {
+      adjustContainerHeight(true);
+    });
   }
 };
 
 // Удаление файла из списка выбранных
 const removeFile = (index) => {
   selectedFiles.value.splice(index, 1);
+  
+  // Вызываем adjustContainerHeight для обновления высоты после удаления файла
+  nextTick(() => {
+    adjustContainerHeight(true);
+  });
 };
 
 // Проверка, является ли файл изображением
@@ -976,6 +992,11 @@ const resetRecording = () => {
   recordingTime.value = '00:00';
   mediaRecorder.value = null;
   audioChunks.value = [];
+  
+  // Вызываем adjustContainerHeight для обновления высоты после сброса записи
+  nextTick(() => {
+    adjustContainerHeight(true);
+  });
 };
 
 // Обработчики для мобильных устройств
@@ -1337,10 +1358,12 @@ onMounted(() => {
     width: 40px
     height: 40px
     
-  .recording-indicator
+  .recording-indicator,
+  .editing-indicator,
+  .selected-files-preview
     position: relative
     width: 100%
     box-sizing: border-box
-    margin-bottom: 18px
+    margin-bottom: 10px
     flex-shrink: 0
 </style>
