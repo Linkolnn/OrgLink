@@ -1094,7 +1094,7 @@ watch(isRecording, (newValue) => {
       top: -55px
       left: 0
       width: 100%
-      background-color: rgba(255, 255, 255, 0.1)
+      background-color: rgba(33, 33, 33, 1)
       border-radius: $radius
       padding: 5px 10px
       display: flex
