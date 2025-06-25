@@ -10,21 +10,6 @@
       </button>
     </div>
     
-    <!-- Индикатор записи голосового сообщения -->
-    <div v-if="isRecording" class="recording-indicator">
-      <div class="recording-text">
-        <i class="fas fa-microphone-alt pulse"></i> Запись: {{ recordingTime }}
-      </div>
-      <div class="recording-actions">
-        <button class="cancel-recording-btn" @click="cancelRecording">
-          <CloseIcon />
-        </button>
-        <button class="send-recording-btn" @click="stopAndSendRecording">
-          <SendIcon class="send-recording-icon" />
-        </button>
-      </div>
-    </div>
-    
     <!-- Предпросмотр выбранных файлов -->
     <div v-if="selectedFiles.length > 0" class="selected-files-preview">
       <div class="files-grid">
@@ -51,6 +36,21 @@
     </div>
     
     <div class="input_container" ref="inputContainer">
+      <!-- Индикатор записи голосового сообщения (перемещен сюда) -->
+      <div v-if="isRecording" class="recording-indicator">
+        <div class="recording-text">
+          <i class="fas fa-microphone-alt pulse"></i> Запись: {{ recordingTime }}
+        </div>
+        <div class="recording-actions">
+          <button class="cancel-recording-btn" @click="cancelRecording">
+            <CloseIcon />
+          </button>
+          <button class="send-recording-btn" @click="stopAndSendRecording">
+            <SendIcon class="send-recording-icon" />
+          </button>
+        </div>
+      </div>
+      
       <!-- Кнопка для загрузки файлов (скрепка) -->
       <button 
         type="button" 
@@ -850,6 +850,19 @@ const startRecording = async () => {
     // Запускаем таймер для отображения времени записи
     recordingTimer.value = setInterval(updateRecordingTime, 1000);
     
+    // Важно: вызываем adjustContainerHeight сразу после установки isRecording в true
+    // и ждем следующего тика для обновления DOM
+    nextTick(() => {
+      adjustContainerHeight(true);
+      
+      // Дополнительно убедимся, что input_container остается на своем месте
+      if (isMobile.value && inputContainer.value) {
+        inputContainer.value.style.position = 'relative';
+        inputContainer.value.style.bottom = '0';
+        inputContainer.value.style.transform = 'none';
+      }
+    });
+    
     console.log('[Запись] Началась запись голосового сообщения');
   } catch (error) {
     console.error('[Запись] Ошибка при начале записи:', error);
@@ -1036,6 +1049,22 @@ onMounted(() => {
   window.addEventListener('resize', checkMobile);
   adjustContainerHeight(true);
 });
+
+// Наблюдаем за изменением состояния записи
+watch(isRecording, (newValue) => {
+  console.log('[InputArea] Изменение состояния записи:', newValue);
+  // Обновляем высоту контейнера при изменении состояния записи
+  nextTick(() => {
+    adjustContainerHeight(true);
+    
+    // Дополнительно убедимся, что input_container остается на своем месте
+    if (isMobile.value && inputContainer.value) {
+      inputContainer.value.style.position = 'relative';
+      inputContainer.value.style.bottom = '0';
+      inputContainer.value.style.transform = 'none';
+    }
+  });
+});
 </script>
 
 <style lang="sass">
@@ -1058,6 +1087,63 @@ onMounted(() => {
     z-index: 1
     box-sizing: border-box
     flex-shrink: 0
+    
+    // Индикатор записи внутри input_container
+    .recording-indicator
+      position: absolute
+      top: -55px
+      left: 0
+      width: 100%
+      background-color: rgba(255, 255, 255, 0.1)
+      border-radius: $radius
+      padding: 5px 10px
+      display: flex
+      align-items: center
+      justify-content: space-between
+      box-sizing: border-box
+      z-index: 3
+      
+      .recording-text
+        color: $white
+        font-size: 14px
+        display: flex
+        align-items: center
+        
+        i
+          margin-right: 5px
+          color: $red
+          
+          &.pulse
+            animation: pulse 1.5s infinite
+      
+      .recording-actions
+        display: flex
+        align-items: center
+        
+        button
+          width: 30px
+          height: 30px
+          border-radius: 50%
+          border: none
+          display: flex
+          align-items: center
+          justify-content: center
+          cursor: pointer
+          margin-left: 5px
+          
+          &.cancel-recording-btn
+            background-color: $red
+            color: $white
+            
+            &:hover
+              background-color: darken($red, 10%)
+          
+          &.send-recording-btn
+            background-color: $green
+            color: $white
+            
+            &:hover
+              background-color: darken($green, 10%)
 
 .message_input
   flex: 1
@@ -1175,6 +1261,7 @@ onMounted(() => {
     background-color: $purple
     color: $white
     width: 24px
+    min-width: 24px
     height: 24px
     border: none
     display: flex
@@ -1184,60 +1271,6 @@ onMounted(() => {
     
     &:hover
       background-color: darken($purple, 10%)
-
-// Индикатор записи голосового сообщения
-.recording-indicator
-  display: flex
-  align-items: center
-  justify-content: space-between
-  padding: 5px 10px
-  background-color: rgba(255, 255, 255, 0.1)
-  border-radius: $radius
-  margin-bottom: 10px
-  position: relative
-  z-index: 2
-  
-  .recording-text
-    color: $white
-    font-size: 14px
-    display: flex
-    align-items: center
-    
-    i
-      margin-right: 5px
-      color: $red
-      
-      &.pulse
-        animation: pulse 1.5s infinite
-  
-  .recording-actions
-    display: flex
-    align-items: center
-    
-    button
-      width: 30px
-      height: 30px
-      border-radius: 50%
-      border: none
-      display: flex
-      align-items: center
-      justify-content: center
-      cursor: pointer
-      margin-left: 5px
-      
-      &.cancel-recording-btn
-        background-color: $red
-        color: $white
-        
-        &:hover
-          background-color: darken($red, 10%)
-      
-      &.send-recording-btn
-        background-color: $green
-        color: $white
-        
-        &:hover
-          background-color: darken($green, 10%)
 
 // Предпросмотр выбранных файлов
 .selected-files-preview
@@ -1345,11 +1378,17 @@ onMounted(() => {
     padding: 8px
     display: flex
     flex-direction: column
+    position: relative
   
   .input_container
     position: relative
     flex-shrink: 0
     margin-top: 0
+    z-index: 2
+    
+    // Корректировка позиции индикатора записи на мобильных
+    .recording-indicator
+      top: -50px
   
   .message_input
     font-size: 16px // Увеличиваем размер шрифта на мобильных
@@ -1358,7 +1397,6 @@ onMounted(() => {
     width: 40px
     height: 40px
     
-  .recording-indicator,
   .editing-indicator,
   .selected-files-preview
     position: relative
